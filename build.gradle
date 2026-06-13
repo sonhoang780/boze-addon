@@ -4,7 +4,29 @@ plugins {
     id 'fabric-loom' version "${loom_version}"
 }
 
-version = project.mod_version
+// ─── TỰ ĐỘNG XỬ LÝ PHIÊN BẢN (HIỂN THỊ TRONG GAME) ────────────────────────
+def getGitCommitHash() {
+    try {
+        return 'git rev-parse --short HEAD'.execute().text.trim()
+    } catch (Exception e) {
+        return 'unknown'
+    }
+}
+
+// Nếu chạy trên GitHub Actions khi tạo Release, lấy số Tag (v1.0.0 -> boze-addon-1.0.0)
+// Nếu ở máy cục bộ, lấy mã commit (boze-addon-01b5f75)
+def rawVersion = System.getenv("GITHUB_REF_NAME")
+if (rawVersion != null) {
+    if (rawVersion.startsWith("v")) {
+        version = "boze-addon-" + rawVersion.substring(1)
+    } else {
+        version = "boze-addon-" + rawVersion
+    }
+} else {
+    version = "boze-addon-${getGitCommitHash()}"
+}
+// ────────────────────────────────────────────────────────────────────────
+
 group = project.maven_group
 
 base {
@@ -30,7 +52,7 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modCompileOnly "com.github.cabaletta:baritone:1.2.14"
-    // THÊM VÀO ĐÂY: Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
+    // Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
     // Boze Dependencies
@@ -80,13 +102,14 @@ dependencies {
 }
 
 processResources {
-    inputs.property "version", project.version
+    // Ép file fabric.mod.json đọc biến version tự động cập nhật ở trên
+    inputs.property "version", version
     inputs.property "minecraft_version", project.minecraft_version
     inputs.property "loader_version", project.loader_version
     filteringCharset "UTF-8"
 
     filesMatching("fabric.mod.json") {
-        expand "version": project.version,
+        expand "version": version,
                 "minecraft_version": project.minecraft_version,
                 "loader_version": project.loader_version
     }
@@ -102,10 +125,19 @@ java {
 }
 
 jar {
+    // Ép cố định tên file jar gốc trước khi remap
+    archiveFileName = "boze-addon.jar"
+    archiveVersion = ""
     inputs.property "archivesName", project.base.archivesName
     from("LICENSE") {
         rename { "${it}_${inputs.properties.archivesName}"}
     }
+}
+
+remapJar {
+    // Ép cố định tên file mod chính thức xuất ra (Dùng cho Fabric Loom)
+    archiveFileName = "boze-addon.jar"
+    archiveVersion = ""
 }
 
 tasks.register("runBoze", ClientProductionRunTask) {
