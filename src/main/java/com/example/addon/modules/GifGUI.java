@@ -38,11 +38,11 @@ public class GifGUI extends AddonModule {
     public boolean active = false;
 
     // ── OPTIONS ──
-    public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "Tốc độ phát GIF (ms).", 50.0, 10.0, 300.0, 1.0);
-    public final SliderOption dimOverlay = new SliderOption(this, "Dim Overlay",      "Độ tối lớp mờ phủ lên GIF.", 80.0, 0.0, 255.0, 1.0);
-    public final ToggleOption loadClipboard = new ToggleOption(this, "Load from Clipboard", "Lấy link GIF từ Clipboard.", false);
-    public final ToggleOption prevGif       = new ToggleOption(this, "Prev Saved GIF",      "Quay lại GIF trước.",        false);
-    public final ToggleOption nextGif       = new ToggleOption(this, "Next Saved GIF",      "Chuyển sang GIF tiếp theo.", false);
+    public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "GIF playback speed (ms).", 50.0, 10.0, 300.0, 1.0);
+    public final SliderOption dimOverlay = new SliderOption(this, "Dim Overlay",      "Darkness level of the overlay applied on the GIF.", 80.0, 0.0, 255.0, 1.0);
+    public final ToggleOption loadClipboard = new ToggleOption(this, "Load from Clipboard", "Load GIF URL from the clipboard.", false);
+    public final ToggleOption prevGif       = new ToggleOption(this, "Prev Saved GIF",      "Switch to the previous saved GIF.",        false);
+    public final ToggleOption nextGif       = new ToggleOption(this, "Next Saved GIF",      "Switch to the next saved GIF.", false);
 
     // ── GIF STATE ──
     private final List<Identifier>               gifFrames    = new ArrayList<>();
@@ -71,7 +71,7 @@ public class GifGUI extends AddonModule {
     }
 
     private GifGUI() {
-        super("GifGUI", "Hình nền GIF động cho Boze ClickGUI và Main Menu.");
+        super("GifGUI", "Animated GIF background for Boze ClickGUI and the Main Menu.");
 
         // Đọc lịch sử ngay trong constructor
         loadHistory();

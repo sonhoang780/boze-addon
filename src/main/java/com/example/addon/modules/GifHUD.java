@@ -132,13 +132,13 @@ public class GifHUD extends AddonModule {
             String clipboard = mc.keyboard.getClipboard();
             if (clipboard != null && clipboard.startsWith("http")) {
                 if (clipboard.equals(currentUrl)) {
-                    mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §eLink này đang hiển thị rồi!"), false);
+                    mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §eLink is already loaded!"), false);
                 } else {
                     currentUrl = clipboard;
                     loadGifAsync(clipboard);
                 }
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cClipboard không có link http!"), false);
+                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cPlease copy a valid GIF URL to the clipboard!"), false);
             }
         }
 
@@ -149,7 +149,7 @@ public class GifHUD extends AddonModule {
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cChưa có GIF nào được lưu!"), false);
+                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cNone of GIFS saved!"), false);
             }
         }
 
@@ -160,7 +160,7 @@ public class GifHUD extends AddonModule {
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cChưa có GIF nào được lưu!"), false);
+                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cNone of GIFS saved!"), false);
             }
         }
     }
@@ -236,7 +236,7 @@ public class GifHUD extends AddonModule {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null)
             mc.execute(() -> mc.player.sendMessage(
-                net.minecraft.text.Text.literal("§d[GifHUD] §aĐang tải GIF..."), false));
+                net.minecraft.text.Text.literal("§d[GifHUD] §aLoading GIF..."), false));
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -288,9 +288,6 @@ public class GifHUD extends AddonModule {
                             frameTextures.add(tex);
                         }
                         saveToHistory(rawUrl);
-                        if (mc.player != null)
-                            mc.player.sendMessage(net.minecraft.text.Text.literal(
-                                "§d[GifHUD] §eTải xong! (" + gifFrames.size() + " frames)"), false);
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
@@ -304,7 +301,7 @@ public class GifHUD extends AddonModule {
                 mc.execute(() -> {
                     if (mc.player != null)
                         mc.player.sendMessage(net.minecraft.text.Text.literal(
-                            "§d[GifHUD] §cLỗi tải link! " + e.getMessage()), false);
+                            "§d[GifHUD] §cError loading link! " + e.getMessage()), false);
                     isLoading = false;
                 });
             }

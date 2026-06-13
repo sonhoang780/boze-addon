@@ -20,10 +20,10 @@ import dev.boze.api.utility.interaction.InteractionMode;
 public class SelfWeb extends AddonModule {
     public static final SelfWeb INSTANCE = new SelfWeb();
 
-    public final ToggleOption autoDisable = new ToggleOption(this, "Auto Disable", "Tự tắt sau khi đặt.", true);
+    public final ToggleOption autoDisable = new ToggleOption(this, "Auto Disable", "Automatically disable after placing.", true);
 
     private SelfWeb() {
-        super("SelfWeb", "Tự động đặt mạng nhện ở mặt (Doc-Compliant API).");
+        super("SelfWeb", "Automatically places a cobweb at the player's head position.");
     }
 
     @EventHandler

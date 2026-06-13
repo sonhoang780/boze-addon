@@ -45,16 +45,16 @@ public class MusicHUD extends AddonModule {
     public final SliderOption posY     = new SliderOption(this, "Y Position", "Vertical position.",                   10.0,  0.0, 1000.0, 1.0);
     public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
     
-    public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "Làm màu thanh sóng nhạc nhạt dần khi đi lên.", true);
+    public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "Make the audio bars fade out as they go up.", true);
     
     public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Add bloom effect to track and artist text.", false);
-    public final ToggleOption compactMode = new ToggleOption(this, "Compact Mode", "Thu gọn HUD, giới hạn chiều dài.", false);
-    public final ToggleOption disk = new ToggleOption(this, "Disk", "Bật để hiện đĩa nhạc xoay, tắt để hiện ảnh tĩnh.", true);
-    public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Chỉ hiển thị đĩa nhạc, ẩn mọi thứ khác.", false);
-    public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Kích thước đĩa nhạc (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
+    public final ToggleOption compactMode = new ToggleOption(this, "Compact Mode", "Collapse the HUD, limiting its height.", false);
+    public final ToggleOption disk = new ToggleOption(this, "Disk", "Enable to show the spinning record, disable to show a static image.", true);
+    public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false);
+    public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
     
     // Nút điều khiển nấc trượt Lerp
-    public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Chế độ co giãn chiều dài khi chuyển hoặc tắt nhạc.", LerpMode.Full);
+    public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
 
     // ── CONSTANTS & ASSETS ──
     private static final int    BAR_COUNT  = 20;

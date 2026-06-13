@@ -43,16 +43,16 @@ public class AntiPiston extends AddonModule {
     }
 
     // ── OPTIONS ──
-    public final SliderOption range = new SliderOption(this, "Range", "Tầm quét Piston xung quanh.", 5.0, 1.0, 10.0, 0.1);
-    public final SliderOption actionDelay = new SliderOption(this, "Action Delay", "Delay (ticks) giữa các lần đặt/phá để tránh bị kick.", 1.0, 0.0, 20.0, 1.0);
+    public final SliderOption range = new SliderOption(this, "Range", "Piston detection range around the player.", 5.0, 1.0, 10.0, 0.1);
+    public final SliderOption actionDelay = new SliderOption(this, "Action Delay", "Delay (ticks) between place/break actions to avoid being kicked.", 1.0, 0.0, 20.0, 1.0);
     
     // [FIX LỖI COMPILER]: Khởi tạo ModeOption nhận Enum giống y như module PlayMusic
-    public final ModeOption<SwitchMode> switchMode = new ModeOption<>(this, "Sword Switch", "Chế độ đổi kiếm đập Crystal.", SwitchMode.Silent);
+    public final ModeOption<SwitchMode> switchMode = new ModeOption<>(this, "Sword Switch", "Sword switching mode for breaking crystals.", SwitchMode.Silent);
 
     private int delayTimer = 0;
 
     private AntiPiston() {
-        super("AntiPiston", "Tự động chặn Piston và ưu tiên phá Crystal (Anti-Weakness).");
+        super("AntiPiston", "Automatically blocks pistons and prioritizes crystal breaking (Anti-Weakness).");
         
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (this.active) onTick(client);
