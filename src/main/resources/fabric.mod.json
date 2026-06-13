@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "boze",
+  "id": "boze-addon",
   "version": "${version}",
 
   "name": "boze-",

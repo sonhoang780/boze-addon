@@ -10,6 +10,7 @@ import com.example.addon.modules.MusicHUD;
 import com.example.addon.modules.PlayMusic;
 import com.example.addon.modules.SelfWeb;
 import com.example.addon.modules.SmoothMotion;
+import com.example.addon.modules.VersionHUD;
 
 import dev.boze.api.BozeInstance;
 import dev.boze.api.addon.Addon;
@@ -38,6 +39,7 @@ public class ExampleAddon extends Addon {
         modules.add(AntiPiston.INSTANCE);
         modules.add(GifHUD.INSTANCE);
         modules.add(GifGUI.INSTANCE);
+        modules.add(VersionHUD.INSTANCE);
         // Register client module extensions - demonstrate extension API
         extensions.add(new ExampleExtension());
 
