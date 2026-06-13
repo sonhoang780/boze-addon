@@ -1,0 +1,113 @@
+import net.fabricmc.loom.task.prod.ClientProductionRunTask
+
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+
+    maven {
+        name = "boze-maven"
+        url = "https://maven.boze.dev/releases"
+    }
+    maven { url = "https://maven.seedfinding.com" }
+    maven { url = "https://m2.dv8tion.net/releases" }
+    maven { url = "https://maven.lavalink.dev/releases" }
+    maven { url = "https://maven.lavalink.dev/snapshots" }
+    maven { url = "https://jitpack.io" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modCompileOnly "com.github.cabaletta:baritone:1.2.14"
+    // THÊM VÀO ĐÂY: Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Boze Dependencies
+    modCompileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"
+    modRuntimeOnly "dev.boze:boze-loader-beta:${project.boze_loader_version}"
+    implementation "meteordevelopment:orbit:${project.orbit_version}"
+
+    def lavaplayerVersion = "2.2.6"
+    def jacksonVersion = "2.15.2"
+    def ytSourceVersion = "fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT"
+    def rhinoVersion = "1.7.14"
+
+    implementation "commons-logging:commons-logging:1.3.0"
+    include "commons-logging:commons-logging:1.3.0"
+
+    implementation "dev.arbjerg:lavaplayer:${lavaplayerVersion}"
+    include "dev.arbjerg:lavaplayer:${lavaplayerVersion}"
+    implementation "dev.arbjerg:lava-common:${lavaplayerVersion}"
+    include "dev.arbjerg:lava-common:${lavaplayerVersion}"
+    implementation "dev.arbjerg:lavaplayer-natives:${lavaplayerVersion}"
+    include "dev.arbjerg:lavaplayer-natives:${lavaplayerVersion}"
+
+    implementation "dev.lavalink.youtube:common:${ytSourceVersion}"
+    include "dev.lavalink.youtube:common:${ytSourceVersion}"
+
+    implementation "org.apache.httpcomponents:httpclient:4.5.14"
+    include "org.apache.httpcomponents:httpclient:4.5.14"
+    implementation "org.apache.httpcomponents:httpcore:4.4.16"
+    include "org.apache.httpcomponents:httpcore:4.4.16"
+    implementation "commons-io:commons-io:2.13.0"
+    include "commons-io:commons-io:2.13.0"
+
+    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    include "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    include "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+    include "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+
+    implementation "com.grack:nanojson:1.8"
+    include "com.grack:nanojson:1.8"
+
+    implementation "org.mozilla:rhino:${rhinoVersion}"
+    include "org.mozilla:rhino:${rhinoVersion}"
+    implementation "org.mozilla:rhino-engine:${rhinoVersion}"
+    include "org.mozilla:rhino-engine:${rhinoVersion}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "minecraft_version", project.minecraft_version
+    inputs.property "loader_version", project.loader_version
+    filteringCharset "UTF-8"
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version,
+                "minecraft_version": project.minecraft_version,
+                "loader_version": project.loader_version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    inputs.property "archivesName", project.base.archivesName
+    from("LICENSE") {
+        rename { "${it}_${inputs.properties.archivesName}"}
+    }
+}
+
+tasks.register("runBoze", ClientProductionRunTask) {
+    mods.from configurations.modRuntimeOnly
+}
