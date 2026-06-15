@@ -58,7 +58,7 @@ public class MusicHUD extends AddonModule {
     
     public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
 
-    private static final int    BAR_COUNT  = 20;
+    private static final int    BAR_COUNT  = 15;
     private static final int    THUMB_W    = 55;
     private static final int    THUMB_H    = 55;
     private static final int    HUD_HEIGHT = 70;
@@ -448,7 +448,8 @@ public class MusicHUD extends AddonModule {
             if (hudW > THUMB_W + 30) {
                 String titleClipped  = clipText(mc, displayTitle,  (int)contentW - 30);
                 String authorClipped = clipText(mc, displayAuthor, (int)contentW - 30);
-                
+                renderBars(context, track, contentX + 75, y, contentW - 75); 
+                renderProgress(context, track, contentX, y, contentW);
                 if (textBloom.getValue()) {
                     int bloomAlpha = 60; 
                     int titleBloom = (bloomAlpha << 24) | 0xFFFFFF;
@@ -464,15 +465,12 @@ public class MusicHUD extends AddonModule {
                 context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
                 context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
 
-                double barsRightReserve = 0;
                 if (track != null) {
                     long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
                     if (!isTrackPlaying) s = ds;
                     String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
                     int timeW = mc.textRenderer.getWidth(time);
                     context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
-                    // Chừa khoảng trống bên phải cho timestamp, tránh các bar dài đè lên chữ
-                    barsRightReserve = timeW + 12;
                 }
 
                 double btnPrevX = contentX;
@@ -487,8 +485,7 @@ public class MusicHUD extends AddonModule {
                 context.drawText(mc.textRenderer, PlayMusic.isPlayerPaused() || !isTrackPlaying ? "▶" : "⏸", (int)btnPlayX, (int)y + 35, colorPlay, true);
                 context.drawText(mc.textRenderer, "⏭", (int)btnNextX, (int)y + 35, colorNext, true);
 
-                renderBars(context, track, contentX + 75, y, contentW - 75 - barsRightReserve); 
-                renderProgress(context, track, contentX, y, contentW);
+                
             }
         } else {
             if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
@@ -597,35 +594,38 @@ public class MusicHUD extends AddonModule {
         if (audioAmp > smoothedAmp) smoothedAmp += (audioAmp - smoothedAmp) * 0.9f;
         else                        smoothedAmp += (audioAmp - smoothedAmp) * 0.08f;
         long  tick     = System.currentTimeMillis();
+        
+        // Khôi phục lại độ rộng full size của thanh bars
         float barW     = (float)((contentW - 10) / BAR_COUNT - 1.0f);
+        if (barW < 1.0f) barW = 1.0f;
+        
         int   alphaVal = (int) Math.max(0, Math.min(255, barAlpha.getValue()));
         int   barColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), alphaVal).getRGB();
-        float maxBarH  = HUD_HEIGHT - 22f;
-
-        // Đáy của TẤT CẢ các bar phải dùng CHUNG 1 toạ độ pixel cố định.
-        // Trước đây: by = (int)(y + HUD_HEIGHT - 14 - barHeights[i]); bottom = (int)(by + barHeights[i])
-        // => "by" đã bị truncate (int) trước, rồi cộng lại barHeights[i] (float) => đáy lệch ±1px
-        // mỗi frame theo phần thập phân của barHeights[i] => trông như đáy bị "nhấp nhô".
-        // Fix: tính sẵn 1 baseline int duy nhất, mọi bar đều fill tới đúng baseline đó.
-        int barBottom = (int)(y + HUD_HEIGHT - 14);
-
+        
+        // Khôi phục lại chiều cao max chạm nóc
+        float maxBarH  = HUD_HEIGHT - 22f; 
+        
+        // Vẫn giữ chốt đáy để chống lỗi giật (jitter) 1-pixel
+        int fixedBottom = (int)(y + HUD_HEIGHT - 14);
+        
         for (int i = 0; i < BAR_COUNT; i++) {
             double combined = Math.abs(Math.sin(tick / (60.0 + i * 5.5) + i) + Math.cos(tick / (90.0 - i * 4.0) - i * 0.5)) * 0.4 + 0.6;
             double bell    = Math.sin(Math.PI * (i / (double)(BAR_COUNT - 1)));
             float  targetH = (float)(2.0 + combined * maxBarH * bell * smoothedAmp * 0.65);
             if (targetH > maxBarH) targetH = maxBarH;
             if (PlayMusic.isPlayerPaused()) targetH = 2.0f;
+            
             barHeights[i] += (targetH - barHeights[i]) * 0.7f;
-
-            int bx = (int)(contentX + i * (barW + 1.0f));
-            int bh = Math.max(1, Math.round(barHeights[i]));
-            int by = barBottom - bh;
-
+            
+            int bx  = (int)(contentX + i * (barW + 1.0f)); 
+            int by  = (int)(y + HUD_HEIGHT - 14 - barHeights[i]);
+            int bx2 = (int)(bx + barW);
+            
             if (gradientBars.getValue()) {
                 int topColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), Math.max(0, alphaVal - 150)).getRGB();
-                context.fillGradient(bx, by, (int)(bx + barW), barBottom, topColor, barColor);
+                context.fillGradient(bx, by, bx2, fixedBottom, topColor, barColor);
             } else {
-                context.fill(bx, by, (int)(bx + barW), barBottom, barColor);
+                context.fill(bx, by, bx2, fixedBottom, barColor);
             }
         }
     }
