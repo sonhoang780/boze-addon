@@ -10,6 +10,7 @@ import java.net.URL;
 import java.util.concurrent.CompletableFuture;
 
 import javax.imageio.ImageIO;
+import javax.swing.plaf.synth.ColorType;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -20,6 +21,7 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.ModeOption;
+import com.example.addon.utils.BlurUtils;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
@@ -28,11 +30,13 @@ import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
 
+import io.github.humbleui.skija.*;
+import io.github.humbleui.types.*;
+
 public class MusicHUD extends AddonModule {
     public static final MusicHUD INSTANCE = new MusicHUD();
     public boolean active = false;
 
-    // ── LERP MODE DROPDOWN MENU CHUẨN BOZE GUI ──
     public enum LerpMode {
         Full("Full"), Semi("Semi"), Off("Off");
         private final String text;
@@ -40,7 +44,6 @@ public class MusicHUD extends AddonModule {
         @Override public String toString() { return text; }
     }
 
-    // ── OPTIONS ──
     public final SliderOption posX     = new SliderOption(this, "X Position", "Horizontal position.",                 10.0,  0.0, 2000.0, 1.0);
     public final SliderOption posY     = new SliderOption(this, "Y Position", "Vertical position.",                   10.0,  0.0, 1000.0, 1.0);
     public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
@@ -53,17 +56,18 @@ public class MusicHUD extends AddonModule {
     public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false);
     public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
     
-    // Nút điều khiển nấc trượt Lerp
     public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
 
-    // ── CONSTANTS & ASSETS ──
     private static final int    BAR_COUNT  = 20;
     private static final int    THUMB_W    = 55;
     private static final int    THUMB_H    = 55;
     private static final int    HUD_HEIGHT = 70;
     private static final Identifier VINYL_TEX = Identifier.of("musichud", "vinyl.png");
 
-    // ── TRACK STATE ──
+    private boolean isDraggingHUD = false;
+    private double dragOffsetX = 0, dragOffsetY = 0;
+    private boolean wasMouseDownEditor = false;
+
     private String currentTrackId = "";
     private String displayTitle   = "Not playing";
     private String displayAuthor  = "";
@@ -71,7 +75,6 @@ public class MusicHUD extends AddonModule {
     private Color accentColor     = new Color(0, 255, 150, 255);
     private Color targetAccent    = new Color(0, 255, 150, 255);
 
-    // ── TRANSITION & LOGIC ──
     private int    transPhase     = 0;
     private double animW          = 6.0; 
     private static final double LERP_OPEN  = 0.05; 
@@ -91,7 +94,6 @@ public class MusicHUD extends AddonModule {
     private boolean isDraggingWidth = false;
     private double manualTargetWidth = -1.0;
 
-    // ── THUMBNAIL STORAGE ──
     private volatile byte[]   pendingThumbBytesSquare = null;
     private volatile byte[]   pendingThumbBytesCircle = null;
     private Identifier         thumbSquareId    = null;
@@ -106,8 +108,10 @@ public class MusicHUD extends AddonModule {
     private boolean isDragging = false, wasMouseDown = false;
     private boolean hoverPrev = false, hoverPlay = false, hoverNext = false, hoverProgress = false;
 
+    private DirectContext skiaContext;
+
     private MusicHUD() {
-        super("MusicHUD", "Music player HUD with thumbnail, buttons and smooth transitions.");
+        super("MusicHUD", "Music player HUD with Skia Rounded Corners & Glow.");
         HudRenderCallback.EVENT.register((context, tickDelta) -> {
             if (this.active) render(context);
         });
@@ -115,6 +119,69 @@ public class MusicHUD extends AddonModule {
 
     @Override public void onEnable()  { this.active = true; lastRenderTime = System.currentTimeMillis(); isFirstRender = true; }
     @Override public void onDisable() { this.active = false; }
+
+    private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x - 1, y - 1, x + w + 1, y, color);
+        context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
+        context.fill(x - 1, y, x, y + h, color);
+        context.fill(x + w, y, x + w + 1, y + h, color);
+    }
+
+    private void drawSkiaBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        skiaContext.resetAll(); 
+
+        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(),
+                mc.getWindow().getFramebufferHeight(),
+                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, 
+                io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+            
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+
+            // 1. VẼ LỚP NỀN KÍNH ĐEN TRONG SUỐT BẰNG SKIA ĐỂ BO TRÒN GÓC NHỌN CỦA KAWASE BLUR
+            try (Paint bgPaint = new Paint()) {
+                bgPaint.setColor(new Color(15, 15, 15, 130).getRGB());
+                bgPaint.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), bgPaint);
+            }
+            
+            // 2. VẼ HÀO QUANG (Chỉ viền OUTLINE, bên trong không đặc sệt)
+            if (enableGlow && accent != null) {
+                try (Paint glowPaint = new Paint();
+                     MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 12f)) {
+                    glowPaint.setColor(accent.getRGB());
+                    glowPaint.setMaskFilter(blur);
+                    glowPaint.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
+                }
+            }
+            
+            // 3. VẼ VIỀN STROKE TRẮNG MỎNG
+            try (Paint strokePaint = new Paint()) {
+                strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
+                strokePaint.setMode(PaintMode.STROKE);
+                strokePaint.setStrokeWidth(1.0f);
+                strokePaint.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
+            }
+            
+            // FIX CRASH CHÍ MẠNG: Thay thế skiaContext.flush() bằng lệnh an toàn của Surface
+            skiaContext.flush();
+        }
+        
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+    }
 
     private Color lerpColor(Color a, Color b, float t) {
         t = Math.max(0f, Math.min(1f, t));
@@ -266,17 +333,19 @@ public class MusicHUD extends AddonModule {
 
         accentColor = lerpColor(accentColor, targetAccent, 0.015f);
 
-        // ── KHI CHỦ ĐỘNG TẮT NHẠC HOẶC HẾT BÀI ĐỆM CHỜ XONG ──
+        double hudW = Math.max(animW, WIDTH_MIN);
+        int currentThumbW = useUltra ? (int)(double)diskSize.getValue() : THUMB_W;
+        int currentThumbH = useUltra ? (int)(double)diskSize.getValue() : THUMB_H;
+        double hudH = useUltra ? currentThumbH : HUD_HEIGHT; 
+
         if (isManuallyStopped) {
             if (lerpMode.getValue() == LerpMode.Off) animW = WIDTH_MIN;
             else                                      animW = lerp(animW, WIDTH_MIN, LERP_CLOSE);
             
             if (!useUltra) {
-                drawRoundedBackgroundWithGlow(context, (int)x, (int)y, (int)animW, HUD_HEIGHT, accentColor, false);
-                int emptyAcc = new Color(100, 100, 100, 255).getRGB();
-                context.fill((int)x, (int)y + 3, (int)x + 3, (int)y + HUD_HEIGHT - 3, emptyAcc);
-                context.fill((int)x + 1, (int)y + 1, (int)x + 3, (int)y + 3, emptyAcc);
-                context.fill((int)x + 1, (int)y + HUD_HEIGHT - 3, (int)x + 3, (int)y + HUD_HEIGHT - 1, emptyAcc);
+                // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
+                BlurUtils.drawBlur(context, (int)x, (int)y, (int)animW, HUD_HEIGHT, new Color(0, 0, 0, 0), 0.72f);
+                drawSkiaBackground(x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
                 context.drawText(mc.textRenderer, "Not playing", (int)x + 15, (int)y + 28, 0xFFFFFFFF, true);
             }
             return;
@@ -290,7 +359,6 @@ public class MusicHUD extends AddonModule {
             closeTarget = newTarget / 3.0; 
         }
 
-        // ── [FIX LỖI KẸT THUMBNAIL]: Dọn sạch dữ liệu cũ khi hết bài qua 1 giây ──
         if (!isTrackPlaying) {
             if (trackEmptyStartTime == 0) trackEmptyStartTime = System.currentTimeMillis();
             if (System.currentTimeMillis() - trackEmptyStartTime > 1000) {
@@ -301,7 +369,7 @@ public class MusicHUD extends AddonModule {
                     if (transPhase == 0) transPhase = 1;
                     if (animW <= closeTarget + 4.0) {
                         isManuallyStopped = true; 
-                        currentTrackId = ""; // Trám tử huyệt kẹt bài cũ
+                        currentTrackId = ""; 
                         displayTitle = "Not playing";
                         displayAuthor = "";
                         thumbSquareId = null;
@@ -312,7 +380,6 @@ public class MusicHUD extends AddonModule {
             }
         } else {
             trackEmptyStartTime = 0;
-            // [FIX ĐỨNG HÌNH TRÙNG BÀI]: Dùng playCount làm cột mốc kích hoạt mở rộng
             if (PlayMusic.playCount != currentPlayCount) {
                 currentPlayCount = PlayMusic.playCount;
                 
@@ -351,26 +418,25 @@ public class MusicHUD extends AddonModule {
             }
         }
 
-        double hudW = Math.max(animW, WIDTH_MIN);
-        handleMouse(track, x, y, hudW, HUD_HEIGHT);
+        handleMouse(track, x, y, hudW, hudH);
 
-        int currentThumbW = useUltra ? (int)(double)diskSize.getValue() : THUMB_W;
-        int currentThumbH = useUltra ? (int)(double)diskSize.getValue() : THUMB_H;
         int currentThumbX = useUltra ? (int)x : (int)x + 5;
         int currentThumbY = useUltra ? (int)y : (int)y + 7;
 
-        if (!useUltra) drawRoundedBackgroundWithGlow(context, (int)x, (int)y, (int)hudW, HUD_HEIGHT, accentColor, true);
-        else drawCircularGlow(context, currentThumbX + currentThumbW / 2.0f, currentThumbY + currentThumbH / 2.0f, currentThumbW / 2.0f, accentColor);
+        if (!useUltra) {
+            // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
+            BlurUtils.drawBlur(context, (int)x, (int)y, (int)hudW, HUD_HEIGHT, new Color(0, 0, 0, 0), 0.72f);
+            drawSkiaBackground(x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
+        } else {
+            drawSkiaCircularGlow(currentThumbX + currentThumbW / 2.0, currentThumbY + currentThumbH / 2.0, currentThumbW / 2.0f, accentColor);
+        }
 
         renderThumbnail(context, track, currentThumbX, currentThumbY, currentThumbW, currentThumbH);
 
-        if (!useUltra) {
-            int accRgb = accentColor.getRGB();
-            context.fill((int)x, (int)y + 3, (int)x + 3, (int)y + HUD_HEIGHT - 3, accRgb);
-            context.fill((int)x + 1, (int)y + 1, (int)x + 3, (int)y + 3, accRgb);
-            context.fill((int)x + 1, (int)y + HUD_HEIGHT - 3, (int)x + 3, (int)y + HUD_HEIGHT - 1, accRgb);
+        // XÓA 100% CÁI DẢI MÀU BÊN TRÁI DO MINECRAFT VẼ VÀ ĐÃ NHƯỜNG SKIA VẼ HOẶC XÓA HOÀN TOÀN TÙY Ý MÀY
 
-            if (hudHoverStartTime > 0) {
+        if (!useUltra) {
+            if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
                 long held = System.currentTimeMillis() - hudHoverStartTime;
                 float holdProgress = Math.min(1.0f, held / 2500.0f); 
                 context.fill((int)x + 3, (int)(y + HUD_HEIGHT - 2), (int)(x + hudW * holdProgress - 3), (int)(y + HUD_HEIGHT), 0xFFFF3333); 
@@ -398,12 +464,15 @@ public class MusicHUD extends AddonModule {
                 context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
                 context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
 
+                double barsRightReserve = 0;
                 if (track != null) {
                     long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
                     if (!isTrackPlaying) s = ds;
                     String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
                     int timeW = mc.textRenderer.getWidth(time);
                     context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
+                    // Chừa khoảng trống bên phải cho timestamp, tránh các bar dài đè lên chữ
+                    barsRightReserve = timeW + 12;
                 }
 
                 double btnPrevX = contentX;
@@ -418,64 +487,76 @@ public class MusicHUD extends AddonModule {
                 context.drawText(mc.textRenderer, PlayMusic.isPlayerPaused() || !isTrackPlaying ? "▶" : "⏸", (int)btnPlayX, (int)y + 35, colorPlay, true);
                 context.drawText(mc.textRenderer, "⏭", (int)btnNextX, (int)y + 35, colorNext, true);
 
-                renderBars(context, track, contentX + 75, y, contentW - 75); 
+                renderBars(context, track, contentX + 75, y, contentW - 75 - barsRightReserve); 
                 renderProgress(context, track, contentX, y, contentW);
             }
         } else {
-            if (hudHoverStartTime > 0) {
+            if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
                 long held = System.currentTimeMillis() - hudHoverStartTime;
                 float holdProgress = Math.min(1.0f, held / 2500.0f); 
                 context.fill((int)x, (int)(y + currentThumbH + 2), (int)(x + currentThumbW * holdProgress), (int)(y + currentThumbH + 4), 0xFFFF3333); 
             }
         }
+
+        if (HUDEditor.INSTANCE.active) {
+            double scale = mc.getWindow().getScaleFactor();
+            double mx = mc.mouse.getX() / scale;
+            double my = mc.mouse.getY() / scale;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+
+            if (mouseDown && !wasMouseDownEditor) {
+                if (mx >= x && mx <= x + hudW && my >= y && my <= y + hudH) {
+                    if (HUDEditor.draggingHUD.isEmpty() || HUDEditor.draggingHUD.equals("MusicHUD")) {
+                        isDraggingHUD = true; HUDEditor.draggingHUD = "MusicHUD";
+                        dragOffsetX = mx - x; dragOffsetY = my - y;
+                    }
+                }
+            } else if (!mouseDown) {
+                if (isDraggingHUD) HUDEditor.draggingHUD = "";
+                isDraggingHUD = false;
+            }
+
+            if (isDraggingHUD && mouseDown) {
+                x = mx - dragOffsetX; y = my - dragOffsetY;
+                posX.setValue(x); posY.setValue(y);
+                drawOutline(context, (int)x, (int)y, (int)hudW, (int)hudH, 0xFF00FF00);
+            } else if (mx >= x && mx <= x + hudW && my >= y && my <= y + hudH) {
+                drawOutline(context, (int)x, (int)y, (int)hudW, (int)hudH, 0xFFFFFF00);
+            }
+            wasMouseDownEditor = mouseDown;
+        }
     }
 
-    private void drawCircularGlow(DrawContext context, float cx, float cy, float baseRadius, Color accent) {
+    private void drawSkiaCircularGlow(double cx, double cy, float radius, Color accent) {
         if (accent == null) return;
-        int layers = 8; float spread = baseRadius * 0.4f; 
-        for (int i = 0; i <= layers; i++) {
-            float r = baseRadius + spread * (1.0f - (float) i / layers);
-            int alpha = (int) (70.0 * Math.pow((double) i / layers, 1.2)); if (alpha <= 0) continue;
-            int color = new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), alpha).getRGB();
-            int ir = (int) r, icx = (int) cx, icy = (int) cy;
-            for (int cyLoop = -ir; cyLoop <= ir; cyLoop++) {
-                int px = (int) Math.sqrt(ir * ir - cyLoop * cyLoop);
-                context.fill(icx - px, icy + cyLoop, icx + px, icy + cyLoop + 1, color);
-            }
-        }
-    }
+        MinecraftClient mc = MinecraftClient.getInstance();
+        
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        skiaContext.resetAll(); 
 
-    private void drawRoundedBackgroundWithGlow(DrawContext context, int x, int y, int w, int h, Color accent, boolean enableGlow) {
-        if (enableGlow && accent != null) {
-            int glowLayers = 5;
-            for (int i = glowLayers; i >= 1; i--) {
-                int alpha = (int)(60.0 * Math.pow(1.0 - (double)i / (glowLayers + 1), 1.8));
-                if (alpha <= 0) continue;
-                int gc = new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), alpha).getRGB();
-                context.fill(x - i + 3, y - i,         x + w + i - 3, y - i + 1,         gc);
-                context.fill(x - i + 3, y + h + i - 1, x + w + i - 3, y + h + i,         gc);
-                context.fill(x - i,     y - i + 3,     x - i + 1,     y + h + i - 3,     gc);
-                context.fill(x + w + i - 1, y - i + 3, x + w + i,     y + h + i - 3,     gc);
-                context.fill(x - i + 1,     y - i + 1, x - i + 3,     y - i + 3,         gc);
-                context.fill(x + w + i - 3, y - i + 1, x + w + i - 1, y - i + 3,         gc);
-                context.fill(x - i + 1,     y + h + i - 3, x - i + 3, y + h + i - 1,     gc);
-                context.fill(x + w + i - 3, y + h + i - 3, x + w + i - 1, y + h + i - 1, gc);
+        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+            
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+            
+            try (Paint glowPaint = new Paint();
+                 ImageFilter dropShadow = ImageFilter.makeDropShadow(0, 0, radius * 0.4f, radius * 0.4f, accent.getRGB())) {
+                glowPaint.setColor(accent.getRGB());
+                glowPaint.setImageFilter(dropShadow);
+                glowPaint.setAntiAlias(true);
+                canvas.drawCircle((float)cx, (float)cy, radius * 0.95f, glowPaint);
             }
+            skiaContext.flush();
         }
-        int bgColor = (153 << 24) | (15 << 16) | (15 << 8) | 15;
-        context.fill(x + 1, y, x + w - 1, y + h, bgColor); 
-        context.fill(x, y + 1, x + 1, y + h - 1, bgColor); 
-        context.fill(x + w - 1, y + 1, x + w, y + h - 1, bgColor); 
-
-        int strokeRgb = new Color(255, 255, 255, 45).getRGB();
-        context.fill(x + 3, y,         x + w - 3, y + 1,             strokeRgb);
-        context.fill(x + 3, y + h - 1, x + w - 3, y + h,             strokeRgb);
-        context.fill(x,     y + 3,     x + 1,     y + h - 3,         strokeRgb);
-        context.fill(x + w - 1, y + 3, x + w,     y + h - 3,         strokeRgb);
-        context.fill(x + 1, y + 1,         x + 3,     y + 3,         strokeRgb);
-        context.fill(x + w - 3, y + 1,     x + w - 1, y + 3,         strokeRgb);
-        context.fill(x + 1, y + h - 3,     x + 3,     y + h - 1,     strokeRgb);
-        context.fill(x + w - 3, y + h - 3, x + w - 1, y + h - 1,     strokeRgb);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
     }
 
     private void renderThumbnail(DrawContext context, AudioTrack track, int tx, int ty, int tw, int th) {
@@ -520,6 +601,14 @@ public class MusicHUD extends AddonModule {
         int   alphaVal = (int) Math.max(0, Math.min(255, barAlpha.getValue()));
         int   barColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), alphaVal).getRGB();
         float maxBarH  = HUD_HEIGHT - 22f;
+
+        // Đáy của TẤT CẢ các bar phải dùng CHUNG 1 toạ độ pixel cố định.
+        // Trước đây: by = (int)(y + HUD_HEIGHT - 14 - barHeights[i]); bottom = (int)(by + barHeights[i])
+        // => "by" đã bị truncate (int) trước, rồi cộng lại barHeights[i] (float) => đáy lệch ±1px
+        // mỗi frame theo phần thập phân của barHeights[i] => trông như đáy bị "nhấp nhô".
+        // Fix: tính sẵn 1 baseline int duy nhất, mọi bar đều fill tới đúng baseline đó.
+        int barBottom = (int)(y + HUD_HEIGHT - 14);
+
         for (int i = 0; i < BAR_COUNT; i++) {
             double combined = Math.abs(Math.sin(tick / (60.0 + i * 5.5) + i) + Math.cos(tick / (90.0 - i * 4.0) - i * 0.5)) * 0.4 + 0.6;
             double bell    = Math.sin(Math.PI * (i / (double)(BAR_COUNT - 1)));
@@ -527,13 +616,16 @@ public class MusicHUD extends AddonModule {
             if (targetH > maxBarH) targetH = maxBarH;
             if (PlayMusic.isPlayerPaused()) targetH = 2.0f;
             barHeights[i] += (targetH - barHeights[i]) * 0.7f;
-            int bx = (int)(contentX + i * (barW + 1.0f)); int by = (int)(y + HUD_HEIGHT - 14 - barHeights[i]);
-            
+
+            int bx = (int)(contentX + i * (barW + 1.0f));
+            int bh = Math.max(1, Math.round(barHeights[i]));
+            int by = barBottom - bh;
+
             if (gradientBars.getValue()) {
                 int topColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), Math.max(0, alphaVal - 150)).getRGB();
-                context.fillGradient(bx, by, (int)(bx + barW), (int)(by + barHeights[i]), topColor, barColor);
+                context.fillGradient(bx, by, (int)(bx + barW), barBottom, topColor, barColor);
             } else {
-                context.fill(bx, by, (int)(bx + barW), (int)(by + barHeights[i]), barColor);
+                context.fill(bx, by, (int)(bx + barW), barBottom, barColor);
             }
         }
     }

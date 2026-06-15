@@ -45,6 +45,7 @@ repositories {
     maven { url = "https://maven.lavalink.dev/releases" }
     maven { url = "https://maven.lavalink.dev/snapshots" }
     maven { url = "https://jitpack.io" }
+    maven { url = "https://packages.jetbrains.team/maven/p/ui/dev" }
 }
 
 dependencies {
@@ -52,6 +53,7 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modCompileOnly "com.github.cabaletta:baritone:1.2.14"
+    
     // Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
@@ -64,6 +66,21 @@ dependencies {
     def jacksonVersion = "2.15.2"
     def ytSourceVersion = "fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT"
     def rhinoVersion = "1.7.14"
+    
+    // ─── SKIJA DEPENDENCIES (BẢN MỚI NHẤT) ────────────────────────
+    def skijaVersion = "0.143.16" 
+    def typesVersion = "0.2.0"
+    
+    implementation "io.github.humbleui:types:${typesVersion}"
+    include "io.github.humbleui:types:${typesVersion}"
+    
+    implementation "io.github.humbleui:skija-shared:${skijaVersion}"
+    include "io.github.humbleui:skija-shared:${skijaVersion}"
+    
+    // Core C++ dành riêng cho Windows x64
+    implementation "io.github.humbleui:skija-windows-x64:${skijaVersion}"
+    include "io.github.humbleui:skija-windows-x64:${skijaVersion}"
+    // ─────────────────────────────────────────────────────────────
 
     implementation "commons-logging:commons-logging:1.3.0"
     include "commons-logging:commons-logging:1.3.0"

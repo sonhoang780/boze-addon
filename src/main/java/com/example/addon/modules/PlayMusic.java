@@ -103,6 +103,7 @@ public class PlayMusic extends AddonModule {
     private double animSuggestHeight = 0.0;
     
     public static volatile float currentAmplitude = 0f;
+    private static boolean consoleHooked = false;
 
     private PlayMusic() {
         super("PlayMusic", "Direct YouTube music player with chat suggestions.");
@@ -121,6 +122,24 @@ public class PlayMusic extends AddonModule {
                     return false; 
                 }
 
+                // ── LỆNH LOGIN YOUTUBE ──
+                if (query.toLowerCase().equals("login")) {
+                    safeInfo("§e[YouTube Login] §fInitiating login process...");
+                    safeInfo("§fOpening browser to §bhttps://www.google.com/device §f...");
+                    try {
+                        if (ytSourceManager != null) {
+                            ytSourceManager.useOauth2(null, true);
+                        }
+                        net.minecraft.util.Util.getOperatingSystem().open(new java.net.URI("https://www.google.com/device"));
+                    } catch (Exception e) {
+                        safeError("Failed to open browser.");
+                    }
+                    currentSuggestions.clear();
+                    lastQuery = "";
+                    pendingQuery = "";
+                    return false;
+                }
+
                 if (!query.isEmpty()) searchAndPlay(query);
                 else safeError("Search query cannot be empty! Type §e" + CHAT_PREFIX + "prefix <new_prefix> §cto change prefix.");
                 currentSuggestions.clear();
@@ -136,7 +155,6 @@ public class PlayMusic extends AddonModule {
             if (!this.active || !chatSearch.getValue() || mc.currentScreen == null) return;
             
             if (mc.currentScreen instanceof ChatScreen) {
-                // [FIX LỖI ÉP KIỂU]: Dùng (int)(double) thay vì (int)
                 int hudX = (int)(double) MusicHUD.INSTANCE.posX.getValue();
                 int hudY = (int)(double) MusicHUD.INSTANCE.posY.getValue() + 72; // 70 là chiều cao HUD + 2 đệm
                 int boxW = 320;
@@ -147,10 +165,7 @@ public class PlayMusic extends AddonModule {
                 animSuggestHeight += (targetHeight - animSuggestHeight) * 0.15; // Tốc độ trượt mượt mà
                 
                 if (animSuggestHeight >= 1.0) {
-                    // Nền đen đặc che mọi thứ (có padding)
                     context.fill(hudX, hudY, hudX + boxW, hudY + (int)animSuggestHeight, 0xEE111111);
-
-                    // Sử dụng Scissor để giấu chữ khi khung đang thu vào/bung ra
                     context.enableScissor(hudX, hudY, hudX + boxW, hudY + (int)animSuggestHeight);
 
                     double scale = mc.getWindow().getScaleFactor();
@@ -159,22 +174,59 @@ public class PlayMusic extends AddonModule {
 
                     for (int i = 0; i < currentSuggestions.size(); i++) {
                         int itemY = hudY + 2 + (i * itemH);
-                        
                         boolean isHovering = mx >= hudX && mx <= hudX + boxW && my >= itemY && my < itemY + itemH;
                         if (isHovering) {
                             context.fill(hudX, itemY, hudX + boxW, itemY + itemH, 0xFF333333);
                         }
-                        
                         context.drawText(mc.textRenderer, "» " + currentSuggestions.get(i), hudX + 6, itemY + 3, 0xFF00FFBB, true);
                     }
-                    
                     context.disableScissor();
                 }
             } else {
-                // Reset độ cao nếu tắt Chat
                 animSuggestHeight = 0.0;
             }
         });
+    }
+
+    // ── KẸP CONSOLE ĐỂ BẮT MÃ LOGIN HIỂN THỊ LÊN CHAT ──
+    private void hookConsoleForOauth() {
+        if (consoleHooked) return;
+        consoleHooked = true;
+        java.io.PrintStream originalOut = System.out;
+        System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
+            private final java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            @Override
+            public void write(int b) {
+                buffer.write(b);
+                if (b == '\n') {
+                    String line = buffer.toString();
+                    if (line.contains("https://www.google.com/device") && line.contains("code")) {
+                        Matcher m = Pattern.compile("code\\s+([A-Z0-9-]+)").matcher(line);
+                        if (m.find()) {
+                            String code = m.group(1);
+                            MinecraftClient mc = MinecraftClient.getInstance();
+                            if (mc.player != null) {
+                                mc.execute(() -> {
+                                    safeInfo("§e========================================");
+                                    safeInfo("§a[YouTube Auth] §fAction required!");
+                                    safeInfo("§fYour Login Code is: §b§l" + code);
+                                    safeInfo("§fPlease enter it in the opened browser window.");
+                                    safeInfo("§e========================================");
+                                });
+                            }
+                        }
+                    }
+                    if (line.toLowerCase().contains("refresh token has been successfully") || line.toLowerCase().contains("successfully updated")) {
+                        MinecraftClient mc = MinecraftClient.getInstance();
+                        if (mc.player != null) {
+                            mc.execute(() -> safeInfo("§a[YouTube Auth] §fLogin successful! You can now play any track."));
+                        }
+                    }
+                    originalOut.print(line);
+                    buffer.reset();
+                }
+            }
+        }));
     }
 
     public static AudioTrack getCurrentTrack() { return player != null ? player.getPlayingTrack() : null; }
@@ -188,13 +240,31 @@ public class PlayMusic extends AddonModule {
     @Override
     public void onEnable() {
         this.active = true;
+        hookConsoleForOauth();
+
         if (playerManager == null) {
             playerManager = new DefaultAudioPlayerManager();
             playerManager.getConfiguration().setOutputFormat(StandardAudioDataFormats.COMMON_PCM_S16_BE);
             ytSourceManager = new YoutubeAudioSourceManager(true, new dev.lavalink.youtube.clients.Music(), new dev.lavalink.youtube.clients.TvHtml5Simply(), new dev.lavalink.youtube.clients.AndroidVr(), new dev.lavalink.youtube.clients.Web());
             
             String token = readToken();
-            if (token.isEmpty()) { ytSourceManager.useOauth2(null, false); } 
+            if (token.isEmpty()) { 
+                ytSourceManager.useOauth2(null, false); 
+                // ── HƯỚNG DẪN CHO NGƯỜI MỚI DÙNG LẦN ĐẦU ──
+                CompletableFuture.runAsync(() -> {
+                    try { Thread.sleep(3000); } catch (Exception ignored) {}
+                    MinecraftClient mc = MinecraftClient.getInstance();
+                    if (mc.player != null) {
+                        mc.execute(() -> {
+                            safeInfo("§e========================================");
+                            safeInfo("§bWelcome to Music HUD!");
+                            safeInfo("§fTo play age-restricted or premium tracks, you need to log in.");
+                            safeInfo("§fType §a" + CHAT_PREFIX + "login §fin chat to authenticate with YouTube.");
+                            safeInfo("§e========================================");
+                        });
+                    }
+                });
+            } 
             else { ytSourceManager.useOauth2(token, true); }
             
             playerManager.registerSourceManager(ytSourceManager);
@@ -245,7 +315,6 @@ public class PlayMusic extends AddonModule {
                 if (text.startsWith(CHAT_PREFIX)) {
                     String query = text.substring(CHAT_PREFIX.length()).trim();
 
-                    // Xử lý phím TAB: Lấy Gợi ý Top 1 điền vào khung Chat
                     if (justTabbed && !currentSuggestions.isEmpty()) {
                         chatField.setText(CHAT_PREFIX + currentSuggestions.get(0) + " ");
                         currentSuggestions.clear();
@@ -253,34 +322,25 @@ public class PlayMusic extends AddonModule {
                         pendingQuery = "";
                         suggestionCooldown = 0;
                     } 
-                    // Xử lý Click Chuột vào Gợi Ý
                     else if (justClicked && !currentSuggestions.isEmpty()) {
                         double scale = mc.getWindow().getScaleFactor();
                         double mx = mc.mouse.getX() / scale;
                         double my = mc.mouse.getY() / scale;
 
-                        // [FIX LỖI ÉP KIỂU]: Dùng (int)(double) thay vì (int)
                         int hudX = (int)(double) MusicHUD.INSTANCE.posX.getValue();
                         int hudY = (int)(double) MusicHUD.INSTANCE.posY.getValue() + 72;
                         int boxW = 320;
                         int itemH = 14;
 
-                        // Nếu click trúng vào Box Gợi Ý
                         if (mx >= hudX && mx <= hudX + boxW && my >= hudY && my < hudY + currentSuggestions.size() * itemH) {
                             int clickedIndex = (int) ((my - hudY - 2) / itemH);
                             if (clickedIndex >= 0 && clickedIndex < currentSuggestions.size()) {
                                 String selectedQuery = currentSuggestions.get(clickedIndex);
-                                
-                                // Thực thi Search & Play ngay lập tức
                                 searchAndPlay(selectedQuery);
-                                
-                                // Dọn dẹp dữ liệu
                                 currentSuggestions.clear();
                                 lastQuery = "";
                                 pendingQuery = "";
                                 suggestionCooldown = 0;
-                                
-                                // Tự động đóng khung Chat
                                 mc.setScreen(null);
                             }
                         }
@@ -313,7 +373,7 @@ public class PlayMusic extends AddonModule {
 
         if (openGuiBtn.getValue()) {
             openGuiBtn.setValue(false);
-            mc.execute(() -> mc.setScreen(new MusicScreen()));
+            mc.execute(() -> mc.setScreen(new MusicScreen())); // Make sure MusicScreen exists or remove this if broken
         }
         if (player != null && player.getVolume() != volume.getValue().intValue()) player.setVolume(volume.getValue().intValue());
         

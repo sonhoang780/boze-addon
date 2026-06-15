@@ -14,6 +14,9 @@ import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
 
+import io.github.humbleui.skija.*;
+import io.github.humbleui.types.*;
+
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
@@ -35,17 +38,23 @@ public class GifHUD extends AddonModule {
     public static final GifHUD INSTANCE = new GifHUD();
     public boolean active = false;
 
-    // ── OPTIONS ──
-    public final SliderOption posX      = new SliderOption(this, "X Position",       "", 50.0,  0.0, 2000.0, 1.0);
-    public final SliderOption posY      = new SliderOption(this, "Y Position",       "", 50.0,  0.0, 1000.0, 1.0);
-    public final SliderOption width     = new SliderOption(this, "Width",            "", 150.0, 10.0, 1000.0, 1.0);
-    public final SliderOption height    = new SliderOption(this, "Height",           "", 150.0, 10.0, 1000.0, 1.0);
-    public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)","", 50.0,  10.0,  300.0, 1.0);
+    public final SliderOption posX       = new SliderOption(this, "X Position",       "", 50.0,  0.0, 2000.0, 1.0);
+    public final SliderOption posY       = new SliderOption(this, "Y Position",       "", 50.0,  0.0, 1000.0, 1.0);
+    public final SliderOption width      = new SliderOption(this, "Width",            "", 150.0, 10.0, 1000.0, 1.0);
+    public final SliderOption height     = new SliderOption(this, "Height",           "", 150.0, 10.0, 1000.0, 1.0);
+    public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "", 50.0,  10.0,  300.0, 1.0);
     public final ToggleOption loadClipboard = new ToggleOption(this, "Load from Clipboard", "", false);
     public final ToggleOption prevGif       = new ToggleOption(this, "Prev Saved GIF",      "", false);
     public final ToggleOption nextGif       = new ToggleOption(this, "Next Saved GIF",      "", false);
+    
+    public final ToggleOption dropShadow    = new ToggleOption(this, "Drop Shadow", "Do bong Skia 3D.", true);
+    public final ToggleOption parallax      = new ToggleOption(this, "Parallax", "Hieu ung luot (Sway) theo goc nhin va chuot.", true);
+    public final SliderOption parallaxSpeed = new SliderOption(this, "Parallax Speed", "Do nhay cua Parallax.", 5.0, 1.0, 20.0, 0.5);
 
-    // ── GIF STATE ──
+    private boolean isDraggingHUD = false;
+    private double dragOffsetX = 0, dragOffsetY = 0;
+    private boolean wasMouseDownEditor = false;
+
     private final List<Identifier>               gifFrames     = new ArrayList<>();
     private final List<NativeImageBackedTexture> frameTextures = new ArrayList<>();
     private int     currentFrame  = 0;
@@ -53,14 +62,19 @@ public class GifHUD extends AddonModule {
     private boolean isLoading     = false;
     private String  currentUrl    = "";
 
-    // ── HISTORY ──
-    private static final File HISTORY_FILE = new File(
-        FabricLoader.getInstance().getGameDir().toFile(), "kingthon_gifs.txt");
+    private float parallaxX = 0f;
+    private float parallaxY = 0f;
+    private float prevYaw = 0f;
+    private float prevPitch = 0f;
+
+    private DirectContext skiaContext;
+
+    private static final File HISTORY_FILE = new File(FabricLoader.getInstance().getGameDir().toFile(), "kingthon_gifs.txt");
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
 
     private GifHUD() {
-        super("GifHUD", "Display GIF on HUD");
+        super("GifHUD", "Display GIF on HUD with Skia Shadow & Parallax.");
         loadHistory();
         HudRenderCallback.EVENT.register((context, tickDelta) -> {
             if (this.active) render(context);
@@ -70,9 +84,7 @@ public class GifHUD extends AddonModule {
     @Override
     public void onEnable() {
         this.active = true;
-        // Khi enable: nếu chưa có frame nào thì tải lại từ lịch sử
         if (gifFrames.isEmpty()) {
-            // Đọc lại history để chắc chắn (phòng trường hợp file được tạo sau constructor)
             if (gifHistory.isEmpty()) loadHistory();
             if (!gifHistory.isEmpty()) {
                 int idx = historyIndex >= 0 ? historyIndex : gifHistory.size() - 1;
@@ -80,47 +92,173 @@ public class GifHUD extends AddonModule {
                 loadGifAsync(currentUrl);
             }
         }
-    }
-
-    @Override
-    public void onDisable() {
-        this.active = false;
-        // KHÔNG clear frames — giữ nguyên để enable lại không cần tải lại
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // HISTORY
-    // ─────────────────────────────────────────────────────────────
-
-    private void loadHistory() {
-        gifHistory.clear();
-        try {
-            if (HISTORY_FILE.exists()) {
-                List<String> lines = Files.readAllLines(HISTORY_FILE.toPath());
-                for (String line : lines) {
-                    String clean = line.trim();
-                    if (!clean.isEmpty()) gifHistory.add(clean);
-                }
-                if (!gifHistory.isEmpty()) historyIndex = gifHistory.size() - 1;
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void saveToHistory(String url) {
-        if (!gifHistory.contains(url)) {
-            gifHistory.add(url);
-            historyIndex = gifHistory.size() - 1;
-        } else {
-            historyIndex = gifHistory.indexOf(url);
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player != null && mc.gameRenderer.getCamera() != null) {
+            prevYaw = mc.gameRenderer.getCamera().getYaw(); 
+            prevPitch = mc.gameRenderer.getCamera().getPitch(); 
+            parallaxX = 0; parallaxY = 0;
         }
-        try {
-            Files.writeString(HISTORY_FILE.toPath(), String.join("\n", gifHistory));
-        } catch (Exception ignored) {}
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // TICK
-    // ─────────────────────────────────────────────────────────────
+    @Override public void onDisable() { this.active = false; }
+
+    private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x - 1, y - 1, x + w + 1, y, color);
+        context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
+        context.fill(x - 1, y, x, y + h, color);
+        context.fill(x + w, y, x + w + 1, y + h, color);
+    }
+
+    private void drawSkiaShadow(double x, double y, double w, double h, float blurRadius, int colorRgb) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        // Lệnh tối quan trọng để chống crash
+        skiaContext.resetAll();
+
+        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(),
+                mc.getWindow().getFramebufferHeight(),
+                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, 
+                ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+            
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+            
+            // Vẽ Bóng Đổ chuẩn (Dùng FilterBlurMode.OUTER để ở giữa trong suốt)
+            try (Paint paint = new Paint();
+                 MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, blurRadius)) {
+                paint.setColor(colorRgb);
+                paint.setMaskFilter(blur);
+                paint.setAntiAlias(true); 
+                
+                canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), paint);
+            }
+            skiaContext.flush();
+        }
+        
+        // Khôi phục GL State nguyên thủy bằng GL11C
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+    }
+
+    private void render(DrawContext context) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.options.hudHidden) return;
+
+        if (isLoading) {
+            context.drawText(mc.textRenderer, "Loading GIF...", (int)(double)posX.getValue(), (int)(double)posY.getValue(), 0xFFFFFF00, true);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long delay = (long)(double) frameDelay.getValue();
+        if (!gifFrames.isEmpty() && now - lastFrameTime >= delay) {
+            currentFrame = (currentFrame + 1) % gifFrames.size();
+            lastFrameTime = now;
+        }
+
+        Identifier frame = gifFrames.isEmpty() ? null : gifFrames.get(currentFrame);
+
+        if (parallax.getValue() && mc.player != null && mc.gameRenderer.getCamera() != null) {
+            float intensity = (float)(double) parallaxSpeed.getValue();
+            float targetX = 0, targetY = 0;
+
+            if (mc.currentScreen != null) {
+                double scale = mc.getWindow().getScaleFactor();
+                double sw = mc.getWindow().getScaledWidth(), sh = mc.getWindow().getScaledHeight();
+                double mx = mc.mouse.getX() / scale, my = mc.mouse.getY() / scale;
+                targetX = (float) (((mx - sw / 2.0) / (sw / 2.0)) * -intensity * 4.0);
+                targetY = (float) (((my - sh / 2.0) / (sh / 2.0)) * -intensity * 4.0);
+                
+                prevYaw = mc.gameRenderer.getCamera().getYaw(); 
+                prevPitch = mc.gameRenderer.getCamera().getPitch();
+            } else {
+                float yaw = mc.gameRenderer.getCamera().getYaw();
+                float pitch = mc.gameRenderer.getCamera().getPitch();
+                
+                float dYaw = net.minecraft.util.math.MathHelper.wrapDegrees(yaw - prevYaw);
+                float dPitch = pitch - prevPitch;
+                dYaw = net.minecraft.util.math.MathHelper.clamp(dYaw, -20f, 20f);
+                dPitch = net.minecraft.util.math.MathHelper.clamp(dPitch, -20f, 20f);
+                
+                targetX = -dYaw * intensity * 0.8f; 
+                targetY = -dPitch * intensity * 0.8f;
+                
+                prevYaw = yaw; 
+                prevPitch = pitch;
+            }
+
+            parallaxX += (targetX - parallaxX) * 0.15f; 
+            parallaxY += (targetY - parallaxY) * 0.15f;
+            if (mc.currentScreen == null) { parallaxX *= 0.8f; parallaxY *= 0.8f; }
+        } else {
+            parallaxX = 0; parallaxY = 0;
+            if (mc.player != null && mc.gameRenderer.getCamera() != null) { 
+                prevYaw = mc.gameRenderer.getCamera().getYaw(); 
+                prevPitch = mc.gameRenderer.getCamera().getPitch(); 
+            }
+        }
+
+        double baseX = posX.getValue();
+        double baseY = posY.getValue();
+        double w = width.getValue();
+        double h = height.getValue();
+
+        double realX = baseX + parallaxX;
+        double realY = baseY + parallaxY;
+
+        if (dropShadow.getValue() && frame != null) {
+            int shadowColor = new java.awt.Color(0, 0, 0, 160).getRGB();
+            drawSkiaShadow(realX, realY, w, h, 18f, shadowColor);
+        }
+
+        context.getMatrices().pushMatrix();
+        context.getMatrices().translate((float)realX, (float)realY);
+
+        if (HUDEditor.INSTANCE.active) {
+            double scale = mc.getWindow().getScaleFactor();
+            double mx = mc.mouse.getX() / scale;
+            double my = mc.mouse.getY() / scale;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+
+            if (mouseDown && !wasMouseDownEditor) {
+                if (mx >= realX && mx <= realX + w && my >= realY && my <= realY + h) {
+                    if (HUDEditor.draggingHUD.isEmpty() || HUDEditor.draggingHUD.equals("GifHUD")) {
+                        isDraggingHUD = true; HUDEditor.draggingHUD = "GifHUD";
+                        dragOffsetX = mx - realX; dragOffsetY = my - realY;
+                    }
+                }
+            } else if (!mouseDown) {
+                if (isDraggingHUD) HUDEditor.draggingHUD = "";
+                isDraggingHUD = false;
+            }
+
+            if (isDraggingHUD && mouseDown) {
+                baseX = mx - dragOffsetX - parallaxX; 
+                baseY = my - dragOffsetY - parallaxY;
+                posX.setValue(baseX); posY.setValue(baseY);
+                drawOutline(context, 0, 0, (int)w, (int)h, 0xFF00FF00); 
+            } else if (mx >= realX && mx <= realX + w && my >= realY && my <= realY + h) {
+                drawOutline(context, 0, 0, (int)w, (int)h, 0xFFFFFF00); 
+            }
+            wasMouseDownEditor = mouseDown;
+        }
+
+        if (frame == null) {
+            context.drawText(mc.textRenderer, "No GIF Loaded", 0, 0, 0xFFFF5555, true);
+        } else {
+            context.drawTexture(RenderPipelines.GUI_TEXTURED, frame, 0, 0, 0, 0, (int)w, (int)h, (int)w, (int)h);
+        }
+
+        context.getMatrices().popMatrix();
+    }
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
@@ -165,46 +303,31 @@ public class GifHUD extends AddonModule {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // RENDER
-    // ─────────────────────────────────────────────────────────────
-
-    private void render(DrawContext context) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden) return;
-
-        if (isLoading) {
-            context.drawText(mc.textRenderer, "Loading GIF...",
-                (int)(double)posX.getValue(), (int)(double)posY.getValue(), 0xFFFFFF00, true);
-            return;
-        }
-
-        if (gifFrames.isEmpty()) {
-            context.drawText(mc.textRenderer, "No GIF (copy link → Load from Clipboard)",
-                (int)(double)posX.getValue(), (int)(double)posY.getValue(), 0xFFFF5555, true);
-            return;
-        }
-
-        long now   = System.currentTimeMillis();
-        long delay = (long)(double) frameDelay.getValue();
-        if (now - lastFrameTime >= delay) {
-            currentFrame = (currentFrame + 1) % gifFrames.size();
-            lastFrameTime = now;
-        }
-
-        Identifier frame = gifFrames.get(currentFrame);
-        if (frame == null) return;
-
-        int x = (int)(double) posX.getValue();
-        int y = (int)(double) posY.getValue();
-        int w = (int)(double) width.getValue();
-        int h = (int)(double) height.getValue();
-        context.drawTexture(RenderPipelines.GUI_TEXTURED, frame, x, y, 0, 0, w, h, w, h);
+    private void loadHistory() {
+        gifHistory.clear();
+        try {
+            if (HISTORY_FILE.exists()) {
+                List<String> lines = Files.readAllLines(HISTORY_FILE.toPath());
+                for (String line : lines) {
+                    String clean = line.trim();
+                    if (!clean.isEmpty()) gifHistory.add(clean);
+                }
+                if (!gifHistory.isEmpty()) historyIndex = gifHistory.size() - 1;
+            }
+        } catch (Exception ignored) {}
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // LOAD GIF
-    // ─────────────────────────────────────────────────────────────
+    private void saveToHistory(String url) {
+        if (!gifHistory.contains(url)) {
+            gifHistory.add(url);
+            historyIndex = gifHistory.size() - 1;
+        } else {
+            historyIndex = gifHistory.indexOf(url);
+        }
+        try {
+            Files.writeString(HISTORY_FILE.toPath(), String.join("\n", gifHistory));
+        } catch (Exception ignored) {}
+    }
 
     private String resolveDirectGifLink(String link) {
         try {

@@ -3,9 +3,11 @@ package com.example.addon;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.modules.AntiPiston;
+import com.example.addon.modules.AntiPiston2;
 import com.example.addon.modules.ChestButtons;
 import com.example.addon.modules.GifGUI;
 import com.example.addon.modules.GifHUD;
+import com.example.addon.modules.HUDEditor;
 import com.example.addon.modules.MusicHUD;
 import com.example.addon.modules.PlayMusic;
 import com.example.addon.modules.SelfWeb;
@@ -37,9 +39,11 @@ public class ExampleAddon extends Addon {
         modules.add(MusicHUD.INSTANCE);
         modules.add(SelfWeb.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
+        modules.add(AntiPiston2.INSTANCE);
         modules.add(GifHUD.INSTANCE);
         modules.add(GifGUI.INSTANCE);
         modules.add(VersionHUD.INSTANCE);
+        modules.add(HUDEditor.INSTANCE);
         // Register client module extensions - demonstrate extension API
         extensions.add(new ExampleExtension());
 
