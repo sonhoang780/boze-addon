@@ -150,7 +150,24 @@ public class MusicHUD extends AddonModule {
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
-
+            if (enableGlow && accent != null) {
+                try (Paint glowPaint = new Paint();
+                     MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 12f)) {
+                    glowPaint.setColor(accent.getRGB());
+                    glowPaint.setMaskFilter(blur);
+                    glowPaint.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
+                }
+            }
+            
+            // --- 3. VIỀN STROKE TRẮNG MỎNG ---
+            try (Paint strokePaint = new Paint()) {
+                strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
+                strokePaint.setMode(PaintMode.STROKE);
+                strokePaint.setStrokeWidth(1.0f);
+                strokePaint.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
+            }
             // --- 1. SKIA FROSTED GLASS (BACKDROP BLUR MƯỢT MÀ, BO GÓC HOÀN HẢO) ---
             canvas.save();
             // Cắt theo RRect để Blur không bao giờ bị lòi ra 4 góc
@@ -177,25 +194,6 @@ public class MusicHUD extends AddonModule {
                 }
             }
 
-            // --- 2. GLOW HÀO QUANG (Chỉ viền OUTER) ---
-            if (enableGlow && accent != null) {
-                try (Paint glowPaint = new Paint();
-                     MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 12f)) {
-                    glowPaint.setColor(accent.getRGB());
-                    glowPaint.setMaskFilter(blur);
-                    glowPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
-                }
-            }
-            
-            // --- 3. VIỀN STROKE TRẮNG MỎNG ---
-            try (Paint strokePaint = new Paint()) {
-                strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
-                strokePaint.setMode(PaintMode.STROKE);
-                strokePaint.setStrokeWidth(1.0f);
-                strokePaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
-            }
             
             skiaContext.flush();
         }
