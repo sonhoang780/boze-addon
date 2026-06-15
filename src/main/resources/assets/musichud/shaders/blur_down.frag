@@ -1,21 +1,16 @@
 #version 330 core
-
-precision lowp float;
-
-in vec2 uv;
-out vec4 color;
-
+in vec2 vTexCoord;
+out vec4 FragColor;
 uniform sampler2D uTexture;
 uniform vec2 uHalfTexelSize;
 uniform float uOffset;
-
 void main() {
-    color = (
-        texture(uTexture, uv) * 4 +
-        texture(uTexture, uv - uHalfTexelSize.xy * uOffset) +
-        texture(uTexture, uv + uHalfTexelSize.xy * uOffset) +
-        texture(uTexture, uv + vec2(uHalfTexelSize.x, -uHalfTexelSize.y) * uOffset) +
-        texture(uTexture, uv - vec2(uHalfTexelSize.x, -uHalfTexelSize.y) * uOffset)
-    ) / 8;
-    color.a = 1;
+    vec2 uv = vTexCoord;
+    vec2 halfPixel = uHalfTexelSize * uOffset;
+    vec4 sum = texture(uTexture, uv) * 4.0;
+    sum += texture(uTexture, uv - halfPixel.xy);
+    sum += texture(uTexture, uv + halfPixel.xy);
+    sum += texture(uTexture, uv + vec2(halfPixel.x, -halfPixel.y));
+    sum += texture(uTexture, uv - vec2(halfPixel.x, -halfPixel.y));
+    FragColor = sum / 8.0;
 }

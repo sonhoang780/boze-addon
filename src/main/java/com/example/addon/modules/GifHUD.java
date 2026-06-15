@@ -1,25 +1,5 @@
 package com.example.addon.modules;
 
-import dev.boze.api.addon.AddonModule;
-import dev.boze.api.option.SliderOption;
-import dev.boze.api.option.ToggleOption;
-import dev.boze.api.event.EventTick;
-import meteordevelopment.orbit.EventHandler;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-
-import io.github.humbleui.skija.*;
-import io.github.humbleui.types.*;
-
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -33,6 +13,35 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+
+import dev.boze.api.addon.AddonModule;
+import dev.boze.api.event.EventTick;
+import dev.boze.api.option.SliderOption;
+import dev.boze.api.option.ToggleOption;
+import io.github.humbleui.skija.BackendRenderTarget;
+import io.github.humbleui.skija.Canvas;
+import io.github.humbleui.skija.ColorSpace;
+import io.github.humbleui.skija.ColorType;
+import io.github.humbleui.skija.DirectContext;
+import io.github.humbleui.skija.FilterBlurMode;
+import io.github.humbleui.skija.MaskFilter;
+import io.github.humbleui.skija.Paint;
+import io.github.humbleui.skija.Surface;
+import io.github.humbleui.skija.SurfaceOrigin;
+import io.github.humbleui.types.Rect;
+import meteordevelopment.orbit.EventHandler;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.texture.NativeImageBackedTexture;
+import net.minecraft.util.Identifier;
 
 public class GifHUD extends AddonModule {
     public static final GifHUD INSTANCE = new GifHUD();
@@ -171,15 +180,13 @@ public class GifHUD extends AddonModule {
             float targetX = 0, targetY = 0;
 
             if (mc.currentScreen != null) {
-                double scale = mc.getWindow().getScaleFactor();
-                double sw = mc.getWindow().getScaledWidth(), sh = mc.getWindow().getScaledHeight();
-                double mx = mc.mouse.getX() / scale, my = mc.mouse.getY() / scale;
-                targetX = (float) (((mx - sw / 2.0) / (sw / 2.0)) * -intensity * 4.0);
-                targetY = (float) (((my - sh / 2.0) / (sh / 2.0)) * -intensity * 4.0);
-                
+                // ĐÃ FIX: Tắt Parallax chuột khi mở Chat / Inventory
+                targetX = 0;
+                targetY = 0;
                 prevYaw = mc.gameRenderer.getCamera().getYaw(); 
                 prevPitch = mc.gameRenderer.getCamera().getPitch();
             } else {
+                // Chỉ áp dụng Parallax khi xoay Camera trong lúc chơi
                 float yaw = mc.gameRenderer.getCamera().getYaw();
                 float pitch = mc.gameRenderer.getCamera().getPitch();
                 
@@ -198,6 +205,11 @@ public class GifHUD extends AddonModule {
             parallaxX += (targetX - parallaxX) * 0.15f; 
             parallaxY += (targetY - parallaxY) * 0.15f;
             if (mc.currentScreen == null) { parallaxX *= 0.8f; parallaxY *= 0.8f; }
+        else {
+                // Tăng tốc độ hồi vị trí gốc êm ái khi đang bật GUI
+                parallaxX *= 0.5f; 
+                parallaxY *= 0.5f; 
+            }
         } else {
             parallaxX = 0; parallaxY = 0;
             if (mc.player != null && mc.gameRenderer.getCamera() != null) { 

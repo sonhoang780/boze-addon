@@ -26,18 +26,8 @@ public final class BlurUtils {
      *
      * @param radius bán kính bo góc (pixel), 4–6 là đẹp
      */
-    public static void drawBlur(DrawContext context, int x, int y, int w, int h,
-                                Color tint, float intensity) {
+    public static void drawBlur(DrawContext context, int x, int y, int w, int h, Color tint, float intensity) {
         blurRequested = true;
-
-        // ── Tint màu nhẹ phủ lên blur ──
-        float ci = Math.max(0f, Math.min(1f, intensity));
-        int   ta = (int)(Math.min(tint.getAlpha(), 200) * 0.35f * ci);
-        if (ta > 0 && w > 0 && h > 0) {
-            context.fill(x, y, x + w, y + h,
-                new Color(tint.getRed(), tint.getGreen(), tint.getBlue(), ta).getRGB());
-        }
-
     }
 
     /** Overload tương thích */

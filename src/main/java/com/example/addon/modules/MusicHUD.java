@@ -8,7 +8,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.CompletableFuture;
-
+import com.mojang.blaze3d.systems.RenderSystem;
 import javax.imageio.ImageIO;
 import javax.swing.plaf.synth.ColorType;
 
@@ -49,11 +49,14 @@ public class MusicHUD extends AddonModule {
     public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
     
     public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "Make the audio bars fade out as they go up.", true);
-    
-    public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Add bloom effect to track and artist text.", false);
+    public final SliderOption blurIntensity = new SliderOption(this, "Blur Intensity", "Intensity of the blur effect.", 15.0, 0.0, 50.0, 1.0);
+    public final SliderOption titleFontSize = new SliderOption(this, "Title Font Size", "Size of the track title font (Skia).", 13.0, 5.0, 30.0, 0.5);
+    public final SliderOption authorFontSize = new SliderOption(this, "Author Font Size", "Size of the artist name font (Skia).", 11.0, 5.0, 30.0, 0.5);
+    public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Add bloom effect to track and artist text.", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
+    public final ToggleOption textBloomPlus = new ToggleOption(this, "Text Bloom Plus", "Skia Text Bloom (Smooth font).", false, () -> this.textBloom == null || !this.textBloom.getValue());
     public final ToggleOption compactMode = new ToggleOption(this, "Compact Mode", "Collapse the HUD, limiting its height.", false);
-    public final ToggleOption disk = new ToggleOption(this, "Disk", "Enable to show the spinning record, disable to show a static image.", true);
-    public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false);
+    public final ToggleOption disk = new ToggleOption(this, "Disk", "Enable to show the spinning record.", true);
+    public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false, () -> disk.getValue());
     public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
     
     public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
@@ -129,32 +132,52 @@ public class MusicHUD extends AddonModule {
 
     private void drawSkiaBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        
+        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll(); 
 
-        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        
+        int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(),
-                mc.getWindow().getFramebufferHeight(),
-                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 8, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, 
-                io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
             
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
 
-            // 1. VẼ LỚP NỀN KÍNH ĐEN TRONG SUỐT BẰNG SKIA ĐỂ BO TRÒN GÓC NHỌN CỦA KAWASE BLUR
-            try (Paint bgPaint = new Paint()) {
-                bgPaint.setColor(new Color(15, 15, 15, 130).getRGB());
-                bgPaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), bgPaint);
-            }
+            // --- 1. SKIA FROSTED GLASS (BACKDROP BLUR MƯỢT MÀ, BO GÓC HOÀN HẢO) ---
+            canvas.save();
+            // Cắt theo RRect để Blur không bao giờ bị lòi ra 4 góc
+            canvas.clipRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), ClipMode.INTERSECT, true);
             
-            // 2. VẼ HÀO QUANG (Chỉ viền OUTLINE, bên trong không đặc sệt)
+            float blurVal = (float)(double) blurIntensity.getValue();
+            
+            if (blurVal > 0) {
+                try (ImageFilter backdropBlur = ImageFilter.makeBlur(blurVal, blurVal, FilterTileMode.CLAMP)) {
+                    canvas.saveLayer(new SaveLayerRec(null, null, backdropBlur));
+                    try (Paint bgPaint = new Paint()) {
+                        bgPaint.setColor(new Color(15, 15, 15, 90).getRGB());
+                        bgPaint.setAntiAlias(true);
+                        canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), bgPaint);
+                    }
+                    canvas.restore();
+                }
+            } else {
+                // Nếu kéo Blur về 0, chỉ vẽ màng đen để đỡ lag GPU
+                try (Paint bgPaint = new Paint()) {
+                    bgPaint.setColor(new Color(15, 15, 15, 90).getRGB());
+                    bgPaint.setAntiAlias(true);
+                    canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), bgPaint);
+                }
+            }
+
+            // --- 2. GLOW HÀO QUANG (Chỉ viền OUTER) ---
             if (enableGlow && accent != null) {
                 try (Paint glowPaint = new Paint();
                      MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 12f)) {
@@ -165,7 +188,7 @@ public class MusicHUD extends AddonModule {
                 }
             }
             
-            // 3. VẼ VIỀN STROKE TRẮNG MỎNG
+            // --- 3. VIỀN STROKE TRẮNG MỎNG ---
             try (Paint strokePaint = new Paint()) {
                 strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
                 strokePaint.setMode(PaintMode.STROKE);
@@ -174,7 +197,6 @@ public class MusicHUD extends AddonModule {
                 canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
             }
             
-            // FIX CRASH CHÍ MẠNG: Thay thế skiaContext.flush() bằng lệnh an toàn của Surface
             skiaContext.flush();
         }
         
@@ -450,21 +472,32 @@ public class MusicHUD extends AddonModule {
                 String authorClipped = clipText(mc, displayAuthor, (int)contentW - 30);
                 renderBars(context, track, contentX + 75, y, contentW - 75); 
                 renderProgress(context, track, contentX, y, contentW);
-                if (textBloom.getValue()) {
-                    int bloomAlpha = 60; 
-                    int titleBloom = (bloomAlpha << 24) | 0xFFFFFF;
-                    int artistBloom = (bloomAlpha << 24) | (accentColor.getRGB() & 0xFFFFFF);
-                    
-                    int[][] offsets = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-                    for (int[] off : offsets) {
-                        context.drawText(mc.textRenderer, titleClipped,  (int)contentX + off[0], (int)y + 8 + off[1],  titleBloom, false);
-                        context.drawText(mc.textRenderer, authorClipped, (int)contentX + off[0], (int)y + 20 + off[1], artistBloom, false);
-                    }
+                if (!textBloomPlus.getValue()) {
+                    context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
+                    context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
                 }
 
-                context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
-                context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
 
+                if (textBloomPlus.getValue()) {
+                    drawSkiaTextWithBloom(contentX, y, titleClipped, authorClipped, accentColor);
+                } else {
+                    // Fix lỗi RenderSystem không tồn tại ở 1.21.11 bằng OpenGL thuần
+                    org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+                    org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+                    org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+
+                    if (textBloom.getValue()) {
+                        int bloomAlpha = 60; 
+                        int titleBloom = (bloomAlpha << 24) | 0xFFFFFF;
+                        int artistBloom = (bloomAlpha << 24) | (accentColor.getRGB() & 0xFFFFFF);
+                        
+                        int[][] offsets = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int[] off : offsets) {
+                            context.drawText(mc.textRenderer, titleClipped,  (int)contentX + off[0], (int)y + 8 + off[1],  titleBloom, false);
+                            context.drawText(mc.textRenderer, authorClipped, (int)contentX + off[0], (int)y + 20 + off[1], artistBloom, false);
+                        }
+                    }
+                }
                 if (track != null) {
                     long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
                     if (!isTrackPlaying) s = ds;
@@ -527,7 +560,11 @@ public class MusicHUD extends AddonModule {
     private void drawSkiaCircularGlow(double cx, double cy, float radius, Color accent) {
         if (accent == null) return;
         MinecraftClient mc = MinecraftClient.getInstance();
-        
+        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll(); 
 
@@ -751,5 +788,79 @@ public class MusicHUD extends AddonModule {
         if (videoId.contains("v=")) { String s = videoId.split("v=")[1].split("&")[0]; return s.length() >= 11 ? s.substring(0, 11) : s; }
         if (videoId.contains("youtu.be/")) { String s = videoId.split("youtu.be/")[1].split("\\?")[0]; return s.length() >= 11 ? s.substring(0, 11) : s; }
         return videoId.length() >= 11 ? videoId.substring(0, 11) : videoId;
+    }
+    private Font skiaFontTitle;
+    private Font skiaFontAuthor;
+    private float lastTitleSize = -1f;
+    private float lastAuthorSize = -1f;
+
+    private void drawSkiaTextWithBloom(double cx, double cy, String title, String author, Color accent) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        skiaContext.resetAll();
+
+        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+            
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+
+            float tSize = (float)(double) titleFontSize.getValue();
+            float aSize = (float)(double) authorFontSize.getValue();
+
+            // Cập nhật lại font nếu người dùng kéo thay đổi kích cỡ
+            if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize) {
+                if (skiaFontTitle != null) skiaFontTitle.close();
+                if (skiaFontAuthor != null) skiaFontAuthor.close();
+
+                Typeface typeface = null;
+                // Người dùng chỉ cần vứt file musichud_font.ttf vào folder boze/ là xong!
+                java.io.File fontFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musichud_font.ttf");
+                if (fontFile.exists()) {
+                    try { typeface = FontMgr.getDefault().makeFromFile(fontFile.getAbsolutePath()); } catch (Exception ignored) {}
+                }
+                if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle("Arial", FontStyle.BOLD);
+                if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
+                
+                skiaFontTitle = new Font(typeface, tSize);
+                skiaFontAuthor = new Font(typeface, aSize);
+                lastTitleSize = tSize;
+                lastAuthorSize = aSize;
+            }
+
+            try (Paint textPaint = new Paint();
+                 Paint bloomPaint = new Paint();
+                 ImageFilter blurTitle = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, 0xFFFFFFFF)) {
+                
+                textPaint.setAntiAlias(true);
+                bloomPaint.setAntiAlias(true);
+
+                bloomPaint.setImageFilter(blurTitle);
+                canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, bloomPaint);
+                textPaint.setColor(0xFFFFFFFF);
+                canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, textPaint);
+
+                try (ImageFilter blurAuthor = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, accent.getRGB())) {
+                    bloomPaint.setImageFilter(blurAuthor);
+                    canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, bloomPaint);
+                    textPaint.setColor(accent.getRGB());
+                    canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, textPaint);
+                }
+            }
+            skiaContext.flush();
+        }
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
     }
 }
