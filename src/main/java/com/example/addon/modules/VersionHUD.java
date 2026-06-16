@@ -40,7 +40,7 @@ public class VersionHUD extends AddonModule {
 
     private void render(DrawContext context) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden) return;
+        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
 
         String version = FabricLoader.getInstance().getModContainer("boze-addon")
                          .map(c -> c.getMetadata().getVersion().getFriendlyString())

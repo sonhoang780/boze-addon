@@ -159,7 +159,7 @@ public class GifHUD extends AddonModule {
 
     private void render(DrawContext context) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden) return;
+        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
 
         if (isLoading) {
             context.drawText(mc.textRenderer, "Loading GIF...", (int)(double)posX.getValue(), (int)(double)posY.getValue(), 0xFFFFFF00, true);

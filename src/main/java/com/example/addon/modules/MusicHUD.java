@@ -16,8 +16,9 @@ import org.lwjgl.glfw.GLFW;
 
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackState;
-
+import meteordevelopment.orbit.EventHandler;
 import dev.boze.api.addon.AddonModule;
+import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.ModeOption;
@@ -147,7 +148,14 @@ public class MusicHUD extends AddonModule {
 
     @Override public void onEnable()  { this.active = true; lastRenderTime = System.currentTimeMillis(); isFirstRender = true; }
     @Override public void onDisable() { this.active = false; }
-
+    @EventHandler
+    private void onTick(EventTick.Pre event) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (openFontUi.getValue()) {
+            openFontUi.setValue(false); 
+            mc.execute(() -> mc.setScreen(new FontScreen()));
+        }
+    }
     private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
         context.fill(x - 1, y - 1, x + w + 1, y, color);
         context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
@@ -265,45 +273,6 @@ public class MusicHUD extends AddonModule {
         boolean justReleased = !mouseDown && wasMouseDown;
         wasMouseDown = mouseDown;
 
-        // ─── ĐÁNH CHẶN CLICK CHUỘT KHI ĐANG MỞ BẢNG CHỌN FONT SELECTOR ───
-        if (openFontUi.getValue() && mc.currentScreen != null) {
-            int screenW = mc.getWindow().getScaledWidth();
-            int screenH = mc.getWindow().getScaledHeight();
-            int winX = (screenW - 180) / 2;
-            int winY = (screenH - 280) / 2;
-            java.io.File musicFontDir = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musicfont");
-
-            if (justPressed) {
-                // Click nút "Add" -> Mở folder musicfont
-                if (mouseX >= winX + 15 && mouseX <= winX + 75 && mouseY >= winY + 246 && mouseY <= winY + 266) {
-                    try {
-                        if (!musicFontDir.exists()) musicFontDir.mkdirs();
-                        net.minecraft.util.Util.getOperatingSystem().open(musicFontDir);
-                    } catch (Exception ignored) {}
-                    return;
-                }
-                // Click nút "Close" -> Đóng bảng chọn font
-                if (mouseX >= winX + 105 && mouseX <= winX + 165 && mouseY >= winY + 246 && mouseY <= winY + 266) {
-                    openFontUi.setValue(false);
-                    return;
-                }
-                // Click vào List để chọn Font
-                if (mouseX >= winX + 10 && mouseX <= winX + 170 && mouseY >= winY + 26 && mouseY <= winY + 236) {
-                    int clickedIdx = (int) ((mouseY - (winY + 28)) / 15);
-                    synchronized (this) {
-                        if (clickedIdx >= 0 && clickedIdx < availableFonts.size() && clickedIdx < 13) {
-                            activeFontFile = availableFonts.get(clickedIdx);
-                            lastFontModifiedTime = -1L; // Ép hot-reload font mới ngay lập tức
-                        }
-                    }
-                    return;
-                }
-            }
-            // Nếu chuột nằm trong phạm vi bảng Font, nuốt luôn sự kiện, không cho lọt ra HUD phía sau
-            if (mouseX >= winX && mouseX <= winX + 180 && mouseY >= winY && mouseY <= winY + 280) {
-                return;
-            }
-        }
 
         double edgeX = hudX + hudW;
         boolean hoverEdge = !useUltra && mouseX >= edgeX - 6 && mouseX <= edgeX + 6 && mouseY >= hudY && mouseY <= hudY + hudH;
@@ -388,7 +357,7 @@ public class MusicHUD extends AddonModule {
 
     private void render(DrawContext context) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden) return;
+        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
         
         long now = System.currentTimeMillis();
         long deltaMs = now - lastRenderTime;
@@ -644,64 +613,6 @@ public class MusicHUD extends AddonModule {
                 drawOutline(context, (int)x, (int)y, (int)hudW, (int)hudH, 0xFFFFFF00);
             }
             wasMouseDownEditor = mouseDown;
-        }
-        // VẼ GIAO DIỆN BẢNG CHỌN FONT (CHỈ HIỂN THỊ KHI BẬT CONFIG VÀ MỞ MÀN HÌNH GUI)
-        if (openFontUi.getValue() && mc.currentScreen != null) {
-            int screenW = mc.getWindow().getScaledWidth();
-            int screenH = mc.getWindow().getScaledHeight();
-            int winX = (screenW - 180) / 2;
-            int winY = (screenH - 280) / 2;
-
-            // Tái sử dụng hàm Skia Frosted Glass có sẵn của mày để tạo nền kính mờ đổ bóng cực sang chảnh
-            drawSkiaBackground(winX, winY, 180, 280, 6f, accentColor, true);
-
-            // Tiêu đề bảng
-            String titleText = "Music Fonts";
-            int titleW = mc.textRenderer.getWidth(titleText);
-            context.drawText(mc.textRenderer, titleText, winX + (180 - titleW) / 2, winY + 10, 0xFFFFFFFF, true);
-
-            // Khung nền danh sách (List View Box)
-            context.fill(winX + 10, winY + 26, winX + 170, winY + 236, 0x55000000);
-
-            double scaleFactor = mc.getWindow().getScaleFactor();
-            double mx = mc.mouse.getX() / scaleFactor;
-            double my = mc.mouse.getY() / scaleFactor;
-
-            java.util.List<java.io.File> fontsCopy;
-            synchronized(this) { fontsCopy = new java.util.ArrayList<>(this.availableFonts); }
-
-            int itemH = 15;
-            int startY = winY + 28;
-            for (int i = 0; i < fontsCopy.size() && i < 13; i++) {
-                java.io.File f = fontsCopy.get(i);
-                int itemY = startY + i * itemH;
-                String name = f.getName().substring(0, f.getName().lastIndexOf('.'));
-                
-                boolean isSelected = (activeFontFile != null && activeFontFile.getAbsolutePath().equals(f.getAbsolutePath()));
-                boolean isHovered = mx >= winX + 10 && mx <= winX + 170 && my >= itemY && my < itemY + itemH;
-
-                if (isSelected) {
-                    // Highlight màu xanh rực rỡ hoặc màu Accent bài hát khi được chọn giống Boze gốc
-                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), 90).getRGB());
-                } else if (isHovered) {
-                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, 0x33FFFFFF);
-                }
-
-                String renderedName = clipText(mc, name, 145);
-                context.drawText(mc.textRenderer, renderedName, winX + 16, itemY + 3, isSelected ? 0xFFFFFFFF : 0xFFDDDDDD, true);
-            }
-
-            // Nút bấm "Add"
-            boolean hoverAdd = mx >= winX + 15 && mx <= winX + 75 && my >= winY + 246 && my <= winY + 266;
-            context.fill(winX + 15, winY + 246, winX + 75, winY + 266, hoverAdd ? 0xFF444444 : 0xFF222222);
-            drawOutline(context, winX + 15, winY + 246, 60, 20, 0x33FFFFFF);
-            context.drawText(mc.textRenderer, "Add", winX + 15 + (60 - mc.textRenderer.getWidth("Add")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
-
-            // Nút bấm "Close"
-            boolean hoverClose = mx >= winX + 105 && mx <= winX + 165 && my >= winY + 246 && my <= winY + 266;
-            context.fill(winX + 105, winY + 246, winX + 165, winY + 266, hoverClose ? 0xFF444444 : 0xFF222222);
-            drawOutline(context, winX + 105, winY + 246, 60, 20, 0x33FFFFFF);
-            context.drawText(mc.textRenderer, "Close", winX + 105 + (60 - mc.textRenderer.getWidth("Close")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
         }
     }
 
@@ -1323,6 +1234,114 @@ public class MusicHUD extends AddonModule {
                     }
                 }
             }
+        }
+    }
+    // ─── CLASS MÀN HÌNH CHỌN FONT ĐỘC LẬP (ĐÃ BYPASS LỖI MOUSECLICKED) ───
+    public class FontScreen extends net.minecraft.client.gui.screen.Screen {
+        private boolean previousHudHidden = false;
+        private boolean wasMouseDownFont = false; // Biến ảo để bắt sự kiện click
+
+        public FontScreen() {
+            super(net.minecraft.text.Text.literal("Music Fonts"));
+        }
+
+        @Override
+        protected void init() {
+            previousHudHidden = client.options.hudHidden;
+            client.options.hudHidden = true; 
+        }
+
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc.options.hudHidden && !(mc.currentScreen instanceof FontScreen)) return;
+            context.fill(0, 0, this.width, this.height, 0x66000000);
+            
+            int winX = (this.width - 180) / 2;
+            int winY = (this.height - 280) / 2;
+
+            drawSkiaBackground(winX, winY, 180, 280, 6f, accentColor, true);
+
+            String titleText = "Music Fonts";
+            int titleW = client.textRenderer.getWidth(titleText);
+            context.drawText(client.textRenderer, titleText, winX + (180 - titleW) / 2, winY + 10, 0xFFFFFFFF, true);
+
+            context.fill(winX + 10, winY + 26, winX + 170, winY + 236, 0x55000000);
+
+            java.util.List<java.io.File> fontsCopy;
+            synchronized(MusicHUD.this) { fontsCopy = new java.util.ArrayList<>(availableFonts); }
+
+            int itemH = 15;
+            int startY = winY + 28;
+            for (int i = 0; i < fontsCopy.size() && i < 13; i++) {
+                java.io.File f = fontsCopy.get(i);
+                int itemY = startY + i * itemH;
+                String name = f.getName().substring(0, f.getName().lastIndexOf('.'));
+                
+                boolean isSelected = (activeFontFile != null && activeFontFile.getAbsolutePath().equals(f.getAbsolutePath()));
+                boolean isHovered = mouseX >= winX + 10 && mouseX <= winX + 170 && mouseY >= itemY && mouseY < itemY + itemH;
+
+                if (isSelected) {
+                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), 90).getRGB());
+                } else if (isHovered) {
+                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, 0x33FFFFFF);
+                }
+
+                String renderedName = clipText(client, name, 145);
+                context.drawText(client.textRenderer, renderedName, winX + 16, itemY + 3, isSelected ? 0xFFFFFFFF : 0xFFDDDDDD, true);
+            }
+
+            boolean hoverAdd = mouseX >= winX + 15 && mouseX <= winX + 75 && mouseY >= winY + 246 && mouseY <= winY + 266;
+            context.fill(winX + 15, winY + 246, winX + 75, winY + 266, hoverAdd ? 0xFF444444 : 0xFF222222);
+            drawOutline(context, winX + 15, winY + 246, 60, 20, 0x33FFFFFF);
+            context.drawText(client.textRenderer, "Add", winX + 15 + (60 - client.textRenderer.getWidth("Add")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+
+            boolean hoverClose = mouseX >= winX + 105 && mouseX <= winX + 165 && mouseY >= winY + 246 && mouseY <= winY + 266;
+            context.fill(winX + 105, winY + 246, winX + 165, winY + 266, hoverClose ? 0xFF444444 : 0xFF222222);
+            drawOutline(context, winX + 105, winY + 246, 60, 20, 0x33FFFFFF);
+            context.drawText(client.textRenderer, "Close", winX + 105 + (60 - client.textRenderer.getWidth("Close")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+
+            // ─── TÍCH HỢP BẮT CLICK CHUỘT TRỰC TIẾP TRONG RENDER ───
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(client.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+            boolean justPressed = mouseDown && !wasMouseDownFont;
+            wasMouseDownFont = mouseDown;
+
+            if (justPressed) {
+                java.io.File musicFontDir = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musicfont");
+
+                if (hoverAdd) {
+                    try {
+                        if (!musicFontDir.exists()) musicFontDir.mkdirs();
+                        net.minecraft.util.Util.getOperatingSystem().open(musicFontDir);
+                    } catch (Exception ignored) {}
+                } 
+                else if (hoverClose) {
+                    this.close();
+                } 
+                else if (mouseX >= winX + 10 && mouseX <= winX + 170 && mouseY >= winY + 26 && mouseY <= winY + 236) {
+                    int clickedIdx = (int) ((mouseY - (winY + 28)) / 15);
+                    synchronized (MusicHUD.this) {
+                        if (clickedIdx >= 0 && clickedIdx < availableFonts.size() && clickedIdx < 13) {
+                            activeFontFile = availableFonts.get(clickedIdx);
+                            lastFontModifiedTime = -1L; // Cập nhật nóng
+                        }
+                    }
+                }
+            }
+
+            super.render(context, mouseX, mouseY, delta);
+        }
+
+        @Override
+        public void close() {
+            client.options.hudHidden = previousHudHidden;
+            openFontUi.setValue(false);
+            super.close();
+        }
+
+        @Override
+        public boolean shouldPause() {
+            return false;
         }
     }
 }
