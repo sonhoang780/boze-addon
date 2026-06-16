@@ -249,7 +249,13 @@ public class MusicHUD extends AddonModule {
 
     private double calcTargetWidth(MinecraftClient mc) {
         if (compactMode.getValue()) return THUMB_W + 10 + 130.0;
-        int maxTextW = Math.max(mc.textRenderer.getWidth(displayTitle), mc.textRenderer.getWidth(displayAuthor));
+        double maxTextW;
+        // Bắt chiều dài Font tự động co giãn theo Size của Skia
+        if (textBloomPlus.getValue() && skiaFontTitle != null && skiaFontAuthor != null) {
+            maxTextW = Math.max(skiaFontTitle.measureTextWidth(displayTitle), skiaFontAuthor.measureTextWidth(displayAuthor));
+        } else {
+            maxTextW = Math.max(mc.textRenderer.getWidth(displayTitle), mc.textRenderer.getWidth(displayAuthor));
+        }
         return Math.ceil((THUMB_W + 10 + Math.max(160, maxTextW + 60)) / 10.0) * 10.0;
     }
 
@@ -354,11 +360,78 @@ public class MusicHUD extends AddonModule {
         double ratio = Math.max(0, Math.min(1, (mx - pBarX) / pBarW));
         PlayMusic.seekTo((long)(ratio * track.getDuration()));
     }
+    
+    private void initSkiaFontsIfNeeded() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        float tSize = (float)(double) titleFontSize.getValue();
+        float aSize = (float)(double) authorFontSize.getValue();
+
+        java.io.File dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile();
+        java.io.File musicFontDir = new java.io.File(dir, "boze/musicfont");
+        if (!musicFontDir.exists()) musicFontDir.mkdirs();
+
+        java.io.File[] files = musicFontDir.listFiles((d, name) -> name.toLowerCase().endsWith(".ttf") || name.toLowerCase().endsWith(".otf"));
+        java.util.List<java.io.File> scannedFonts = new java.util.ArrayList<>();
+        if (files != null) {
+            for (java.io.File f : files) scannedFonts.add(f);
+        }
+        
+        synchronized(this) {
+            this.availableFonts.clear();
+            this.availableFonts.addAll(scannedFonts);
+            
+            // TỰ ĐỘNG ĐỌC LẠI FONT ĐÃ LƯU TỪ LẦN TRƯỚC
+            if (activeFontFile == null) {
+                java.io.File saveFile = new java.io.File(dir, "boze/musicfont_save.txt");
+                if (saveFile.exists()) {
+                    try {
+                        String savedPath = java.nio.file.Files.readString(saveFile.toPath()).trim();
+                        if (!savedPath.isEmpty()) {
+                            java.io.File sf = new java.io.File(savedPath);
+                            if (sf.exists()) activeFontFile = sf;
+                        }
+                    } catch (Exception e) {}
+                }
+            }
+            if (activeFontFile != null && !activeFontFile.exists()) activeFontFile = null;
+        }
+
+        java.io.File targetFontFile = activeFontFile;
+        if (targetFontFile == null) {
+            targetFontFile = new java.io.File(dir, "boze/musichud_font.otf");
+            if (!targetFontFile.exists()) targetFontFile = new java.io.File(dir, "boze/musichud_font.ttf");
+        }
+
+        long currentModTime = targetFontFile.exists() ? targetFontFile.lastModified() : -1L;
+        String fontIdentifier = targetFontFile.exists() ? targetFontFile.getAbsolutePath() : "Arial";
+
+        if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath)) {
+            if (skiaFontTitle != null) skiaFontTitle.close();
+            if (skiaFontAuthor != null) skiaFontAuthor.close();
+
+            Typeface typeface = null;
+            if (targetFontFile.exists()) {
+                try {
+                    byte[] fontBytes = java.nio.file.Files.readAllBytes(targetFontFile.toPath());
+                    typeface = FontMgr.getDefault().makeFromData(Data.makeFromBytes(fontBytes));
+                } catch (Exception ignored) {}
+            }
+            if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle("Arial", FontStyle.BOLD);
+            if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
+            
+            skiaFontTitle = new Font(typeface, tSize);
+            skiaFontAuthor = new Font(typeface, aSize);
+            lastTitleSize = tSize;
+            lastAuthorSize = aSize;
+            lastFontModifiedTime = currentModTime;
+            lastFontPath = fontIdentifier;
+        }
+    }
 
     private void render(DrawContext context) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
-        
+        initSkiaFontsIfNeeded();
         long now = System.currentTimeMillis();
         long deltaMs = now - lastRenderTime;
         if (waveProgress < 1.0f) {
@@ -1116,77 +1189,25 @@ public class MusicHUD extends AddonModule {
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
 
-            float tSize = (float)(double) titleFontSize.getValue();
-            float aSize = (float)(double) authorFontSize.getValue();
+            if (skiaFontTitle != null && skiaFontAuthor != null) {
+                try (Paint textPaint = new Paint();
+                     Paint bloomPaint = new Paint();
+                     ImageFilter blurTitle = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, 0xFFFFFFFF)) {
+                    
+                    textPaint.setAntiAlias(true);
+                    bloomPaint.setAntiAlias(true);
 
-            // Tự động quét và khởi tạo folder boze/musicfont/ nếu chưa có
-            java.io.File dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile();
-            java.io.File musicFontDir = new java.io.File(dir, "boze/musicfont");
-            if (!musicFontDir.exists()) musicFontDir.mkdirs();
+                    bloomPaint.setImageFilter(blurTitle);
+                    canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, bloomPaint);
+                    textPaint.setColor(0xFFFFFFFF);
+                    canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, textPaint);
 
-            java.io.File[] files = musicFontDir.listFiles((d, name) -> name.toLowerCase().endsWith(".ttf") || name.toLowerCase().endsWith(".otf"));
-            java.util.List<java.io.File> scannedFonts = new java.util.ArrayList<>();
-            if (files != null) {
-                for (java.io.File f : files) scannedFonts.add(f);
-            }
-            
-            // Đồng bộ danh sách Font động ra ngoài UI
-            synchronized(this) {
-                this.availableFonts.clear();
-                this.availableFonts.addAll(scannedFonts);
-                if (activeFontFile != null && !activeFontFile.exists()) activeFontFile = null;
-            }
-
-            // Lựa chọn file Font mục tiêu (Ưu tiên font được chọn từ bảng UI, sau đó là font mặc định cũ)
-            java.io.File targetFontFile = activeFontFile;
-            if (targetFontFile == null) {
-                targetFontFile = new java.io.File(dir, "boze/musichud_font.otf");
-                if (!targetFontFile.exists()) targetFontFile = new java.io.File(dir, "boze/musichud_font.ttf");
-            }
-
-            long currentModTime = targetFontFile.exists() ? targetFontFile.lastModified() : -1L;
-            String fontIdentifier = targetFontFile.exists() ? targetFontFile.getAbsolutePath() : "Arial";
-
-            // Nếu đổi font, đổi kích cỡ, hoặc file bị sửa đổi -> Kích hoạt Tải lại nóng (Hot-Reload)
-            if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath)) {
-                if (skiaFontTitle != null) skiaFontTitle.close();
-                if (skiaFontAuthor != null) skiaFontAuthor.close();
-
-                Typeface typeface = null;
-                if (targetFontFile.exists()) {
-                    try {
-                        byte[] fontBytes = java.nio.file.Files.readAllBytes(targetFontFile.toPath());
-                        typeface = FontMgr.getDefault().makeFromData(Data.makeFromBytes(fontBytes));
-                    } catch (Exception ignored) {}
-                }
-                if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle("Arial", FontStyle.BOLD);
-                if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
-                
-                skiaFontTitle = new Font(typeface, tSize);
-                skiaFontAuthor = new Font(typeface, aSize);
-                lastTitleSize = tSize;
-                lastAuthorSize = aSize;
-                lastFontModifiedTime = currentModTime;
-                lastFontPath = fontIdentifier;
-            }
-
-            try (Paint textPaint = new Paint();
-                 Paint bloomPaint = new Paint();
-                 ImageFilter blurTitle = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, 0xFFFFFFFF)) {
-                
-                textPaint.setAntiAlias(true);
-                bloomPaint.setAntiAlias(true);
-
-                bloomPaint.setImageFilter(blurTitle);
-                canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, bloomPaint);
-                textPaint.setColor(0xFFFFFFFF);
-                canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, textPaint);
-
-                try (ImageFilter blurAuthor = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, accent.getRGB())) {
-                    bloomPaint.setImageFilter(blurAuthor);
-                    canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, bloomPaint);
-                    textPaint.setColor(accent.getRGB());
-                    canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, textPaint);
+                    try (ImageFilter blurAuthor = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, accent.getRGB())) {
+                        bloomPaint.setImageFilter(blurAuthor);
+                        canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, bloomPaint);
+                        textPaint.setColor(accent.getRGB());
+                        canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, textPaint);
+                    }
                 }
             }
             skiaContext.flush();
@@ -1324,6 +1345,11 @@ public class MusicHUD extends AddonModule {
                         if (clickedIdx >= 0 && clickedIdx < availableFonts.size() && clickedIdx < 13) {
                             activeFontFile = availableFonts.get(clickedIdx);
                             lastFontModifiedTime = -1L; // Cập nhật nóng
+                            // LƯU LẠI FONT ĐỂ DÙNG CHO CÁC LẦN VÀO GAME SAU
+                            try {
+                                java.io.File saveFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musicfont_save.txt");
+                                java.nio.file.Files.writeString(saveFile.toPath(), activeFontFile.getAbsolutePath());
+                            } catch (Exception ignored) {}
                         }
                     }
                 }
