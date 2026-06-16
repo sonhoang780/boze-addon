@@ -13,7 +13,6 @@
   },
   "client": [
     "MixinMinecraftClient",
-    "BlurMixin",
     "CameraMixin"
   ]
 }

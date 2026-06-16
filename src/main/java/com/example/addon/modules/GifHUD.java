@@ -133,7 +133,7 @@ public class GifHUD extends AddonModule {
                 0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, 
-                ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+                io.github.humbleui.skija.SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();

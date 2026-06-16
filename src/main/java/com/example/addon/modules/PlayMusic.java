@@ -545,9 +545,14 @@ public class PlayMusic extends AddonModule {
             try {
                 line = (SourceDataLine) AudioSystem.getLine(info); line.open(stream.getFormat()); line.start(); playing = true;
                 byte[] buffer = new byte[StandardAudioDataFormats.COMMON_PCM_S16_BE.maximumChunkSize()]; int chunkSize;
+                
                 while (!stop && (chunkSize = stream.read(buffer)) != -1) {
-                    if (chunkSize == 0) { PlayMusic.currentAmplitude = 0f; Thread.sleep(5); continue; }
-                    while (player != null && player.isPaused()) { PlayMusic.currentAmplitude = 0f; Thread.sleep(100); }
+                    if (chunkSize == 0 || (player != null && player.isPaused())) { 
+                        PlayMusic.currentAmplitude = 0f; 
+                        Thread.sleep(10); 
+                        continue; 
+                    }
+                    
                     int maxSample = 0;
                     for (int i = 0; i < chunkSize - 1; i += 2) {
                         short sample = (short) ((buffer[i] << 8) | (buffer[i + 1] & 0xFF));
@@ -556,6 +561,8 @@ public class PlayMusic extends AddonModule {
                     float rawPeak = maxSample / 32768.0f; float currentVol = player.getVolume() / 100.0f;
                     if (currentVol > 0.05f) rawPeak = rawPeak / currentVol; 
                     PlayMusic.currentAmplitude = Math.min(1.0f, rawPeak * 1.8f);
+                    
+                    // Chỉ đẩy ra loa khi không Pause
                     line.write(buffer, 0, chunkSize);
                 }
             } catch (Exception e) {} finally { PlayMusic.currentAmplitude = 0f; if (line != null) { line.drain(); line.stop(); line.close(); } playing = false; }

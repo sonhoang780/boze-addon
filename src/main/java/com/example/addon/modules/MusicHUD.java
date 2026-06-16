@@ -21,7 +21,6 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.ModeOption;
-import com.example.addon.utils.BlurUtils;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
@@ -43,29 +42,41 @@ public class MusicHUD extends AddonModule {
         LerpMode(String text) { this.text = text; }
         @Override public String toString() { return text; }
     }
-
+    public enum ButtonEffect {
+        Splash("Splash"), Topo("Topo"), Gradient("Gradient");
+        private final String text;
+        ButtonEffect(String text) { this.text = text; }
+        @Override public String toString() { return text; }
+    }
     public final SliderOption posX     = new SliderOption(this, "X Position", "Horizontal position.",                 10.0,  0.0, 2000.0, 1.0);
     public final SliderOption posY     = new SliderOption(this, "Y Position", "Vertical position.",                   10.0,  0.0, 1000.0, 1.0);
     public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
-    
-    public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "Make the audio bars fade out as they go up.", true);
+    public final ToggleOption openFontUi = new ToggleOption(this, "Add Font", "", false);
+    public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "", true);
     public final SliderOption blurIntensity = new SliderOption(this, "Blur Intensity", "Intensity of the blur effect.", 15.0, 0.0, 50.0, 1.0);
-    public final SliderOption titleFontSize = new SliderOption(this, "Title Font Size", "Size of the track title font (Skia).", 13.0, 5.0, 30.0, 0.5);
-    public final SliderOption authorFontSize = new SliderOption(this, "Author Font Size", "Size of the artist name font (Skia).", 11.0, 5.0, 30.0, 0.5);
-    public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Add bloom effect to track and artist text.", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
-    public final ToggleOption textBloomPlus = new ToggleOption(this, "Text Bloom Plus", "Skia Text Bloom (Smooth font).", false, () -> this.textBloom == null || !this.textBloom.getValue());
+    public final SliderOption titleFontSize = new SliderOption(this, "Title Font Size", "Size of the track title font (TextBloomPlus only)", 13.0, 5.0, 30.0, 0.5);
+    public final SliderOption authorFontSize = new SliderOption(this, "Author Font Size", "Size of the artist name font (TextBloomPlus only)", 11.0, 5.0, 30.0, 0.5);
+    public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Vanilla Text Bloom", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
+    public final ToggleOption textBloomPlus = new ToggleOption(this, "Text Bloom Plus", "", false, () -> this.textBloom == null || !this.textBloom.getValue());
     public final ToggleOption compactMode = new ToggleOption(this, "Compact Mode", "Collapse the HUD, limiting its height.", false);
     public final ToggleOption disk = new ToggleOption(this, "Disk", "Enable to show the spinning record.", true);
     public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false, () -> disk.getValue());
     public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
     
     public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
-
+    public final ModeOption<ButtonEffect> buttonEffect = new ModeOption<>(this, "Button Effect", "Visual effect when clicking buttons.", ButtonEffect.Splash);
+    private final java.util.List<java.io.File> availableFonts = new java.util.ArrayList<>();
+    private java.io.File activeFontFile = null;
+    private String lastFontPath = "";
     private static final int    BAR_COUNT  = 15;
     private static final int    THUMB_W    = 55;
     private static final int    THUMB_H    = 55;
     private static final int    HUD_HEIGHT = 70;
     private static final Identifier VINYL_TEX = Identifier.of("musichud", "vinyl.png");
+    private static final Identifier PLAY_ICON = Identifier.of("musichud", "play.png");
+    private static final Identifier PAUSE_ICON = Identifier.of("musichud", "pause-button.png");
+    private static final Identifier PREV_ICON = Identifier.of("musichud", "previous.png");
+    private static final Identifier NEXT_ICON = Identifier.of("musichud", "next-button.png");
 
     private boolean isDraggingHUD = false;
     private double dragOffsetX = 0, dragOffsetY = 0;
@@ -108,8 +119,22 @@ public class MusicHUD extends AddonModule {
 
     private final float[] barHeights = new float[BAR_COUNT];
     private float smoothedAmp = 0f;
+    private float waveProgress = 1.0f;
+    private double waveX = 0;
+    private double waveY = 0;
+
+    private void triggerWave(double x, double y) {
+        this.waveX = x;
+        this.waveY = y;
+        this.waveProgress = 0.0f;
+    }
     private boolean isDragging = false, wasMouseDown = false;
     private boolean hoverPrev = false, hoverPlay = false, hoverNext = false, hoverProgress = false;
+    // Vị trí xem trước khi đang kéo thanh tiến trình (0.0 - 1.0).
+    // Khi đang kéo, UI luôn vẽ theo giá trị này thay vì track.getPosition(),
+    // vì audio engine không seek liên tục mỗi frame (sẽ giật/lag).
+    private double dragPreviewRatio = -1; // -1 = không đang kéo
+    private long   lastSeekSentAt   = 0;  // throttle gọi PlayMusic.seekTo() thật
 
     private DirectContext skiaContext;
 
@@ -145,7 +170,7 @@ public class MusicHUD extends AddonModule {
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 8, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
@@ -194,7 +219,6 @@ public class MusicHUD extends AddonModule {
                 }
             }
 
-            
             skiaContext.flush();
         }
         
@@ -226,6 +250,7 @@ public class MusicHUD extends AddonModule {
         if (mc.currentScreen == null) {
             isDragging = wasMouseDown = hoverPrev = hoverPlay = hoverNext = hoverProgress = false;
             isDraggingWidth = false;
+            dragPreviewRatio = -1;
             hudHoverStartTime = 0; return;
         }
 
@@ -233,22 +258,60 @@ public class MusicHUD extends AddonModule {
         double scale  = mc.getWindow().getScaleFactor();
         double mouseX = mc.mouse.getX() / scale;
         double mouseY = mc.mouse.getY() / scale;
-
+        
         long win = mc.getWindow().getHandle();
         boolean mouseDown = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         boolean justPressed  = mouseDown && !wasMouseDown;
         boolean justReleased = !mouseDown && wasMouseDown;
         wasMouseDown = mouseDown;
 
+        // ─── ĐÁNH CHẶN CLICK CHUỘT KHI ĐANG MỞ BẢNG CHỌN FONT SELECTOR ───
+        if (openFontUi.getValue() && mc.currentScreen != null) {
+            int screenW = mc.getWindow().getScaledWidth();
+            int screenH = mc.getWindow().getScaledHeight();
+            int winX = (screenW - 180) / 2;
+            int winY = (screenH - 280) / 2;
+            java.io.File musicFontDir = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musicfont");
+
+            if (justPressed) {
+                // Click nút "Add" -> Mở folder musicfont
+                if (mouseX >= winX + 15 && mouseX <= winX + 75 && mouseY >= winY + 246 && mouseY <= winY + 266) {
+                    try {
+                        if (!musicFontDir.exists()) musicFontDir.mkdirs();
+                        net.minecraft.util.Util.getOperatingSystem().open(musicFontDir);
+                    } catch (Exception ignored) {}
+                    return;
+                }
+                // Click nút "Close" -> Đóng bảng chọn font
+                if (mouseX >= winX + 105 && mouseX <= winX + 165 && mouseY >= winY + 246 && mouseY <= winY + 266) {
+                    openFontUi.setValue(false);
+                    return;
+                }
+                // Click vào List để chọn Font
+                if (mouseX >= winX + 10 && mouseX <= winX + 170 && mouseY >= winY + 26 && mouseY <= winY + 236) {
+                    int clickedIdx = (int) ((mouseY - (winY + 28)) / 15);
+                    synchronized (this) {
+                        if (clickedIdx >= 0 && clickedIdx < availableFonts.size() && clickedIdx < 13) {
+                            activeFontFile = availableFonts.get(clickedIdx);
+                            lastFontModifiedTime = -1L; // Ép hot-reload font mới ngay lập tức
+                        }
+                    }
+                    return;
+                }
+            }
+            // Nếu chuột nằm trong phạm vi bảng Font, nuốt luôn sự kiện, không cho lọt ra HUD phía sau
+            if (mouseX >= winX && mouseX <= winX + 180 && mouseY >= winY && mouseY <= winY + 280) {
+                return;
+            }
+        }
+
         double edgeX = hudX + hudW;
         boolean hoverEdge = !useUltra && mouseX >= edgeX - 6 && mouseX <= edgeX + 6 && mouseY >= hudY && mouseY <= hudY + hudH;
-
         double contentX = hudX + THUMB_W + 10;
         double pBarX    = contentX;
         double pBarW    = hudW - (THUMB_W + 10) - 10;
         double pBarY    = hudY + hudH - 14;
-        
-        double btnY     = hudY + 35; 
+        double btnY     = hudY + 35;
         double btnPrevX = contentX;
         double btnPlayX = contentX + 25;
         double btnNextX = contentX + 50;
@@ -257,13 +320,12 @@ public class MusicHUD extends AddonModule {
         hoverPlay = mouseX >= btnPlayX && mouseX <= btnPlayX + 15 && mouseY >= btnY && mouseY <= btnY + 12;
         hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 15 && mouseY >= btnY && mouseY <= btnY + 12;
         hoverProgress = track != null && mouseX >= pBarX && mouseX <= pBarX + pBarW && mouseY >= pBarY && mouseY <= pBarY + 10;
-        boolean hoverHud = mouseX >= hudX && mouseX <= hudX + hudW && mouseY >= hudY && mouseY <= hudY + hudH;
 
+        boolean hoverHud = mouseX >= hudX && mouseX <= hudX + hudW && mouseY >= hudY && mouseY <= hudY + hudH;
         double currentDiskW = useUltra ? (int)(double)diskSize.getValue() : THUMB_W;
         double currentDiskH = useUltra ? (int)(double)diskSize.getValue() : THUMB_H;
         double diskX = useUltra ? hudX : hudX + 5;
         double diskY = useUltra ? hudY : hudY + 7;
-        
         double centerX = diskX + currentDiskW / 2.0;
         double centerY = diskY + currentDiskH / 2.0;
         double radius = currentDiskW / 2.0;
@@ -276,40 +338,46 @@ public class MusicHUD extends AddonModule {
             } else if (useUltra) {
                 if (hoverUltraDisk) PlayMusic.INSTANCE.togglePause.setValue(true);
             } else {
-                if (hoverPlay) PlayMusic.INSTANCE.togglePause.setValue(true);
-                else if (hoverPrev) PlayMusic.INSTANCE.previousBtn.setValue(true);
-                else if (hoverNext) PlayMusic.INSTANCE.nextBtn.setValue(true);
+                if (hoverPlay) { PlayMusic.INSTANCE.togglePause.setValue(true); triggerWave(btnPlayX + 6, btnY + 6); }
+                else if (hoverPrev) { PlayMusic.INSTANCE.previousBtn.setValue(true); triggerWave(btnPrevX + 6, btnY + 6); }
+                else if (hoverNext) { PlayMusic.INSTANCE.nextBtn.setValue(true); triggerWave(btnNextX + 6, btnY + 6); }
                 else if (hoverProgress && track != null) {
                     isDragging = true;
-                    seekToMouse(mouseX, pBarX, pBarW, track);
+                    dragPreviewRatio = Math.max(0, Math.min(1, (mouseX - pBarX) / pBarW));
                 }
             }
         }
-        
         if (mouseDown && isDraggingWidth) {
             manualTargetWidth = Math.max(THUMB_W + 120.0, mouseX - hudX);
         }
 
         if (mouseDown && isDragging && track != null && !useUltra) {
-            seekToMouse(mouseX, pBarX, pBarW, track);
+            dragPreviewRatio = Math.max(0, Math.min(1, (mouseX - pBarX) / pBarW));
+            long nowMs = System.currentTimeMillis();
+            if (nowMs - lastSeekSentAt >= 200) {
+                PlayMusic.seekTo((long)(dragPreviewRatio * track.getDuration()));
+                lastSeekSentAt = nowMs;
+            }
         }
-
+    
         boolean isHoveringTarget = useUltra ? hoverUltraDisk : (hoverHud && !isDragging && !hoverPlay && !hoverPrev && !hoverNext && !isDraggingWidth && !hoverEdge);
-
         if (mouseDown && isHoveringTarget) {
             if (hudHoverStartTime == 0) hudHoverStartTime = System.currentTimeMillis();
             else if (System.currentTimeMillis() - hudHoverStartTime >= 2500) {
-                if (track != null) track.stop(); 
-                isManuallyStopped = true; 
+                if (track != null) track.stop();
+                isManuallyStopped = true;
                 hudHoverStartTime = 0;
             }
         } else {
-            hudHoverStartTime = 0; 
+            hudHoverStartTime = 0;
         }
-
         if (justReleased) {
+            if (isDragging && track != null && !useUltra) {
+                seekToMouse(mouseX, pBarX, pBarW, track);
+            }
             isDragging = false;
             isDraggingWidth = false;
+            dragPreviewRatio = -1;
         }
     }
 
@@ -324,6 +392,10 @@ public class MusicHUD extends AddonModule {
         
         long now = System.currentTimeMillis();
         long deltaMs = now - lastRenderTime;
+        if (waveProgress < 1.0f) {
+            waveProgress += (deltaMs / 600.0f); // Sóng lan tỏa trong 600ms
+            if (waveProgress > 1.0f) waveProgress = 1.0f;
+        }
         lastRenderTime = now;
         boolean useUltra = disk.getValue() && ultraDisk.getValue();
 
@@ -364,7 +436,6 @@ public class MusicHUD extends AddonModule {
             
             if (!useUltra) {
                 // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-                BlurUtils.drawBlur(context, (int)x, (int)y, (int)animW, HUD_HEIGHT, new Color(0, 0, 0, 0), 0.72f);
                 drawSkiaBackground(x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
                 context.drawText(mc.textRenderer, "Not playing", (int)x + 15, (int)y + 28, 0xFFFFFFFF, true);
             }
@@ -445,7 +516,6 @@ public class MusicHUD extends AddonModule {
 
         if (!useUltra) {
             // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-            BlurUtils.drawBlur(context, (int)x, (int)y, (int)hudW, HUD_HEIGHT, new Color(0, 0, 0, 0), 0.72f);
             drawSkiaBackground(x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
         } else {
             drawSkiaCircularGlow(currentThumbX + currentThumbW / 2.0, currentThumbY + currentThumbH / 2.0, currentThumbW / 2.0f, accentColor);
@@ -469,7 +539,7 @@ public class MusicHUD extends AddonModule {
                 String titleClipped  = clipText(mc, displayTitle,  (int)contentW - 30);
                 String authorClipped = clipText(mc, displayAuthor, (int)contentW - 30);
                 renderBars(context, track, contentX + 75, y, contentW - 75); 
-                renderProgress(context, track, contentX, y, contentW);
+
                 if (!textBloomPlus.getValue()) {
                     context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
                     context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
@@ -479,7 +549,7 @@ public class MusicHUD extends AddonModule {
                 if (textBloomPlus.getValue()) {
                     drawSkiaTextWithBloom(contentX, y, titleClipped, authorClipped, accentColor);
                 } else {
-                    // Fix lỗi RenderSystem không tồn tại ở 1.21.11 bằng OpenGL thuần
+
                     org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
                     org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
                     org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -504,21 +574,43 @@ public class MusicHUD extends AddonModule {
                     context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
                 }
 
-                double btnPrevX = contentX;
+                if (track != null) {
+                    long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
+                    if (!isTrackPlaying) s = ds;
+                    String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
+                    int timeW = mc.textRenderer.getWidth(time);
+                    context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
+                }
+
+                int iconSz = 12;
+                int btnY = (int)y + 35;
+                double btnPrevX = contentX + 2; 
                 double btnPlayX = contentX + 25;
-                double btnNextX = contentX + 50;
-                
-                int colorPrev = hoverPrev ? 0xFFFFFFFF : 0xFFBBBBBB;
-                int colorPlay = hoverPlay ? 0xFFFFFFFF : (PlayMusic.isPlayerPaused() || !isTrackPlaying ? accentColor.getRGB() : 0xFFBBBBBB);
-                int colorNext = hoverNext ? 0xFFFFFFFF : 0xFFBBBBBB;
+                double btnNextX = contentX + 48;
 
-                context.drawText(mc.textRenderer, "⏮", (int)btnPrevX, (int)y + 35, colorPrev, true);
-                context.drawText(mc.textRenderer, PlayMusic.isPlayerPaused() || !isTrackPlaying ? "▶" : "⏸", (int)btnPlayX, (int)y + 35, colorPlay, true);
-                context.drawText(mc.textRenderer, "⏭", (int)btnNextX, (int)y + 35, colorNext, true);
+                // Tính tọa độ cho Progress Bar và Núm tròn giọt nước
+                double progX = -1;
+                double progY = y + HUD_HEIGHT - 8;
+                int pBarW = (int)(contentW - 10);
+                int filledW = 0;
+                if (track != null) {
+                    double progress = (dragPreviewRatio >= 0)
+                        ? dragPreviewRatio
+                        : (double) track.getPosition() / track.getDuration();
+                    if (dragPreviewRatio < 0 && track.getState() == AudioTrackState.FINISHED) progress = 1.0;
+                    filledW = Math.max(3, (int)(pBarW * progress));
+                    progX = contentX + filledW;
+                }
 
-                
-            }
-        } else {
+                // GIAO TOÀN QUYỀN VẼ SKIA Ở ĐÂY (TRUYỀN THÊM BIẾN SÓNG + KHUNG CLIP HUD VÀO)
+                drawSkiaLiquidUI(btnPrevX, btnPlayX, btnNextX, btnY, iconSz, hoverPrev, hoverPlay, hoverNext, progX, progY, contentX, y + HUD_HEIGHT - 10, pBarW, filledW, hoverProgress, accentColor, waveX, waveY, waveProgress, x, y, hudW, HUD_HEIGHT, 8f);
+                // VẼ ICON PNG LÊN TRÊN MẶT GIỌT NƯỚC
+                context.drawTexture(RenderPipelines.GUI_TEXTURED, PREV_ICON, (int)btnPrevX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
+                Identifier currentPlayIcon = (PlayMusic.isPlayerPaused() || !isTrackPlaying) ? PLAY_ICON : PAUSE_ICON;
+                context.drawTexture(RenderPipelines.GUI_TEXTURED, currentPlayIcon, (int)btnPlayX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
+                context.drawTexture(RenderPipelines.GUI_TEXTURED, NEXT_ICON, (int)btnNextX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
+                }
+            } else {
             if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
                 long held = System.currentTimeMillis() - hudHoverStartTime;
                 float holdProgress = Math.min(1.0f, held / 2500.0f); 
@@ -553,6 +645,64 @@ public class MusicHUD extends AddonModule {
             }
             wasMouseDownEditor = mouseDown;
         }
+        // VẼ GIAO DIỆN BẢNG CHỌN FONT (CHỈ HIỂN THỊ KHI BẬT CONFIG VÀ MỞ MÀN HÌNH GUI)
+        if (openFontUi.getValue() && mc.currentScreen != null) {
+            int screenW = mc.getWindow().getScaledWidth();
+            int screenH = mc.getWindow().getScaledHeight();
+            int winX = (screenW - 180) / 2;
+            int winY = (screenH - 280) / 2;
+
+            // Tái sử dụng hàm Skia Frosted Glass có sẵn của mày để tạo nền kính mờ đổ bóng cực sang chảnh
+            drawSkiaBackground(winX, winY, 180, 280, 6f, accentColor, true);
+
+            // Tiêu đề bảng
+            String titleText = "Music Fonts";
+            int titleW = mc.textRenderer.getWidth(titleText);
+            context.drawText(mc.textRenderer, titleText, winX + (180 - titleW) / 2, winY + 10, 0xFFFFFFFF, true);
+
+            // Khung nền danh sách (List View Box)
+            context.fill(winX + 10, winY + 26, winX + 170, winY + 236, 0x55000000);
+
+            double scaleFactor = mc.getWindow().getScaleFactor();
+            double mx = mc.mouse.getX() / scaleFactor;
+            double my = mc.mouse.getY() / scaleFactor;
+
+            java.util.List<java.io.File> fontsCopy;
+            synchronized(this) { fontsCopy = new java.util.ArrayList<>(this.availableFonts); }
+
+            int itemH = 15;
+            int startY = winY + 28;
+            for (int i = 0; i < fontsCopy.size() && i < 13; i++) {
+                java.io.File f = fontsCopy.get(i);
+                int itemY = startY + i * itemH;
+                String name = f.getName().substring(0, f.getName().lastIndexOf('.'));
+                
+                boolean isSelected = (activeFontFile != null && activeFontFile.getAbsolutePath().equals(f.getAbsolutePath()));
+                boolean isHovered = mx >= winX + 10 && mx <= winX + 170 && my >= itemY && my < itemY + itemH;
+
+                if (isSelected) {
+                    // Highlight màu xanh rực rỡ hoặc màu Accent bài hát khi được chọn giống Boze gốc
+                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), 90).getRGB());
+                } else if (isHovered) {
+                    context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, 0x33FFFFFF);
+                }
+
+                String renderedName = clipText(mc, name, 145);
+                context.drawText(mc.textRenderer, renderedName, winX + 16, itemY + 3, isSelected ? 0xFFFFFFFF : 0xFFDDDDDD, true);
+            }
+
+            // Nút bấm "Add"
+            boolean hoverAdd = mx >= winX + 15 && mx <= winX + 75 && my >= winY + 246 && my <= winY + 266;
+            context.fill(winX + 15, winY + 246, winX + 75, winY + 266, hoverAdd ? 0xFF444444 : 0xFF222222);
+            drawOutline(context, winX + 15, winY + 246, 60, 20, 0x33FFFFFF);
+            context.drawText(mc.textRenderer, "Add", winX + 15 + (60 - mc.textRenderer.getWidth("Add")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+
+            // Nút bấm "Close"
+            boolean hoverClose = mx >= winX + 105 && mx <= winX + 165 && my >= winY + 246 && my <= winY + 266;
+            context.fill(winX + 105, winY + 246, winX + 165, winY + 266, hoverClose ? 0xFF444444 : 0xFF222222);
+            drawOutline(context, winX + 105, winY + 246, 60, 20, 0x33FFFFFF);
+            context.drawText(mc.textRenderer, "Close", winX + 105 + (60 - mc.textRenderer.getWidth("Close")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+        }
     }
 
     private void drawSkiaCircularGlow(double cx, double cy, float radius, Color accent) {
@@ -571,7 +721,7 @@ public class MusicHUD extends AddonModule {
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
@@ -667,8 +817,10 @@ public class MusicHUD extends AddonModule {
 
     private void renderProgress(DrawContext context, AudioTrack track, double contentX, double y, double contentW) {
         if (track == null) return;
-        double progress = (double) track.getPosition() / track.getDuration();
-        if (track.getState() == AudioTrackState.FINISHED) progress = 1.0;
+        double progress = (dragPreviewRatio >= 0)
+            ? dragPreviewRatio
+            : (double) track.getPosition() / track.getDuration();
+        if (dragPreviewRatio < 0 && track.getState() == AudioTrackState.FINISHED) progress = 1.0;
         int    pBarW    = (int)(contentW - 10); int    filledW  = Math.max(3, (int)(pBarW * progress));
         int    barTop   = (int)(y + HUD_HEIGHT - 10); int    barBot   = (int)(y + HUD_HEIGHT - 6);
         context.fill((int)contentX, barTop, (int)contentX + pBarW, barBot, new Color(0, 0, 0, 120).getRGB());
@@ -787,10 +939,251 @@ public class MusicHUD extends AddonModule {
         if (videoId.contains("youtu.be/")) { String s = videoId.split("youtu.be/")[1].split("\\?")[0]; return s.length() >= 11 ? s.substring(0, 11) : s; }
         return videoId.length() >= 11 ? videoId.substring(0, 11) : videoId;
     }
+    private void drawSkiaLiquidUI(double prevX, double playX, double nextX, double btnY, int iconSz, 
+                                  boolean hPrev, boolean hPlay, boolean hNext, 
+                                  double progX, double progY, double pBarX, double pBarTop, 
+                                  int pBarW, int filledW, boolean hProg, Color accent,
+                                  double waveX, double waveY, float waveProg,
+                                  double hudClipX, double hudClipY, double hudClipW, double hudClipH, float hudClipRadius) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        
+        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
+
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        skiaContext.resetAll();
+
+        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
+            
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+
+            if (pBarW > 0) {
+                try (Paint barBg = new Paint()) {
+                    barBg.setColor(new Color(0, 0, 0, 120).getRGB());
+                    barBg.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)pBarW, 4f, 2f), barBg);
+                }
+                try (Paint barFill = new Paint()) {
+                    barFill.setColor(hProg ? 0xFFFFFFFF : accent.getRGB());
+                    barFill.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)filledW, 4f, 2f), barFill);
+                }
+            }
+
+            // ĐÃ THÊM LẠI IF BỊ THIẾU VÀ TÍCH HỢP ĐỦ 3 CHẾ ĐỘ
+
+                canvas.save();
+                canvas.clipRRect(RRect.makeXYWH((float)hudClipX, (float)hudClipY, (float)hudClipW, (float)hudClipH, hudClipRadius), ClipMode.INTERSECT, true);
+                float maxRadius = (float) Math.hypot(hudClipW, hudClipH);
+                
+                ButtonEffect effect = buttonEffect.getValue();
+                if (effect == ButtonEffect.Topo) {
+                    drawTopoWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
+                } else if (effect == ButtonEffect.Gradient) {
+                    drawGradientWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius, accent);
+                } else {
+                    drawSplashWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
+                }
+                canvas.restore();
+        
+
+            float rBtn = iconSz / 2f + 4f;
+            float cy = (float) btnY + (iconSz / 2f);
+            if (hPrev) drawHoverGlow(canvas, (float)prevX + (iconSz / 2f), cy, rBtn);
+            if (hPlay) drawHoverGlow(canvas, (float)playX + (iconSz / 2f), cy, rBtn);
+            if (hNext) drawHoverGlow(canvas, (float)nextX + (iconSz / 2f), cy, rBtn);
+            
+            if (progX > 0) {
+                drawProgressRefractionKnob(canvas, (float)progX, (float)progY, 5.5f, hProg);
+            }
+
+            skiaContext.flush();
+        }
+        
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+    }
+
+    private void drawTopoWave(Canvas canvas, float cx, float cy, float progress, float maxRadius) {
+        if (progress <= 0.0f || progress >= 1.0f) return;
+        
+        // Dùng Cubic Ease-Out để sóng bung ra nhẹ nhàng, mượt mắt hơn
+        float easeProg = 1.0f - (float)Math.pow(1.0f - progress, 3.0);
+        float fadeOut = 1.0f - progress;
+        int alpha = (int)(255 * fadeOut);
+        if (alpha <= 0) return;
+
+        float baseRadius = easeProg * maxRadius;
+        if (baseRadius <= 2.0f) return;
+
+        int layers = 6;
+        try (Paint wavePaint = new Paint();
+             MaskFilter mf = MaskFilter.makeBlur(FilterBlurMode.NORMAL, 1.5f)) { 
+
+            wavePaint.setMode(PaintMode.STROKE);
+            wavePaint.setStrokeWidth(1.2f); 
+            wavePaint.setMaskFilter(mf);
+            wavePaint.setAntiAlias(true);
+
+            for (int l = 0; l < layers; l++) {
+                float layerRadius = baseRadius - (l * maxRadius * 0.12f);
+                if (layerRadius <= 2.0f) continue;
+
+                int layerAlpha = (int)(alpha * (1.0f - (l * 0.12f)));
+                if (layerAlpha <= 0) layerAlpha = 10;
+                wavePaint.setColor(new Color(255, 255, 255, layerAlpha).getRGB());
+
+                try (Path topoPath = buildTopoPath(cx, cy, layerRadius, progress)) {
+                    canvas.drawPath(topoPath, wavePaint);
+                }
+            }
+        }
+    }
+
+    private Path buildTopoPath(float cx, float cy, float radius, float progress) {
+        final int SAMPLES = 40; 
+        float[] xs = new float[SAMPLES];
+        float[] ys = new float[SAMPLES];
+
+        for (int i = 0; i < SAMPLES; i++) {
+            double angle = (Math.PI * 2.0 * i) / SAMPLES;
+            // FIX LỖI GIẬT FPS: Đưa progress vào hàm nhiễu để sóng uốn lượn liên tục thay vì tĩnh 1 chỗ
+            double n = Math.sin(angle * 3.0 - progress * 5.0) * 0.15 + Math.cos(angle * 5.0 + progress * 3.0) * 0.08 + Math.sin(angle * 2.0 + 1.5) * 0.10;
+
+            float r = (float)(radius * (1.0 + n));
+            xs[i] = cx + (float)(Math.cos(angle) * r);
+            ys[i] = cy + (float)(Math.sin(angle) * r);
+        }
+
+        Path path = new Path();
+        float startX = (xs[SAMPLES - 1] + xs[0]) / 2f;
+        float startY = (ys[SAMPLES - 1] + ys[0]) / 2f;
+        path.moveTo(startX, startY);
+
+        for (int i = 0; i < SAMPLES; i++) {
+            int next = (i + 1) % SAMPLES;
+            float midX = (xs[i] + xs[next]) / 2f;
+            float midY = (ys[i] + ys[next]) / 2f;
+            path.quadTo(xs[i], ys[i], midX, midY);
+        }
+        path.closePath();
+        return path;
+    }
+
+    // ─── HIỆU ỨNG 2: SPLASH WAVE (DẦU LOANG ĐÃ ĐƯỢC LÀM NHẠT ĐI) ───
+    private void drawSplashWave(Canvas canvas, float cx, float cy, float progress, float maxRadius) {
+        if (progress <= 0.0f || progress >= 1.0f) return;
+
+        float easeProg = 1.0f - (float)Math.pow(1.0f - progress, 2.5);
+        float fadeOut = 1.0f - easeProg;
+        
+        // GIẢM NHẸ ĐỘ ĐẬM CỦA SÓNG: Ép Alpha tối đa xuống 120 (thay vì 255/200 như trước)
+        int alpha = (int)(120 * fadeOut);
+        if (alpha <= 0) return;
+
+        float baseRadius = easeProg * maxRadius;
+        if (baseRadius <= 2.0f) return;
+
+        int layers = 3;
+        try (Paint wavePaint = new Paint();
+             MaskFilter mf = MaskFilter.makeBlur(FilterBlurMode.NORMAL, 6f + 4f * easeProg)) {
+
+            wavePaint.setMode(PaintMode.FILL);
+            wavePaint.setMaskFilter(mf);
+            wavePaint.setAntiAlias(true);
+
+            for (int l = 0; l < layers; l++) {
+                float layerRadius = baseRadius * (1.0f - l * 0.16f);
+                if (layerRadius <= 2.0f) continue;
+
+                int layerAlpha = (l == 0) ? alpha : alpha / (l + 1);
+                wavePaint.setColor(new Color(255, 255, 255, layerAlpha).getRGB());
+
+                try (Path splash = buildSplashPath(cx, cy, layerRadius, easeProg, l * 7 + 13)) {
+                    canvas.drawPath(splash, wavePaint);
+                }
+            }
+        }
+    }
+
+    private Path buildSplashPath(float cx, float cy, float radius, float easeProg, int seed) {
+        final int SAMPLES = 14;
+        float[] xs = new float[SAMPLES];
+        float[] ys = new float[SAMPLES];
+
+        for (int i = 0; i < SAMPLES; i++) {
+            double angle = (Math.PI * 2.0 * i) / SAMPLES;
+            double n = 0;
+            n += Math.sin(angle * 3.0 + seed * 0.9) * 0.20;
+            n += Math.sin(angle * 5.0 + seed * 1.7) * 0.12;
+            n += Math.sin(angle * 2.0 + seed * 0.4) * 0.10;
+
+            double directional = Math.cos(angle) * 0.22 * easeProg;
+            double rFactor = 1.0 + n + directional;
+            if (rFactor < 0.35) rFactor = 0.35; 
+
+            float r = (float)(radius * rFactor);
+            xs[i] = cx + (float)(Math.cos(angle) * r);
+            ys[i] = cy + (float)(Math.sin(angle) * r * 0.78f); 
+        }
+
+        Path path = new Path();
+        float startX = (xs[SAMPLES - 1] + xs[0]) / 2f;
+        float startY = (ys[SAMPLES - 1] + ys[0]) / 2f;
+        path.moveTo(startX, startY);
+
+        for (int i = 0; i < SAMPLES; i++) {
+            int next = (i + 1) % SAMPLES;
+            float midX = (xs[i] + xs[next]) / 2f;
+            float midY = (ys[i] + ys[next]) / 2f;
+            path.quadTo(xs[i], ys[i], midX, midY);
+        }
+        path.closePath();
+        return path;
+    }
+
+    // NÚM TIẾN TRÌNH VÀ HOVER GLOW
+    private void drawProgressRefractionKnob(Canvas canvas, float cx, float cy, float radius, boolean hover) {
+        float smallR = 4.5f; 
+        try (Paint glow = new Paint(); MaskFilter mf = MaskFilter.makeBlur(FilterBlurMode.OUTER, hover ? 6f : 3f)) {
+            glow.setColor(new Color(255, 255, 255, hover ? 255 : 180).getRGB());
+            glow.setMaskFilter(mf);
+            glow.setAntiAlias(true);
+            canvas.drawCircle(cx, cy, smallR, glow);
+        }
+        try (Paint fill = new Paint()) {
+            fill.setColor(0xFFFFFFFF);
+            fill.setAntiAlias(true);
+            canvas.drawCircle(cx, cy, smallR, fill);
+        }
+    }
+
+    private void drawHoverGlow(Canvas canvas, float cx, float cy, float radius) {
+        try (Paint glow = new Paint(); MaskFilter mf = MaskFilter.makeBlur(FilterBlurMode.NORMAL, 7f)) {
+            glow.setColor(new Color(255, 255, 255, 180).getRGB()); 
+            glow.setMaskFilter(mf);
+            glow.setAntiAlias(true);
+            canvas.drawCircle(cx, cy, radius, glow);
+        }
+    }
+
+
     private Font skiaFontTitle;
     private Font skiaFontAuthor;
     private float lastTitleSize = -1f;
     private float lastAuthorSize = -1f;
+    private long lastFontModifiedTime = -1L;
 
     private void drawSkiaTextWithBloom(double cx, double cy, String title, String author, Color accent) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -806,9 +1199,8 @@ public class MusicHUD extends AddonModule {
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB())) {
-            
+          Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) { 
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
@@ -816,16 +1208,45 @@ public class MusicHUD extends AddonModule {
             float tSize = (float)(double) titleFontSize.getValue();
             float aSize = (float)(double) authorFontSize.getValue();
 
-            // Cập nhật lại font nếu người dùng kéo thay đổi kích cỡ
-            if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize) {
+            // Tự động quét và khởi tạo folder boze/musicfont/ nếu chưa có
+            java.io.File dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile();
+            java.io.File musicFontDir = new java.io.File(dir, "boze/musicfont");
+            if (!musicFontDir.exists()) musicFontDir.mkdirs();
+
+            java.io.File[] files = musicFontDir.listFiles((d, name) -> name.toLowerCase().endsWith(".ttf") || name.toLowerCase().endsWith(".otf"));
+            java.util.List<java.io.File> scannedFonts = new java.util.ArrayList<>();
+            if (files != null) {
+                for (java.io.File f : files) scannedFonts.add(f);
+            }
+            
+            // Đồng bộ danh sách Font động ra ngoài UI
+            synchronized(this) {
+                this.availableFonts.clear();
+                this.availableFonts.addAll(scannedFonts);
+                if (activeFontFile != null && !activeFontFile.exists()) activeFontFile = null;
+            }
+
+            // Lựa chọn file Font mục tiêu (Ưu tiên font được chọn từ bảng UI, sau đó là font mặc định cũ)
+            java.io.File targetFontFile = activeFontFile;
+            if (targetFontFile == null) {
+                targetFontFile = new java.io.File(dir, "boze/musichud_font.otf");
+                if (!targetFontFile.exists()) targetFontFile = new java.io.File(dir, "boze/musichud_font.ttf");
+            }
+
+            long currentModTime = targetFontFile.exists() ? targetFontFile.lastModified() : -1L;
+            String fontIdentifier = targetFontFile.exists() ? targetFontFile.getAbsolutePath() : "Arial";
+
+            // Nếu đổi font, đổi kích cỡ, hoặc file bị sửa đổi -> Kích hoạt Tải lại nóng (Hot-Reload)
+            if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath)) {
                 if (skiaFontTitle != null) skiaFontTitle.close();
                 if (skiaFontAuthor != null) skiaFontAuthor.close();
 
                 Typeface typeface = null;
-                // Người dùng chỉ cần vứt file musichud_font.ttf vào folder boze/ là xong!
-                java.io.File fontFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/musichud_font.ttf");
-                if (fontFile.exists()) {
-                    try { typeface = FontMgr.getDefault().makeFromFile(fontFile.getAbsolutePath()); } catch (Exception ignored) {}
+                if (targetFontFile.exists()) {
+                    try {
+                        byte[] fontBytes = java.nio.file.Files.readAllBytes(targetFontFile.toPath());
+                        typeface = FontMgr.getDefault().makeFromData(Data.makeFromBytes(fontBytes));
+                    } catch (Exception ignored) {}
                 }
                 if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle("Arial", FontStyle.BOLD);
                 if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
@@ -834,6 +1255,8 @@ public class MusicHUD extends AddonModule {
                 skiaFontAuthor = new Font(typeface, aSize);
                 lastTitleSize = tSize;
                 lastAuthorSize = aSize;
+                lastFontModifiedTime = currentModTime;
+                lastFontPath = fontIdentifier;
             }
 
             try (Paint textPaint = new Paint();
@@ -860,5 +1283,46 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+    }
+    // ─── HIỆU ỨNG 3: GRADIENT 3D PAPER-CUT ───
+    private void drawGradientWave(Canvas canvas, float cx, float cy, float progress, float maxRadius, Color accent) {
+        if (progress <= 0.0f || progress >= 1.0f) return;
+
+        float easeProg = 1.0f - (float)Math.pow(1.0f - progress, 2.5);
+        float fadeOut = 1.0f - progress;
+        int baseAlpha = (int)(255 * fadeOut);
+        if (baseAlpha <= 0) return;
+
+        float baseRadius = easeProg * maxRadius;
+        if (baseRadius <= 2.0f) return;
+
+        int layers = 5; 
+
+        for (int l = 0; l < layers; l++) {
+            float layerRadius = baseRadius - (l * maxRadius * 0.16f);
+            if (layerRadius <= 2.0f) continue;
+
+            float ratio = (float) l / (layers - 1); 
+            
+            int r = (int)(255 + (accent.getRed() - 255) * ratio);
+            int g = (int)(255 + (accent.getGreen() - 255) * ratio);
+            int b = (int)(255 + (accent.getBlue() - 255) * ratio);
+            int a = (int)(baseAlpha * (0.3f + 0.7f * ratio));
+
+            try (Paint wavePaint = new Paint()) {
+                wavePaint.setMode(PaintMode.FILL); 
+                wavePaint.setColor(new Color(r, g, b, Math.max(0, Math.min(255, a))).getRGB());
+                wavePaint.setAntiAlias(true);
+
+                int shadowAlpha = (int)(120 * fadeOut); 
+                try (ImageFilter shadow = ImageFilter.makeDropShadow(0f, 4f, 10f, 10f, new Color(0, 0, 0, shadowAlpha).getRGB())) {
+                    wavePaint.setImageFilter(shadow);
+                    
+                    try (io.github.humbleui.skija.Path path = buildTopoPath(cx, cy, layerRadius, progress)) {
+                        canvas.drawPath(path, wavePaint);
+                    }
+                }
+            }
+        }
     }
 }

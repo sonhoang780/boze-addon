@@ -68,7 +68,7 @@ dependencies {
     def rhinoVersion = "1.7.14"
     
     // ─── SKIJA DEPENDENCIES (BẢN MỚI NHẤT) ────────────────────────
-    def skijaVersion = "0.143.16" 
+    def skijaVersion = "0.119.5" 
     def typesVersion = "0.2.0"
     
     implementation "io.github.humbleui:types:${typesVersion}"
