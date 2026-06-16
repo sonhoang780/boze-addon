@@ -199,7 +199,10 @@ public class EvilRekit extends AddonModule {
             
             activeKit = kitData;
             activeKitName = name;
-            
+            try {
+                java.io.File lastKitFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
+                java.nio.file.Files.writeString(lastKitFile.toPath(), name);
+            } catch (Exception ignored) {}
             info("Kit saved and activated: " + name);
         } catch (Exception e) {
             error("Error occurred while saving kit!");
@@ -219,6 +222,10 @@ public class EvilRekit extends AddonModule {
             Type type = new TypeToken<Map<Integer, KitItem>>() {}.getType();
             activeKit = gson.fromJson(reader, type);
             activeKitName = name;
+            try {
+                java.io.File lastKitFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
+                java.nio.file.Files.writeString(lastKitFile.toPath(), name);
+            } catch (Exception ignored) {}
             reader.close();
             info("Kit loaded: " + name);
         } catch (Exception e) {

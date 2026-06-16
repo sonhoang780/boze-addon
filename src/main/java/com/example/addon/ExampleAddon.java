@@ -3,6 +3,7 @@ package com.example.addon;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.commands.KitCommand;
+import com.example.addon.modules.AutoPortal;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.AntiPiston2;
 import com.example.addon.modules.ChestButtons;
@@ -38,6 +39,7 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         dispatcher.registerCommand(KitCommand.INSTANCE);
         modules.add(ChestButtons.INSTANCE);
+        modules.add(AutoPortal.INSTANCE);
         modules.add(SmoothMotion.INSTANCE);
         modules.add(PlayMusic.INSTANCE);
         modules.add(MusicHUD.INSTANCE);

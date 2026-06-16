@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "boze-addon",
+  "version": "${version}",
+
+  "name": "boze-",
+  "description": "1337",
+
+  "license": "GPLv3",
+
+  "environment": "client",
+  "mixins": [
+    "example-addon.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": ">=1.21.8", 
+    "java": ">=21"
+  }
+}

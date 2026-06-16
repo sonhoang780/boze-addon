@@ -509,10 +509,26 @@ public class EbookReader extends AddonModule {
         private boolean previousHudHidden = false;
         private boolean wasMouseDownReader = false;
         private float zoomScale = 1.0f;
+        
+        // --- TEXTFIELD ĐỂ NHẬP TRANG ---
+        private net.minecraft.client.gui.widget.TextFieldWidget pageInputWidget;
+        private boolean isEditingPage = false;
 
         public ReaderScreen() { super(net.minecraft.text.Text.literal("Ebook Reader")); }
 
-        @Override protected void init() { previousHudHidden = client.options.hudHidden; client.options.hudHidden = true; }
+        @Override protected void init() { 
+            previousHudHidden = client.options.hudHidden; 
+            client.options.hudHidden = true; 
+            
+            // Khởi tạo ô nhập số trang xịn xò của Minecraft
+            pageInputWidget = new net.minecraft.client.gui.widget.TextFieldWidget(client.textRenderer, 0, 0, 40, 12, net.minecraft.text.Text.literal(""));
+            pageInputWidget.setMaxLength(5); // Sách 99999 trang là max
+            pageInputWidget.setVisible(false);
+            pageInputWidget.setDrawsBackground(true);
+            // BIỂU THỨC CHÍNH QUY (REGEX): Cấm tuyệt đối số âm, số thực, chữ cái. Chỉ cho gõ số (0-9)
+            pageInputWidget.setTextPredicate(text -> text.isEmpty() || text.matches("^[0-9]+$"));
+            this.addDrawableChild(pageInputWidget);
+        }
 
         @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             long now = System.currentTimeMillis(); float deltaMs = lastFrameTime == 0 ? 16f : (now - lastFrameTime); lastFrameTime = now;
@@ -535,7 +551,6 @@ public class EbookReader extends AddonModule {
                 contentTop += 16;
             }
 
-            // GỌI BỘ DÀN TRANG THỜI GIAN THỰC
             buildFonts(readerFontSize * zoomScale);
             layoutPagesIfNeeded(panelW - 36, panelH - (contentTop - winY) - 40);
 
@@ -544,8 +559,22 @@ public class EbookReader extends AddonModule {
                 drawRichPage(currentPages.get(currentPageIndex), winX + slideOffset + 18, contentTop, textAlpha);
             }
 
+            // ── LOGIC HIỂN THỊ VÀ CLICK CHỌN TRANG ──
             String pageInfo = (currentPageIndex + 1) + " / " + Math.max(1, currentPages.size());
-            context.drawText(client.textRenderer, pageInfo, (int)(winX + slideOffset + (panelW - client.textRenderer.getWidth(pageInfo)) / 2f), (int)(winY + panelH - 16), 0xFFAAAAAA, false);
+            int pageInfoW = client.textRenderer.getWidth(pageInfo);
+            int pageInfoX = (int)(winX + slideOffset + (panelW - pageInfoW) / 2f);
+            int pageInfoY = (int)(winY + panelH - 16);
+            
+            // Hover đổi màu báo hiệu cho user biết có thể click được
+            boolean hoverPage = mouseX >= pageInfoX && mouseX <= pageInfoX + pageInfoW && mouseY >= pageInfoY && mouseY <= pageInfoY + 9;
+
+            if (isEditingPage) {
+                // Di chuyển Text Field đè lên đúng chỗ chữ Page đang đứng
+                pageInputWidget.setX(pageInfoX + pageInfoW / 2 - 20);
+                pageInputWidget.setY(pageInfoY - 2);
+            } else {
+                context.drawText(client.textRenderer, pageInfo, pageInfoX, pageInfoY, hoverPage ? 0xFFFFFFFF : 0xFFAAAAAA, false);
+            }
 
             int btnY = (int)(winY + panelH - 30);
             int btnPrevX = (int)(winX + slideOffset + panelW / 2f - 24);
@@ -567,19 +596,60 @@ public class EbookReader extends AddonModule {
             context.drawText(client.textRenderer, "-", zOutX + 6, zoomBtnY + 4, 0xFFFFFFFF, true);
             context.drawText(client.textRenderer, "+", zInX + 5, zoomBtnY + 4, 0xFFFFFFFF, true);
 
-            boolean mouseDown = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-            if (mouseDown && !wasMouseDownReader) {
-                if (hoverPrev && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; }
-                else if (hoverNext && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; }
-                else if (hZOut) { zoomScale = Math.max(0.6f, zoomScale - 0.1f); currentLayoutW = -1; }
-                else if (hZIn) { zoomScale = Math.min(2.0f, zoomScale + 0.1f); currentLayoutW = -1; }
+            // ── BẮT TẤT CẢ CÁC LOẠI CLICK CHUỘT (TRÁI/PHẢI/GIỮA) ──
+            boolean leftClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            boolean rightClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
+            boolean midClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_MIDDLE) == GLFW.GLFW_PRESS;
+            boolean anyClick = leftClick || rightClick || midClick;
+
+            if (anyClick && !wasMouseDownReader) {
+                if (isEditingPage) {
+                    // Nếu click ra ngoài ô nhập, tự động Submit chốt trang
+                    if (!pageInputWidget.isMouseOver(mouseX, mouseY)) {
+                        submitPageInput();
+                    }
+                } else {
+                    if (hoverPage) {
+                        // Kích hoạt ô gõ chữ
+                        isEditingPage = true;
+                        pageInputWidget.setText(String.valueOf(currentPageIndex + 1));
+                        pageInputWidget.setVisible(true);
+                        this.setFocused(pageInputWidget);
+                        pageInputWidget.setFocused(true);
+                    } else if (leftClick) {
+                        if (hoverPrev && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; }
+                        else if (hoverNext && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; }
+                        else if (hZOut) { zoomScale = Math.max(0.6f, zoomScale - 0.1f); currentLayoutW = -1; }
+                        else if (hZIn) { zoomScale = Math.min(2.0f, zoomScale + 0.1f); currentLayoutW = -1; }
+                    }
+                }
             }
-            wasMouseDownReader = mouseDown;
+            wasMouseDownReader = anyClick;
+
+            // Chốt hạ: Vẽ các component tĩnh gốc của Screen (bao gồm cả pageInputWidget)
             super.render(context, mouseX, mouseY, delta);
         }
 
-        private void drawRichPage(Page page, float startX, float startY, int alpha) {
+        private void submitPageInput() {
+            try {
+                int targetPage = Integer.parseInt(pageInputWidget.getText().trim());
+                int totalPages = Math.max(1, currentPages.size());
+                // ÉP KHUNG GIỚI HẠN: Nếu gõ lố > max hoặc gõ số 0, tự động ép về giới hạn
+                targetPage = Math.max(1, Math.min(targetPage, totalPages));
+                
+                int newIndex = targetPage - 1;
+                if (newIndex != currentPageIndex) {
+                    pageFlipDir = (newIndex > currentPageIndex) ? 1 : -1;
+                    currentPageIndex = newIndex;
+                    pageFlipProgress = 0f; // Kích hoạt animation trượt trang
+                }
+            } catch (Exception ignored) {} 
+            
+            isEditingPage = false;
+            pageInputWidget.setVisible(false);
+        }
 
+        private void drawRichPage(Page page, float startX, float startY, int alpha) {
             org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
             org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
             org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
@@ -613,7 +683,6 @@ public class EbookReader extends AddonModule {
                             }
                         } else if (cmd instanceof ImageCmd) {
                             ImageCmd imgCmd = (ImageCmd) cmd;
-                            // Kiểm tra an toàn: Đảm bảo ảnh không bị null hoặc đã bị đóng
                             if (imgCmd.img != null && !imgCmd.img.isClosed()) {
                                 try (Paint imgPaint = new Paint()) {
                                     imgPaint.setAlphaf(alpha / 255f);
@@ -631,10 +700,31 @@ public class EbookReader extends AddonModule {
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
         }
 
-        @Override public boolean keyPressed(net.minecraft.client.input.KeyInput input) {
-            if (input.key() == GLFW.GLFW_KEY_ESCAPE) { this.close(); return true; }
-            if (input.key() == GLFW.GLFW_KEY_LEFT && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; return true; }
-            if (input.key() == GLFW.GLFW_KEY_RIGHT && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; return true; }
+        // ĐÃ SỬA LẠI ĐÚNG CHUẨN KEYPRESSED CỦA MINECRAFT 1.21 ĐỂ BÀN PHÍM HOẠT ĐỘNG HOÀN HẢO
+        // ĐÃ TRẢ VỀ ĐÚNG CHUẨN KEYINPUT CỦA BOZE API
+        @Override 
+        public boolean keyPressed(net.minecraft.client.input.KeyInput input) {
+            int keyCode = input.key(); // Lấy mã phím từ Object KeyInput
+            
+            if (isEditingPage) {
+                // Nhấn Enter để chốt sổ số trang
+                if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER) {
+                    submitPageInput();
+                    return true;
+                }
+                // Nhấn Esc để hủy bỏ việc gõ số, trở về như cũ không đóng sách
+                if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
+                    isEditingPage = false;
+                    pageInputWidget.setVisible(false);
+                    return true; 
+                }
+                return super.keyPressed(input);
+            }
+
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { this.close(); return true; }
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; return true; }
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; return true; }
+            
             return super.keyPressed(input);
         }
 
