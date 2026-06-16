@@ -13,8 +13,6 @@ def getGitCommitHash() {
     }
 }
 
-// Nếu chạy trên GitHub Actions khi tạo Release, lấy số Tag (v1.0.0 -> boze-addon-1.0.0)
-// Nếu ở máy cục bộ, lấy mã commit (boze-addon-01b5f75)
 def rawVersion = System.getenv("GITHUB_REF_NAME")
 if (rawVersion != null) {
     if (rawVersion.startsWith("v")) {

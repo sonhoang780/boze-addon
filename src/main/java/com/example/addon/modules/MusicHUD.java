@@ -233,6 +233,8 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
 
     private Color lerpColor(Color a, Color b, float t) {
@@ -723,6 +725,8 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
 
     private void renderThumbnail(DrawContext context, AudioTrack track, int tx, int ty, int tw, int th) {
@@ -997,6 +1001,9 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+
     }
 
     private void drawTopoWave(Canvas canvas, float cx, float cy, float progress, float maxRadius) {
@@ -1215,6 +1222,8 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
     // ─── HIỆU ỨNG 3: GRADIENT 3D PAPER-CUT ───
     private void drawGradientWave(Canvas canvas, float cx, float cy, float progress, float maxRadius, Color accent) {
