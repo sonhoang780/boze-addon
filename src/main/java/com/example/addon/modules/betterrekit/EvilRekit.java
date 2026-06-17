@@ -9,17 +9,18 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.utility.ChatHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.screen.ingame.GenericContainerScreen;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.item.BlockItem;
+import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Identifier;
+import net.minecraft.component.DataComponentTypes; // CHUẨN MINECRAFT 1.21
 
 import java.io.File;
 import java.io.FileReader;
@@ -33,47 +34,30 @@ import java.util.Map;
 public class EvilRekit extends AddonModule {
     public static final EvilRekit INSTANCE = new EvilRekit();
 
-    // TÍCH HỢP CLASS KITITEM VÀO TRONG NÀY ĐỂ KHÔNG BAO GIỜ LỖI CANNOT FIND SYMBOL
+    public final SliderOption delay = new SliderOption(this, "Delay", "Tick delay", 1.0, 0.0, 10.0, 1.0);
+    public final SliderOption actionsPerTick = new SliderOption(this, "Frequence", "", 1.0, 1.0, 5.0, 1.0);
+
+    public Map<Integer, KitItem> activeKit = new HashMap<>();
+    public String activeKitName = "";
+    private int ticks = 0;
+    private final File folder;
+
+    public EvilRekit() {
+        super("EvilRekit", "Better Regear");
+        folder = new File(FabricLoader.getInstance().getGameDir().toFile(), "boze/evilrekit");
+        if (!folder.exists()) folder.mkdirs();
+    }
+
     public static class KitItem {
         public String id;
         public String name;
         public int maxCount;
-        public KitItem(String id, String name, int maxCount) {
-            this.id = id; this.name = name; this.maxCount = maxCount;
-        }
     }
 
-    public final SliderOption delay = new SliderOption(this, "Delay", "", 1.0, 0.0, 10.0, 1.0);
-    public final SliderOption frequency = new SliderOption(this, "Frequency", "", 1.0, 1.0, 3.0, 1.0);
+    private void info(String msg) { ChatHelper.sendMsg("EvilRekit", "§a" + msg); }
+    private void error(String msg) { ChatHelper.sendMsg("EvilRekit", "§c" + msg); }
 
-    private final File folder = new File(FabricLoader.getInstance().getGameDir().toFile(), "boze/evilrekit");
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    
-    public Map<Integer, KitItem> activeKit = new HashMap<>();
-    public String activeKitName = "";
-    public boolean active = false;
-    private int ticks = 0;
-
-    public EvilRekit() {
-        super("EvilRekit", "");
-        if (!folder.exists()) folder.mkdirs();
-    }
-
-    @Override
-    public void onEnable() { this.active = true; }
-    
-    @Override
-    public void onDisable() { this.active = false; }
-
-    // HÀM IN TIN NHẮN TÍCH HỢP
-    public void info(String msg) {
-        ChatHelper.sendMsg("EvilRekit", "§a" + msg);
-    }
-
-    public void error(String msg) {
-        ChatHelper.sendMsg("EvilRekit", "§c" + msg);
-    }
-
+    // HÀM MỚI BỔ SUNG ĐỂ SỬA LỖI KITCOMMAND.JAVA
     public List<String> getKitNames() {
         List<String> names = new ArrayList<>();
         File[] files = folder.listFiles();
@@ -86,146 +70,57 @@ public class EvilRekit extends AddonModule {
         }
         return names;
     }
-    @EventHandler
-    private void onTick(EventTick.Post event) {
-        if (!this.active || activeKit.isEmpty()) return;
-
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || !(mc.currentScreen instanceof HandledScreen<?> screen)) return;
-        if (ticks < delay.getValue()) {
-            ticks++;
-            return;
-        }
-        ticks = 0;
-
-        ScreenHandler handler = screen.getScreenHandler();
-        int containerSize = handler.slots.size() - 36; 
-        if (containerSize != 27 && containerSize != 54) return;
-        int actionsDone = 0;
-
-        for (int i = 0; i < 36; i++) {
-            if (actionsDone >= frequency.getValue()) break;
-
-            KitItem kitItem = activeKit.get(i);
-            int screenSlot = mapToScreenSlot(i, containerSize);
-            ItemStack currentStack = handler.getSlot(screenSlot).getStack();
-
-            if (kitItem == null) continue;
-
-            Item targetItem = Registries.ITEM.get(Identifier.of(kitItem.id));
-            boolean isWrongItem = !currentStack.isEmpty() && !currentStack.isOf(targetItem);
-            boolean needsRefill = currentStack.isEmpty() || (currentStack.isOf(targetItem) && currentStack.getCount() < kitItem.maxCount);
-
-            if (isWrongItem || needsRefill) {
-                int containerSlot = findContainerSlot(handler, containerSize, targetItem, kitItem.name);
-
-                if (containerSlot != -1) {
-                    swapOrRefill(mc, handler.syncId, containerSlot, screenSlot);
-                    actionsDone++;
-                } else if (isWrongItem) {
-                    int emptySlot = findEmptyContainerSlot(handler, containerSize);
-                    if (emptySlot != -1) {
-                        moveItem(mc, handler.syncId, screenSlot, emptySlot);
-                        actionsDone++;
-                    }
-                }
-            }
-        }
-    }
-
-    private void swapOrRefill(MinecraftClient mc, int syncId, int containerSlot, int playerSlot) {
-        mc.interactionManager.clickSlot(syncId, containerSlot, 0, SlotActionType.PICKUP, mc.player);
-        mc.interactionManager.clickSlot(syncId, playerSlot, 0, SlotActionType.PICKUP, mc.player);
-        mc.interactionManager.clickSlot(syncId, containerSlot, 0, SlotActionType.PICKUP, mc.player);
-    }
-
-    private void moveItem(MinecraftClient mc, int syncId, int fromSlot, int toSlot) {
-        mc.interactionManager.clickSlot(syncId, fromSlot, 0, SlotActionType.PICKUP, mc.player);
-        mc.interactionManager.clickSlot(syncId, toSlot, 0, SlotActionType.PICKUP, mc.player);
-    }
-
-    private int mapToScreenSlot(int playerSlot, int containerSize) {
-        if (playerSlot >= 0 && playerSlot <= 8) return containerSize + 27 + playerSlot; 
-        if (playerSlot >= 9 && playerSlot <= 35) return containerSize + (playerSlot - 9); 
-        return -1;
-    }
-
-    private int findContainerSlot(ScreenHandler handler, int containerSize, Item targetItem, String targetName) {
-        int fallbackSlot = -1;
-        for (int i = 0; i < containerSize; i++) {
-            ItemStack stack = handler.getSlot(i).getStack();
-            if (!stack.isEmpty() && stack.isOf(targetItem) && !isShulkerBox(stack)) {
-                if (targetName != null && stack.getName().getString().equals(targetName)) {
-                    return i;
-                }
-                fallbackSlot = i;
-            }
-        }
-        return fallbackSlot; 
-    }
-
-    private int findEmptyContainerSlot(ScreenHandler handler, int containerSize) {
-        for (int i = 0; i < containerSize; i++) {
-            if (handler.getSlot(i).getStack().isEmpty()) return i;
-        }
-        return -1;
-    }
-
-    private boolean isShulkerBox(ItemStack stack) {
-        return stack.getItem() instanceof BlockItem && ((BlockItem) stack.getItem()).getBlock() instanceof ShulkerBoxBlock;
-    }
 
     public void saveKit(String name) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null) return;
-
         Map<Integer, KitItem> kitData = new HashMap<>();
         for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            if (!stack.isEmpty() && !isShulkerBox(stack)) {
-                String id = Registries.ITEM.getId(stack.getItem()).toString();
-                // FIX CHUẨN 1.21: Xóa hasCustomName, gọi trực tiếp getString()
-                String customName = stack.getName().getString(); 
-                int maxCount = stack.getMaxCount(); 
-                kitData.put(i, new KitItem(id, customName, maxCount));
+            int slot = getHandlerSlotPlayerOnly(i);
+            ItemStack stack = mc.player.playerScreenHandler.getSlot(slot).getStack();
+            if (!stack.isEmpty()) {
+                KitItem k = new KitItem();
+                k.id = Registries.ITEM.getId(stack.getItem()).toString();
+                k.maxCount = stack.getMaxCount();
+                
+                if (stack.contains(DataComponentTypes.CUSTOM_NAME)) {
+                    k.name = stack.getName().getString();
+                }
+                
+                kitData.put(i, k);
             }
         }
-
         try {
-            File file = new File(folder, name + ".json");
-            FileWriter writer = new FileWriter(file);
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            FileWriter writer = new FileWriter(new File(folder, name + ".json"));
             gson.toJson(kitData, writer);
             writer.close();
-            
             activeKit = kitData;
             activeKitName = name;
-            try {
-                java.io.File lastKitFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
-                java.nio.file.Files.writeString(lastKitFile.toPath(), name);
-            } catch (Exception ignored) {}
+            
+            java.io.File lastKitFile = new java.io.File(FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
+            java.nio.file.Files.writeString(lastKitFile.toPath(), name);
+            
             info("Kit saved and activated: " + name);
         } catch (Exception e) {
-            error("Error occurred while saving kit!");
+            error("Error saving kit!");
             e.printStackTrace();
         }
     }
 
     public void loadKit(String name) {
-        File file = new File(folder, name + ".json");
-        if (!file.exists()) {
-            error("Kit not found: " + name);
-            return;
-        }
-
         try {
+            File file = new File(folder, name + ".json");
+            if (!file.exists()) { error("Kit not found: " + name); return; }
+            Gson gson = new Gson();
             FileReader reader = new FileReader(file);
             Type type = new TypeToken<Map<Integer, KitItem>>() {}.getType();
             activeKit = gson.fromJson(reader, type);
             activeKitName = name;
-            try {
-                java.io.File lastKitFile = new java.io.File(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
-                java.nio.file.Files.writeString(lastKitFile.toPath(), name);
-            } catch (Exception ignored) {}
+            
+            java.io.File lastKitFile = new java.io.File(FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
+            java.nio.file.Files.writeString(lastKitFile.toPath(), name);
+            
             reader.close();
             info("Kit loaded: " + name);
         } catch (Exception e) {
@@ -236,28 +131,173 @@ public class EvilRekit extends AddonModule {
 
     public void listKits() {
         File[] files = folder.listFiles();
-        if (files == null || files.length == 0) {
-            info("You don't have any kits.");
-            return;
-        }
+        if (files == null || files.length == 0) { info("You don't have any kits."); return; }
         info("Available kits:");
-        for (File f : files) {
-            if (f.getName().endsWith(".json")) {
-                info("- " + f.getName().replace(".json", ""));
-            }
-        }
+        for (File f : files) if (f.getName().endsWith(".json")) info("- " + f.getName().replace(".json", ""));
     }
 
     public void deleteKit(String name) {
         File file = new File(folder, name + ".json");
         if (file.exists() && file.delete()) {
-            if (name.equals(activeKitName)) {
-                activeKit.clear();
-                activeKitName = "";
-            }
+            if (name.equals(activeKitName)) { activeKit.clear(); activeKitName = ""; }
             info("Kit deleted: " + name);
         } else {
-            error("No kits found");
+            error("Failed to delete kit.");
         }
+    }
+
+    @EventHandler
+    private void onTick(EventTick.Post event) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || activeKit.isEmpty() || !(mc.currentScreen instanceof HandledScreen)) return;
+        if (mc.currentScreen instanceof InventoryScreen) return; 
+
+        if (ticks < delay.getValue()) { ticks++; return; }
+        ticks = 0;
+
+        int executed = 0;
+        while (executed < actionsPerTick.getValue().intValue()) {
+            if (!pullFromContainerTick(mc)) break;
+            executed++;
+        }
+    }
+
+    private boolean pullFromContainerTick(MinecraftClient mc) {
+        ScreenHandler handler = mc.player.currentScreenHandler;
+        int containerSize = handler.slots.size() - 36;
+        if (containerSize <= 0) return false;
+
+        if (!handler.getCursorStack().isEmpty()) {
+            return false;
+        }
+
+        for (int i = 0; i < 36; i++) {
+            KitItem kit = activeKit.get(i);
+            if (kit == null) continue;
+
+            int playerSlot = getPlayerHandlerSlot(containerSize, i);
+            ItemStack playerStack = handler.getSlot(playerSlot).getStack();
+            if (isShulkerBox(playerStack)) {
+                // Nhét item "đen đủi" vào slot rỗng không thuộc kit nào để bù đắp
+                if (!isItemCompensated(handler, containerSize, kit)) {
+                    int containerSlot = findBestItemInContainer(handler, containerSize, kit);
+                    int emptySlot = findEmptyUnassignedSlot(handler, containerSize);
+                    if (containerSlot != -1 && emptySlot != -1) {
+                        atomicSwap(mc, handler.syncId, containerSlot, emptySlot);
+                        return true;
+                    }
+                }
+                continue;
+            }
+            if (!isCorrectItem(playerStack, kit)) {
+                int containerSlot = findBestItemInContainer(handler, containerSize, kit);
+                if (containerSlot != -1) {
+                    atomicSwap(mc, handler.syncId, containerSlot, playerSlot);
+                    return true; 
+                }
+            } 
+            else if (playerStack.getCount() < playerStack.getMaxCount()) {
+                int exactSlot = findExactItemInContainer(handler, containerSize, playerStack);
+                if (exactSlot != -1) {
+                    atomicSwap(mc, handler.syncId, exactSlot, playerSlot);
+                    return true; 
+                }
+                
+                int bestSlot = findBestItemInContainer(handler, containerSize, kit);
+                if (bestSlot != -1) {
+                    ItemStack containerStack = handler.getSlot(bestSlot).getStack();
+                    if (containerStack.getCount() > playerStack.getCount()) {
+                        atomicSwap(mc, handler.syncId, bestSlot, playerSlot);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void atomicSwap(MinecraftClient mc, int syncId, int containerSlot, int playerSlot) {
+        click(mc, syncId, containerSlot, 0, SlotActionType.PICKUP); 
+        click(mc, syncId, playerSlot, 0, SlotActionType.PICKUP);    
+        click(mc, syncId, containerSlot, 0, SlotActionType.PICKUP); 
+    }
+
+    private void click(MinecraftClient mc, int syncId, int slotId, int button, SlotActionType type) {
+        mc.interactionManager.clickSlot(syncId, slotId, button, type, mc.player);
+    }
+
+    private boolean isCorrectItem(ItemStack stack, KitItem kit) {
+        if (stack.isEmpty()) return false;
+        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
+        return stack.isOf(expected); 
+    }
+
+    private int findBestItemInContainer(ScreenHandler handler, int containerSize, KitItem kit) {
+        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
+        int bestSlot = -1;
+        int maxCount = -1;
+        
+        for (int i = 0; i < containerSize; i++) {
+            ItemStack stack = handler.getSlot(i).getStack();
+            if (!stack.isEmpty() && stack.isOf(expected)) {
+                if (stack.getCount() > maxCount) {
+                    maxCount = stack.getCount();
+                    bestSlot = i;
+                }
+            }
+        }
+        return bestSlot;
+    }
+
+    private int findExactItemInContainer(ScreenHandler handler, int containerSize, ItemStack targetStack) {
+        for (int i = 0; i < containerSize; i++) {
+            ItemStack stack = handler.getSlot(i).getStack();
+            if (!stack.isEmpty() && ItemStack.areItemsAndComponentsEqual(stack, targetStack)) return i;
+        }
+        return -1;
+    }
+    
+    private int findEmptyContainerSlot(ScreenHandler handler, int containerSize) {
+        for (int i = 0; i < containerSize; i++) {
+            if (handler.getSlot(i).getStack().isEmpty()) return i;
+        }
+        return -1;
+    }
+
+    private int getPlayerHandlerSlot(int containerSize, int invSlot) {
+        if (invSlot >= 0 && invSlot <= 8) return containerSize + 27 + invSlot; 
+        if (invSlot >= 9 && invSlot <= 35) return containerSize + (invSlot - 9);
+        return -1;
+    }
+
+    private int getHandlerSlotPlayerOnly(int invSlot) {
+        if (invSlot >= 0 && invSlot <= 8) return 36 + invSlot;  
+        if (invSlot >= 9 && invSlot <= 35) return invSlot;      
+        return -1;
+    }
+    private boolean isShulkerBox(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() instanceof BlockItem && ((BlockItem) stack.getItem()).getBlock() instanceof ShulkerBoxBlock;
+    }
+    private boolean isItemCompensated(ScreenHandler handler, int containerSize, KitItem kit) {
+        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
+        for (int i = 0; i < 36; i++) {
+            // Chỉ tìm trong các slot rác KHÔNG thuộc Kit (tránh đụng chạm)
+            if (activeKit.get(i) == null) {
+                int slot = getPlayerHandlerSlot(containerSize, i);
+                if (handler.getSlot(slot).getStack().isOf(expected)) return true;
+            }
+        }
+        return false;
+    }
+
+    private int findEmptyUnassignedSlot(ScreenHandler handler, int containerSize) {
+        for (int i = 0; i < 36; i++) {
+            // Chỉ chọn slot trống và KHÔNG thuộc Kit để an toàn tuyệt đối
+            if (activeKit.get(i) == null) {
+                int slot = getPlayerHandlerSlot(containerSize, i);
+                if (handler.getSlot(slot).getStack().isEmpty()) return slot;
+            }
+        }
+        return -1;
     }
 }

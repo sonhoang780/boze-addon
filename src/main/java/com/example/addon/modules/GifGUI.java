@@ -5,11 +5,11 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.event.EventTick;
 import meteordevelopment.orbit.EventHandler;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
@@ -28,86 +28,137 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class GifGUI extends AddonModule {
     public static final GifGUI INSTANCE = new GifGUI();
-    public boolean active = false;
+    public volatile boolean active = false;
 
-    // ── OPTIONS ──
+    // ── OPTIONS (giữ nguyên các tính năng cũ) ──
     public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "Tốc độ phát GIF (ms).", 50.0, 10.0, 300.0, 1.0);
     public final SliderOption dimOverlay = new SliderOption(this, "Dim Overlay",      "Độ tối lớp mờ phủ lên GIF.", 80.0, 0.0, 255.0, 1.0);
     public final ToggleOption loadClipboard = new ToggleOption(this, "Load from Clipboard", "Lấy link GIF từ Clipboard.", false);
     public final ToggleOption prevGif       = new ToggleOption(this, "Prev Saved GIF",      "Quay lại GIF trước.",        false);
     public final ToggleOption nextGif       = new ToggleOption(this, "Next Saved GIF",      "Chuyển sang GIF tiếp theo.", false);
+    // Bật cái này nếu GIF không hiện: in tên class của mọi Screen ra chat để biết
+    // class GUI của Boze tên gì → chỉnh bộ lọc cho đúng.
+    public final ToggleOption debugScreens  = new ToggleOption(this, "Debug Screen Names",  "In tên class Screen ra chat (chẩn lỗi).", false);
 
-    // ── GIF STATE ──
-    private final List<Identifier>               gifFrames    = new ArrayList<>();
+    // ── GIF STATE ── (chỉ đụng tới trên render thread qua mc.execute + lúc render)
+    private final List<Identifier>               gifFrames     = new ArrayList<>();
     private final List<NativeImageBackedTexture> frameTextures = new ArrayList<>();
     private int     currentFrame  = 0;
     private long    lastFrameTime = 0;
-    private boolean isLoading     = false;
+    private volatile boolean isLoading = false;
     private String  currentUrl    = "";
+    // Kích thước GỐC của GIF — BẮT BUỘC để drawTexture map UV đúng rồi kéo giãn full màn hình.
+    private int     gifWidth      = 0;
+    private int     gifHeight     = 0;
 
-    // ── PUBLIC: DrawContextMixin đọc frame hiện tại ──
-    public Identifier getCurrentFrameId() {
-        if (gifFrames.isEmpty()) return null;
-        // Advance frame dựa trên thời gian
-        long now   = System.currentTimeMillis();
-        long delay = (long)(double) frameDelay.getValue();
-        if (now - lastFrameTime >= delay) {
-            currentFrame  = (currentFrame + 1) % gifFrames.size();
-            lastFrameTime = now;
-        }
-        return gifFrames.get(currentFrame);
-    }
-
-    // ── HISTORY ──
+    // ── HISTORY ── (lưu URL theo thứ tự dùng gần nhất; dòng cuối = GIF đang xem)
     private static final File HISTORY_FILE = new File(
         FabricLoader.getInstance().getGameDir().toFile(), "boze_gui_gifs.txt");
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
 
+    // Dùng cho debug: chỉ in mỗi tên class 1 lần
+    private final Set<String> seenScreens = new HashSet<>();
+
     private GifGUI() {
         super("GifGUI", "Hình nền GIF động cho Boze ClickGUI và Main Menu.");
         loadHistory();
-
-        // TitleScreen: vẫn dùng ScreenEvents vì DrawContextMixin chỉ hook Boze ClickGUI
-        ScreenEvents.BEFORE_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            ScreenEvents.beforeRender(screen).register((screenObj, context, mouseX, mouseY, tickDelta) -> {
-                if (!this.active) return;
-                if (!(screenObj instanceof TitleScreen)) return;
-                renderBackground(context, scaledWidth, scaledHeight);
-            });
-        });
     }
 
     @Override
     public void onEnable() {
         this.active = true;
-        // Tải lại GIF từ lịch sử nếu chưa có frame nào (bao gồm sau khi restart game)
+        // Khôi phục GIF đang xem ở phiên trước: textures không thể lưu ra đĩa nên
+        // phải tải lại từ URL. Dòng cuối history chính là GIF dùng gần nhất.
         if (gifFrames.isEmpty() && !gifHistory.isEmpty()) {
-            // Đọc lại history phòng trường hợp constructor chạy trước khi file được tạo
-            if (gifHistory.isEmpty()) loadHistory();
-            if (!gifHistory.isEmpty()) {
-                currentUrl = gifHistory.get(historyIndex >= 0 ? historyIndex : gifHistory.size() - 1);
-                loadGifAsync(currentUrl);
-            }
+            historyIndex = gifHistory.size() - 1;
+            currentUrl = gifHistory.get(historyIndex);
+            loadGifAsync(currentUrl);
         }
     }
 
     @Override
     public void onDisable() {
         this.active = false;
-        // KHÔNG clear frames khi disable để tránh phải tải lại khi enable lại
-        // Chỉ clear khi load GIF mới
+    }
+
+    public Identifier getCurrentFrameId() {
+        if (gifFrames.isEmpty()) return null;
+        long now   = System.currentTimeMillis();
+        long delay = (long)(double) frameDelay.getValue();
+        if (now - lastFrameTime >= delay) {
+            currentFrame  = (currentFrame + 1) % gifFrames.size();
+            lastFrameTime = now;
+        }
+        if (currentFrame >= gifFrames.size()) currentFrame = 0;
+        return gifFrames.get(currentFrame);
     }
 
     // ─────────────────────────────────────────────────────────────
-    // HISTORY
+    // ĐIỂM VÀO TỪ MIXIN: ScreenMixin gọi cái này ở HEAD renderWithTooltip
+    // ─────────────────────────────────────────────────────────────
+
+    public void onScreenRender(Screen screen, DrawContext context) {
+        String cn = screen.getClass().getName();
+        if (debugScreens.getValue()) debugScreenName(cn);
+
+        String lc = cn.toLowerCase();
+        boolean isBozeGui = lc.contains("boze") && lc.contains("gui");
+        boolean isTitle   = screen instanceof TitleScreen;
+        if (isBozeGui || isTitle) {
+            renderBackground(context, screen.width, screen.height);
+        }
+    }
+
+    private void debugScreenName(String cn) {
+        if (!seenScreens.add(cn)) return;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player != null)
+            mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] §7Screen: §f" + cn), false);
+        else
+            System.out.println("[GifGUI] Screen: " + cn);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // RENDER GIF (full màn hình, kéo giãn đúng tỉ lệ texture)
+    // ─────────────────────────────────────────────────────────────
+
+    public void renderBackground(DrawContext context, int screenW, int screenH) {
+        Identifier frame = getCurrentFrameId();
+        if (frame == null) return;
+        int gw = gifWidth, gh = gifHeight;
+        if (gw <= 0 || gh <= 0) return;
+
+        // FIX QUAN TRỌNG: bản cũ truyền textureWidth/Height = screenW/screenH trong
+        // khi texture thật là gw×gh → UV sai bét, gần như không thấy gì. Phải dùng
+        // overload có regionWidth/regionHeight: vẽ ra (screenW×screenH) nhưng lấy
+        // mẫu toàn bộ texture gốc (gw×gh) → kéo giãn lấp đầy màn hình.
+        context.drawTexture(
+            RenderPipelines.GUI_TEXTURED, frame,
+            0, 0,               // x, y
+            0f, 0f,             // u, v
+            screenW, screenH,   // kích thước vẽ ra (đích) → full màn hình
+            gw, gh,             // region lấy mẫu = toàn bộ GIF
+            gw, gh              // kích thước texture gốc
+        );
+
+        int dimAlpha = (int)(double) dimOverlay.getValue();
+        if (dimAlpha > 0) {
+            context.fill(0, 0, screenW, screenH, new Color(0, 0, 0, dimAlpha).getRGB());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // HISTORY LOGIC (MRU: dùng gần nhất nằm cuối file)
     // ─────────────────────────────────────────────────────────────
 
     private void loadHistory() {
@@ -117,48 +168,43 @@ public class GifGUI extends AddonModule {
                 List<String> lines = Files.readAllLines(HISTORY_FILE.toPath());
                 for (String line : lines) {
                     String clean = line.trim();
-                    if (!clean.isEmpty()) gifHistory.add(clean);
+                    if (!clean.isEmpty() && !gifHistory.contains(clean)) gifHistory.add(clean);
                 }
-                if (!gifHistory.isEmpty()) {
-                    historyIndex = gifHistory.size() - 1;
-                }
+                if (!gifHistory.isEmpty()) historyIndex = gifHistory.size() - 1;
             }
         } catch (Exception ignored) {}
     }
 
     private void saveToHistory(String url) {
-        if (!gifHistory.contains(url)) {
-            gifHistory.add(url);
-            historyIndex = gifHistory.size() - 1;
-        } else {
-            historyIndex = gifHistory.indexOf(url);
-        }
+        // Đưa url lên vị trí "mới dùng nhất" = cuối danh sách.
+        gifHistory.remove(url);
+        gifHistory.add(url);
+        historyIndex = gifHistory.size() - 1;
         try {
             Files.writeString(HISTORY_FILE.toPath(), String.join("\n", gifHistory));
         } catch (Exception ignored) {}
     }
 
     // ─────────────────────────────────────────────────────────────
-    // TICK
+    // TICK LOGIC (nút chuyển GIF / Load Clipboard)
     // ─────────────────────────────────────────────────────────────
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null) return;
 
         if (loadClipboard.getValue()) {
             loadClipboard.setValue(false);
             String clipboard = mc.keyboard.getClipboard();
             if (clipboard != null && clipboard.startsWith("http")) {
                 if (clipboard.equals(currentUrl)) {
-                    mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] §eLink này đang được dùng rồi!"), false);
+                    msg(mc, "§eLink này đang được dùng rồi!");
                 } else {
                     currentUrl = clipboard;
                     loadGifAsync(clipboard);
                 }
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] §cClipboard không có link http!"), false);
+                msg(mc, "§cClipboard không có link http!");
             }
         }
 
@@ -168,9 +214,7 @@ public class GifGUI extends AddonModule {
                 historyIndex = (historyIndex - 1 + gifHistory.size()) % gifHistory.size();
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
-            } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] §cChưa có GIF nào được lưu!"), false);
-            }
+            } else msg(mc, "§cChưa có GIF nào được lưu!");
         }
 
         if (nextGif.getValue()) {
@@ -179,33 +223,17 @@ public class GifGUI extends AddonModule {
                 historyIndex = (historyIndex + 1) % gifHistory.size();
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
-            } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] §cChưa có GIF nào được lưu!"), false);
-            }
+            } else msg(mc, "§cChưa có GIF nào được lưu!");
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // RENDER
-    // ─────────────────────────────────────────────────────────────
-
-    private void renderBackground(DrawContext context, int screenW, int screenH) {
-        if (isLoading) return;
-        Identifier frame = getCurrentFrameId();
-        if (frame == null) return;
-
-        context.drawTexture(RenderPipelines.GUI_TEXTURED, frame,
-            0, 0, 0, 0, screenW, screenH, screenW, screenH);
-
-        int dimAlpha = (int)(double) dimOverlay.getValue();
-        if (dimAlpha > 0) {
-            context.fill(0, 0, screenW, screenH,
-                new Color(0, 0, 0, dimAlpha).getRGB());
-        }
+    private void msg(MinecraftClient mc, String s) {
+        if (mc.player != null)
+            mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifGUI] " + s), false);
     }
 
     // ─────────────────────────────────────────────────────────────
-    // LOAD GIF
+    // DOWNLOAD & DECODE GIF
     // ─────────────────────────────────────────────────────────────
 
     private String resolveDirectGifLink(String link) {
@@ -220,7 +248,6 @@ public class GifGUI extends AddonModule {
                 in.close(); conn.disconnect();
                 Matcher m = Pattern.compile("property=\"og:image\"\\s+content=\"(https://[^\"]+\\.gif)\"").matcher(html);
                 if (m.find()) return m.group(1);
-                // Tenor fallback: tìm mediaUrl
                 Matcher m2 = Pattern.compile("\"url\":\"(https://media\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
                 if (m2.find()) return m2.group(1);
             } else if (link.contains("giphy.com/gifs/")) {
@@ -237,9 +264,7 @@ public class GifGUI extends AddonModule {
         isLoading = true;
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player != null)
-            mc.execute(() -> mc.player.sendMessage(
-                net.minecraft.text.Text.literal("§d[GifGUI] §aĐang tải GIF..."), false));
+        mc.execute(() -> msg(mc, "§aĐang tải GIF..."));
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -256,13 +281,12 @@ public class GifGUI extends AddonModule {
                 byte[] gifBytes = in.readAllBytes();
                 in.close(); conn.disconnect();
 
-                // Decode GIF frames
                 ImageReader reader = ImageIO.getImageReadersByFormatName("gif").next();
                 ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(gifBytes));
                 reader.setInput(iis, false);
                 int numFrames = reader.getNumImages(true);
 
-                int gifW = reader.getWidth(0), gifH = reader.getHeight(0);
+                final int gifW = reader.getWidth(0), gifH = reader.getHeight(0);
                 BufferedImage canvas = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D g2 = canvas.createGraphics();
 
@@ -282,7 +306,6 @@ public class GifGUI extends AddonModule {
                 }
                 g2.dispose(); reader.dispose(); iis.close();
 
-                // Upload lên GL thread
                 mc.execute(() -> {
                     clearFrames();
                     try {
@@ -295,25 +318,23 @@ public class GifGUI extends AddonModule {
                             gifFrames.add(fid);
                             frameTextures.add(tex);
                         }
-                        // Lưu vào file sau khi upload thành công
+                        gifWidth  = gifW;
+                        gifHeight = gifH;
+                        currentFrame = 0;
+                        lastFrameTime = System.currentTimeMillis();
                         saveToHistory(rawUrl);
-                        if (mc.player != null)
-                            mc.player.sendMessage(net.minecraft.text.Text.literal(
-                                "§d[GifGUI] §eTải xong! (" + gifFrames.size() + " frames)"), false);
+                        msg(mc, "§eTải xong! (" + gifFrames.size() + " frames)");
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
                         isLoading = false;
-                        currentFrame = 0;
                     }
                 });
 
             } catch (Exception e) {
                 e.printStackTrace();
                 mc.execute(() -> {
-                    if (mc.player != null)
-                        mc.player.sendMessage(net.minecraft.text.Text.literal(
-                            "§d[GifGUI] §cLỗi tải link! " + e.getMessage()), false);
+                    msg(mc, "§cLỗi tải link! " + e.getMessage());
                     isLoading = false;
                 });
             }
@@ -330,5 +351,6 @@ public class GifGUI extends AddonModule {
         }
         gifFrames.clear();
         frameTextures.clear();
+        currentFrame = 0;
     }
 }

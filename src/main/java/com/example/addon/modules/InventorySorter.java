@@ -18,6 +18,11 @@ import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Identifier;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 public class InventorySorter extends AddonModule {
     public static final InventorySorter INSTANCE = new InventorySorter();
 
@@ -30,7 +35,7 @@ public class InventorySorter extends AddonModule {
     public boolean active = false;
 
     public InventorySorter() {
-        super("InventorySorter", "O(N) Fast Packet Sort (Atomic & Swap).");
+        super("InventorySorter", "HashMap Grouping + Atomic Swap + Component Check");
     }
 
     @Override 
@@ -45,9 +50,7 @@ public class InventorySorter extends AddonModule {
                 }
             } catch (Exception ignored) {}
 
-            if (EvilRekit.INSTANCE.activeKit.isEmpty()) {
-                ChatHelper.sendMsg("InventorySorter", "§eĐang chờ nạp Kit... Module vẫn BẬT.");
-            }
+            if (EvilRekit.INSTANCE.activeKit.isEmpty()) ChatHelper.sendMsg("InventorySorter", "§eĐang chờ nạp Kit...");
         }
     }
 
@@ -77,33 +80,46 @@ public class InventorySorter extends AddonModule {
     private boolean sortTick(MinecraftClient mc) {
         ScreenHandler handler = mc.player.currentScreenHandler;
 
-        // 1. CHỐNG KẸT CHUỘT: Nếu chuột đang cầm rác do server lag, ném nó đi ngay lập tức!
         if (!handler.getCursorStack().isEmpty()) {
-            int empty = findEmptySlot(handler);
-            if (empty != -1) click(empty, 0, SlotActionType.PICKUP);
-            else click(-999, 0, SlotActionType.PICKUP);
-            return true;
+            return false;
         }
 
-        // 2. GOM RÁC ĐỒNG BỘ: Chạy nhanh để gộp các stack lẻ tẻ lại
+        // ── GOM RÁC SỬ DỤNG HASHMAP + EXACT COMPONENT CHECK ──
+        Map<String, List<Integer>> itemGroups = new HashMap<>();
+        
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotI = getHandlerSlot(i);
             ItemStack stackI = handler.getSlot(slotI).getStack();
+            
             if (stackI.isEmpty() || isShulkerBox(stackI) || stackI.getCount() >= stackI.getMaxCount()) continue;
 
-            for (int j = i + 1; j < 36; j++) {
-                if (ignoreHotbar.getValue() && j <= 8) continue;
-                int slotJ = getHandlerSlot(j);
-                ItemStack stackJ = handler.getSlot(slotJ).getStack();
-                if (!stackJ.isEmpty() && stackI.isOf(stackJ.getItem()) && stackI.getName().getString().equals(stackJ.getName().getString())) {
-                    atomicSwap(slotJ, slotI); // Gộp 2 cục vào nhau bằng Atomic
-                    return true;
+            // Dùng ID làm chìa khóa gom nhóm chung
+            String key = Registries.ITEM.getId(stackI.getItem()).toString();
+            itemGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(slotI);
+        }
+
+        // Chỉ kiểm tra Component đối với các món đồ nằm chung trong 1 rổ HashMap
+        for (List<Integer> slots : itemGroups.values()) {
+            if (slots.size() > 1) {
+                for (int i = 0; i < slots.size(); i++) {
+                    int slot1 = slots.get(i);
+                    ItemStack s1 = handler.getSlot(slot1).getStack();
+                    for (int j = i + 1; j < slots.size(); j++) {
+                        int slot2 = slots.get(j);
+                        ItemStack s2 = handler.getSlot(slot2).getStack();
+                        
+                        // CHỐT CHẶN: Ép game kiểm tra Component trước khi gộp
+                        if (ItemStack.areItemsAndComponentsEqual(s1, s2)) {
+                            atomicSwap(slot2, slot1);
+                            return true;
+                        }
+                    }
                 }
             }
         }
 
-        // 3. SẮP XẾP O(N) TỐC ĐỘ BÀN THỜ
+        // ── SẮP XẾP NHANH THEO KIT ──
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
 
@@ -114,12 +130,10 @@ public class InventorySorter extends AddonModule {
             EvilRekit.KitItem kit = EvilRekit.INSTANCE.activeKit.get(i);
             if (isCorrectItem(currentStack, kit)) continue;
 
-            // Tìm vị trí của đồ chuẩn để đắp vào ô này
             int sourceInvSlot = findItemForKit(handler, kit);
             if (sourceInvSlot != -1) {
                 int sourceHandlerSlot = getHandlerSlot(sourceInvSlot);
 
-                // 🔥 TUYỆT KỸ PACKET: Tráo thẳng Main Inv với Hotbar bằng 1 Packet duy nhất
                 if (i <= 8 && sourceInvSlot >= 9) {
                     click(sourceHandlerSlot, i, SlotActionType.SWAP);
                     return true;
@@ -129,7 +143,6 @@ public class InventorySorter extends AddonModule {
                     return true;
                 }
 
-                // Nếu không dính líu đến Hotbar, xài Atomic Swap
                 atomicSwap(sourceHandlerSlot, targetSlot);
                 return true;
             }
@@ -137,11 +150,10 @@ public class InventorySorter extends AddonModule {
         return false;
     }
 
-    // 🔥 HOÁN VỊ NGUYÊN TỬ: Nén 3 click vào 1 tick, chuột luôn trống rỗng sau khi xong!
     private void atomicSwap(int slot1, int slot2) {
-        click(slot1, 0, SlotActionType.PICKUP); // Nhấc A
-        click(slot2, 0, SlotActionType.PICKUP); // Đặt A vào B, nhấc B lên
-        click(slot1, 0, SlotActionType.PICKUP); // Trả B về chỗ cũ của A
+        click(slot1, 0, SlotActionType.PICKUP);
+        click(slot2, 0, SlotActionType.PICKUP);
+        click(slot1, 0, SlotActionType.PICKUP);
     }
 
     private void click(int slotId, int button, SlotActionType type) {
@@ -162,15 +174,14 @@ public class InventorySorter extends AddonModule {
 
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
-
             int slotI = getHandlerSlot(i);
             ItemStack stack = handler.getSlot(slotI).getStack();
             if (stack.isEmpty() || isShulkerBox(stack)) continue;
 
             if (stack.isOf(expected)) {
                 EvilRekit.KitItem itsOwnKit = EvilRekit.INSTANCE.activeKit.get(i);
-                if (isCorrectItem(stack, itsOwnKit)) continue; // Kệ cmn đồ đã đúng vị trí
-                return i; // Trả về Inv Slot (0-35)
+                if (isCorrectItem(stack, itsOwnKit)) continue;
+                return i;
             }
         }
         return -1;

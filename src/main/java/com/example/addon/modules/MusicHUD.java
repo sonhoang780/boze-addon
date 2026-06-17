@@ -176,7 +176,7 @@ public class MusicHUD extends AddonModule {
         int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 8, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
@@ -705,7 +705,7 @@ public class MusicHUD extends AddonModule {
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
@@ -947,7 +947,7 @@ public class MusicHUD extends AddonModule {
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
             
@@ -1189,7 +1189,7 @@ public class MusicHUD extends AddonModule {
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
           Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) { 
             Canvas canvas = surface.getCanvas();

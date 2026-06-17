@@ -397,7 +397,7 @@ public class EbookReader extends AddonModule {
         int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 8, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.makeFromBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
 
@@ -410,6 +410,7 @@ public class EbookReader extends AddonModule {
                     glowPaint.setColor(new Color(255, 255, 255, 200).getRGB());
                     glowPaint.setMaskFilter(blur); glowPaint.setAntiAlias(true);
                     canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
+                    
                 }
             }
 
@@ -659,7 +660,7 @@ public class EbookReader extends AddonModule {
             if (skiaContext == null) skiaContext = DirectContext.makeGL();
             skiaContext.resetAll();
             
-            try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 8, org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING), org.lwjgl.opengl.GL30C.GL_RGBA8);
+            try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 0, org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING), org.lwjgl.opengl.GL30C.GL_RGBA8);
                  Surface surface = Surface.makeFromBackendRenderTarget(skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
                 Canvas canvas = surface.getCanvas();
                 float scale = (float) client.getWindow().getScaleFactor();
@@ -698,6 +699,8 @@ public class EbookReader extends AddonModule {
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
             org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+            org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+            org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
         }
 
         // ĐÃ SỬA LẠI ĐÚNG CHUẨN KEYPRESSED CỦA MINECRAFT 1.21 ĐỂ BÀN PHÍM HOẠT ĐỘNG HOÀN HẢO
