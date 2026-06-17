@@ -140,8 +140,13 @@ public class PlayMusic extends AddonModule {
                     return false;
                 }
 
-                if (!query.isEmpty()) searchAndPlay(query);
-                else safeError("Search query cannot be empty! Type §e" + CHAT_PREFIX + "prefix <new_prefix> §cto change prefix.");
+                if (!query.isEmpty()) {
+                    if (SpotifyIntegration.isSpotifyPlaying) {
+                        safeError("You have to turn off Spotify first!");
+                    } else {
+                        searchAndPlay(query);
+                    }
+                } else safeError("Search query cannot be empty! Type §e" + CHAT_PREFIX + "prefix <new_prefix> §cto change prefix.");
                 currentSuggestions.clear();
                 lastQuery = "";
                 pendingQuery = "";
@@ -235,6 +240,10 @@ public class PlayMusic extends AddonModule {
         if (player != null && player.getPlayingTrack() != null) {
             player.getPlayingTrack().setPosition(Math.max(0, Math.min(positionMs, player.getPlayingTrack().getDuration())));
         }
+    }
+
+    public static void setPausedExternal(boolean paused) {
+        if (player != null) player.setPaused(paused);
     }
 
     @Override

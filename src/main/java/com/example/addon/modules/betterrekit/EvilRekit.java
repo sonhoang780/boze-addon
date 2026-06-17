@@ -46,6 +46,25 @@ public class EvilRekit extends AddonModule {
         super("EvilRekit", "Better Regear");
         folder = new File(FabricLoader.getInstance().getGameDir().toFile(), "boze/evilrekit");
         if (!folder.exists()) folder.mkdirs();
+        restoreLastKit();
+    }
+
+    // Auto-load the last kit that was saved/loaded, called once at class init.
+    private void restoreLastKit() {
+        try {
+            java.io.File lastKitFile = new java.io.File(FabricLoader.getInstance().getGameDir().toFile(), "boze/last_kit_save.txt");
+            if (!lastKitFile.exists()) return;
+            String name = java.nio.file.Files.readString(lastKitFile.toPath()).trim();
+            if (name.isEmpty()) return;
+            File kitFile = new File(folder, name + ".json");
+            if (!kitFile.exists()) return;
+            Gson gson = new Gson();
+            FileReader reader = new FileReader(kitFile);
+            Type type = new TypeToken<Map<Integer, KitItem>>() {}.getType();
+            activeKit = gson.fromJson(reader, type);
+            activeKitName = name;
+            reader.close();
+        } catch (Exception ignored) {}
     }
 
     public static class KitItem {
@@ -133,7 +152,23 @@ public class EvilRekit extends AddonModule {
         File[] files = folder.listFiles();
         if (files == null || files.length == 0) { info("You don't have any kits."); return; }
         info("Available kits:");
-        for (File f : files) if (f.getName().endsWith(".json")) info("- " + f.getName().replace(".json", ""));
+        for (File f : files) {
+            if (!f.getName().endsWith(".json")) continue;
+            String name = f.getName().replace(".json", "");
+            if (name.equals(activeKitName)) {
+                ChatHelper.sendMsg("EvilRekit", "§9- " + name + " [active]");
+            } else {
+                ChatHelper.sendMsg("EvilRekit", "§7- " + name);
+            }
+        }
+    }
+
+    public void showActiveKit() {
+        if (activeKitName == null || activeKitName.isEmpty()) {
+            error("No kit is currently active.");
+        } else {
+            ChatHelper.sendMsg("EvilRekit", "§aActive kit: §9" + activeKitName);
+        }
     }
 
     public void deleteKit(String name) {
@@ -177,18 +212,7 @@ public class EvilRekit extends AddonModule {
 
             int playerSlot = getPlayerHandlerSlot(containerSize, i);
             ItemStack playerStack = handler.getSlot(playerSlot).getStack();
-            if (isShulkerBox(playerStack)) {
-                // Nhét item "đen đủi" vào slot rỗng không thuộc kit nào để bù đắp
-                if (!isItemCompensated(handler, containerSize, kit)) {
-                    int containerSlot = findBestItemInContainer(handler, containerSize, kit);
-                    int emptySlot = findEmptyUnassignedSlot(handler, containerSize);
-                    if (containerSlot != -1 && emptySlot != -1) {
-                        atomicSwap(mc, handler.syncId, containerSlot, emptySlot);
-                        return true;
-                    }
-                }
-                continue;
-            }
+            if (isShulkerBox(playerStack)) continue;
             if (!isCorrectItem(playerStack, kit)) {
                 int containerSlot = findBestItemInContainer(handler, containerSize, kit);
                 if (containerSlot != -1) {
@@ -208,6 +232,24 @@ public class EvilRekit extends AddonModule {
                     ItemStack containerStack = handler.getSlot(bestSlot).getStack();
                     if (containerStack.getCount() > playerStack.getCount()) {
                         atomicSwap(mc, handler.syncId, bestSlot, playerSlot);
+                        return true;
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < 36; i++) {
+            KitItem kit = activeKit.get(i);
+            if (kit == null) continue;
+
+            int playerSlot = getPlayerHandlerSlot(containerSize, i);
+            ItemStack playerStack = handler.getSlot(playerSlot).getStack();
+
+            if (isShulkerBox(playerStack)) {
+                if (!isItemCompensated(handler, containerSize, kit)) {
+                    int containerSlot = findBestItemInContainer(handler, containerSize, kit);
+                    int emptySlot = findEmptyUnassignedSlot(handler, containerSize);
+                    if (containerSlot != -1 && emptySlot != -1) {
+                        atomicSwap(mc, handler.syncId, containerSlot, emptySlot);
                         return true;
                     }
                 }

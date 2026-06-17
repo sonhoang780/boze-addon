@@ -104,7 +104,8 @@ public class MusicHUD extends AddonModule {
     private long    trackEmptyStartTime = 0; 
     private boolean isFirstRender = true; 
     private boolean forceCloseForNewTrack = false;
-    private int currentPlayCount = -1; 
+    private int currentPlayCount = -1;
+    private boolean wasSpotifyOverride = false;
 
     private boolean isDraggingWidth = false;
     private double manualTargetWidth = -1.0;
@@ -136,6 +137,8 @@ public class MusicHUD extends AddonModule {
     // vì audio engine không seek liên tục mỗi frame (sẽ giật/lag).
     private double dragPreviewRatio = -1; // -1 = không đang kéo
     private long   lastSeekSentAt   = 0;  // throttle gọi PlayMusic.seekTo() thật
+    // Freeze PlayMusic position display when paused so the bar never drifts.
+    private long   frozenPlayMusicPositionMs = -1;
 
     private DirectContext skiaContext;
 
@@ -174,6 +177,7 @@ public class MusicHUD extends AddonModule {
         skiaContext.resetAll(); 
 
         int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
@@ -270,11 +274,12 @@ public class MusicHUD extends AddonModule {
             hudHoverStartTime = 0; return;
         }
 
+        boolean spotifyOverride = SpotifyIntegration.isSpotifyPlaying;
         boolean useUltra = disk.getValue() && ultraDisk.getValue();
         double scale  = mc.getWindow().getScaleFactor();
         double mouseX = mc.mouse.getX() / scale;
         double mouseY = mc.mouse.getY() / scale;
-        
+
         long win = mc.getWindow().getHandle();
         boolean mouseDown = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         boolean justPressed  = mouseDown && !wasMouseDown;
@@ -296,7 +301,9 @@ public class MusicHUD extends AddonModule {
         hoverPrev = mouseX >= btnPrevX && mouseX <= btnPrevX + 15 && mouseY >= btnY && mouseY <= btnY + 12;
         hoverPlay = mouseX >= btnPlayX && mouseX <= btnPlayX + 15 && mouseY >= btnY && mouseY <= btnY + 12;
         hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 15 && mouseY >= btnY && mouseY <= btnY + 12;
-        hoverProgress = track != null && mouseX >= pBarX && mouseX <= pBarX + pBarW && mouseY >= pBarY && mouseY <= pBarY + 10;
+        // Progress bar works for both PlayMusic (needs track) and Spotify (needs durationMs).
+        hoverProgress = (track != null || (spotifyOverride && SpotifyIntegration.durationMs > 0))
+                        && mouseX >= pBarX && mouseX <= pBarX + pBarW && mouseY >= pBarY && mouseY <= pBarY + 10;
 
         boolean hoverHud = mouseX >= hudX && mouseX <= hudX + hudW && mouseY >= hudY && mouseY <= hudY + hudH;
         double currentDiskW = useUltra ? (int)(double)diskSize.getValue() : THUMB_W;
@@ -313,12 +320,24 @@ public class MusicHUD extends AddonModule {
                 isDraggingWidth = true;
                 isDragging = false;
             } else if (useUltra) {
-                if (hoverUltraDisk) PlayMusic.INSTANCE.togglePause.setValue(true);
+                if (hoverUltraDisk) {
+                    if (spotifyOverride) SpotifyIntegration.controlPlayPause();
+                    else PlayMusic.INSTANCE.togglePause.setValue(true);
+                }
             } else {
-                if (hoverPlay) { PlayMusic.INSTANCE.togglePause.setValue(true); triggerWave(btnPlayX + 6, btnY + 6); }
-                else if (hoverPrev) { PlayMusic.INSTANCE.previousBtn.setValue(true); triggerWave(btnPrevX + 6, btnY + 6); }
-                else if (hoverNext) { PlayMusic.INSTANCE.nextBtn.setValue(true); triggerWave(btnNextX + 6, btnY + 6); }
-                else if (hoverProgress && track != null) {
+                if (hoverPlay) {
+                    if (spotifyOverride) SpotifyIntegration.controlPlayPause();
+                    else PlayMusic.INSTANCE.togglePause.setValue(true);
+                    triggerWave(btnPlayX + 6, btnY + 6);
+                } else if (hoverPrev) {
+                    if (spotifyOverride) SpotifyIntegration.controlPrevious();
+                    else PlayMusic.INSTANCE.previousBtn.setValue(true);
+                    triggerWave(btnPrevX + 6, btnY + 6);
+                } else if (hoverNext) {
+                    if (spotifyOverride) SpotifyIntegration.controlNext();
+                    else PlayMusic.INSTANCE.nextBtn.setValue(true);
+                    triggerWave(btnNextX + 6, btnY + 6);
+                } else if (hoverProgress) {
                     isDragging = true;
                     dragPreviewRatio = Math.max(0, Math.min(1, (mouseX - pBarX) / pBarW));
                 }
@@ -328,15 +347,20 @@ public class MusicHUD extends AddonModule {
             manualTargetWidth = Math.max(THUMB_W + 120.0, mouseX - hudX);
         }
 
-        if (mouseDown && isDragging && track != null && !useUltra) {
+        if (mouseDown && isDragging && !useUltra) {
             dragPreviewRatio = Math.max(0, Math.min(1, (mouseX - pBarX) / pBarW));
             long nowMs = System.currentTimeMillis();
-            if (nowMs - lastSeekSentAt >= 200) {
+            if (spotifyOverride) {
+                if (nowMs - lastSeekSentAt >= 200) {
+                    SpotifyIntegration.controlSeek((long)(dragPreviewRatio * SpotifyIntegration.durationMs));
+                    lastSeekSentAt = nowMs;
+                }
+            } else if (track != null && nowMs - lastSeekSentAt >= 200) {
                 PlayMusic.seekTo((long)(dragPreviewRatio * track.getDuration()));
                 lastSeekSentAt = nowMs;
             }
         }
-    
+
         boolean isHoveringTarget = useUltra ? hoverUltraDisk : (hoverHud && !isDragging && !hoverPlay && !hoverPrev && !hoverNext && !isDraggingWidth && !hoverEdge);
         if (mouseDown && isHoveringTarget) {
             if (hudHoverStartTime == 0) hudHoverStartTime = System.currentTimeMillis();
@@ -349,8 +373,12 @@ public class MusicHUD extends AddonModule {
             hudHoverStartTime = 0;
         }
         if (justReleased) {
-            if (isDragging && track != null && !useUltra) {
-                seekToMouse(mouseX, pBarX, pBarW, track);
+            if (isDragging && !useUltra) {
+                if (spotifyOverride && dragPreviewRatio >= 0) {
+                    SpotifyIntegration.controlSeek((long)(dragPreviewRatio * SpotifyIntegration.durationMs));
+                } else if (track != null) {
+                    seekToMouse(mouseX, pBarX, pBarW, track);
+                }
             }
             isDragging = false;
             isDraggingWidth = false;
@@ -448,11 +476,13 @@ public class MusicHUD extends AddonModule {
         double x = posX.getValue();
         double y = posY.getValue();
         AudioTrack track = PlayMusic.getCurrentTrack();
-        
-        boolean isTrackPlaying = track != null && 
-                                 track.getState() != AudioTrackState.INACTIVE && 
+        // Use isSpotifyConnected (not isSpotifyPlaying) so the HUD stays visible while Spotify is paused.
+        boolean spotifyOverride = SpotifyIntegration.isSpotifyConnected;
+
+        boolean isTrackPlaying = spotifyOverride || (track != null &&
+                                 track.getState() != AudioTrackState.INACTIVE &&
                                  track.getState() != AudioTrackState.STOPPING &&
-                                 track.getState() != AudioTrackState.FINISHED;
+                                 track.getState() != AudioTrackState.FINISHED);
 
         if (isFirstRender) {
             if (!isTrackPlaying) { animW = WIDTH_MIN; transPhase = 1; } 
@@ -462,7 +492,8 @@ public class MusicHUD extends AddonModule {
         }
 
         if (isTrackPlaying) isManuallyStopped = false; 
-        if (isTrackPlaying && !PlayMusic.isPlayerPaused()) {
+        boolean isActuallyPlaying = spotifyOverride ? SpotifyIntegration.isSpotifyPlaying : !PlayMusic.isPlayerPaused();
+        if (isTrackPlaying && isActuallyPlaying) {
             smoothDiskRotation += deltaMs * 0.045f;
             smoothDiskRotation %= 360f;
         }
@@ -515,23 +546,36 @@ public class MusicHUD extends AddonModule {
             }
         } else {
             trackEmptyStartTime = 0;
-            if (PlayMusic.playCount != currentPlayCount) {
-                currentPlayCount = PlayMusic.playCount;
-                
+            // Force a display refresh whenever the source switches (Spotify ↔ PlayMusic).
+            // Without this, if spotifyPlayCount == PlayMusic.playCount the update is silently skipped.
+            if (spotifyOverride != wasSpotifyOverride) {
+                currentPlayCount = -1;
+                wasSpotifyOverride = spotifyOverride;
+            }
+            int effectivePlayCount = spotifyOverride ? SpotifyIntegration.spotifyPlayCount : PlayMusic.playCount;
+            if (effectivePlayCount != currentPlayCount) {
+                currentPlayCount = effectivePlayCount;
+
                 if (lerpMode.getValue() == LerpMode.Off) {
                     transPhase = 0;
                     forceCloseForNewTrack = false;
                     animW = newTarget;
                 } else {
                     forceCloseForNewTrack = true;
-                    transPhase = 1; 
+                    transPhase = 1;
                 }
 
-                currentTrackId = track.getIdentifier();
-                displayTitle   = track.getInfo().title;
-                displayAuthor  = track.getInfo().author;
-                extractCinematicColorsAsync(currentTrackId);
-                loadThumbnailAsync(currentTrackId);
+                if (spotifyOverride) {
+                    displayTitle  = SpotifyIntegration.currentTitle;
+                    displayAuthor = SpotifyIntegration.currentArtist;
+                    // Thumbnail and accent color are loaded by SpotifyIntegration when the track changes.
+                } else {
+                    currentTrackId = track.getIdentifier();
+                    displayTitle   = track.getInfo().title;
+                    displayAuthor  = track.getInfo().author;
+                    extractCinematicColorsAsync(currentTrackId);
+                    loadThumbnailAsync(currentTrackId);
+                }
             }
         }
 
@@ -610,20 +654,26 @@ public class MusicHUD extends AddonModule {
                         }
                     }
                 }
-                if (track != null) {
-                    long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
-                    if (!isTrackPlaying) s = ds;
-                    String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
-                    int timeW = mc.textRenderer.getWidth(time);
-                    context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
-                }
-
-                if (track != null) {
-                    long s = track.getPosition() / 1000, ds = track.getDuration() / 1000;
-                    if (!isTrackPlaying) s = ds;
-                    String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
-                    int timeW = mc.textRenderer.getWidth(time);
-                    context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
+                {
+                    long s, ds;
+                    if (spotifyOverride) {
+                        long elapsed = SpotifyIntegration.isSpotifyPlaying
+                            ? (System.currentTimeMillis() - SpotifyIntegration.progressFetchedAt) : 0;
+                        long pos = Math.min(SpotifyIntegration.progressMs + elapsed, SpotifyIntegration.durationMs);
+                        s = pos / 1000; ds = SpotifyIntegration.durationMs / 1000;
+                    } else if (track != null) {
+                        // Freeze displayed position when paused so the timer never drifts.
+                        if (!PlayMusic.isPlayerPaused()) frozenPlayMusicPositionMs = track.getPosition();
+                        long posMs = (PlayMusic.isPlayerPaused() && frozenPlayMusicPositionMs >= 0)
+                            ? frozenPlayMusicPositionMs : track.getPosition();
+                        s = posMs / 1000; ds = track.getDuration() / 1000;
+                        if (!isTrackPlaying) s = ds;
+                    } else { s = 0; ds = 0; }
+                    if (ds > 0) {
+                        String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
+                        int timeW = mc.textRenderer.getWidth(time);
+                        context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
+                    }
                 }
 
                 int iconSz = 12;
@@ -637,11 +687,24 @@ public class MusicHUD extends AddonModule {
                 double progY = y + HUD_HEIGHT - 8;
                 int pBarW = (int)(contentW - 10);
                 int filledW = 0;
-                if (track != null) {
-                    double progress = (dragPreviewRatio >= 0)
-                        ? dragPreviewRatio
-                        : (double) track.getPosition() / track.getDuration();
-                    if (dragPreviewRatio < 0 && track.getState() == AudioTrackState.FINISHED) progress = 1.0;
+                if (spotifyOverride && SpotifyIntegration.durationMs > 0) {
+                    long elapsed = SpotifyIntegration.isSpotifyPlaying
+                        ? (System.currentTimeMillis() - SpotifyIntegration.progressFetchedAt) : 0;
+                    long pos = Math.min(SpotifyIntegration.progressMs + elapsed, SpotifyIntegration.durationMs);
+                    double progress = (double) pos / SpotifyIntegration.durationMs;
+                    filledW = Math.max(3, (int)(pBarW * progress));
+                    progX = contentX + filledW;
+                } else if (track != null) {
+                    double progress;
+                    if (dragPreviewRatio >= 0) {
+                        progress = dragPreviewRatio;
+                    } else if (track.getState() == AudioTrackState.FINISHED) {
+                        progress = 1.0;
+                    } else {
+                        long posMs = (PlayMusic.isPlayerPaused() && frozenPlayMusicPositionMs >= 0)
+                            ? frozenPlayMusicPositionMs : track.getPosition();
+                        progress = (double) posMs / track.getDuration();
+                    }
                     filledW = Math.max(3, (int)(pBarW * progress));
                     progX = contentX + filledW;
                 }
@@ -650,7 +713,7 @@ public class MusicHUD extends AddonModule {
                 drawSkiaLiquidUI(btnPrevX, btnPlayX, btnNextX, btnY, iconSz, hoverPrev, hoverPlay, hoverNext, progX, progY, contentX, y + HUD_HEIGHT - 10, pBarW, filledW, hoverProgress, accentColor, waveX, waveY, waveProgress, x, y, hudW, HUD_HEIGHT, 8f);
                 // VẼ ICON PNG LÊN TRÊN MẶT GIỌT NƯỚC
                 context.drawTexture(RenderPipelines.GUI_TEXTURED, PREV_ICON, (int)btnPrevX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
-                Identifier currentPlayIcon = (PlayMusic.isPlayerPaused() || !isTrackPlaying) ? PLAY_ICON : PAUSE_ICON;
+                Identifier currentPlayIcon = (spotifyOverride ? !SpotifyIntegration.isSpotifyPlaying : (PlayMusic.isPlayerPaused() || !isTrackPlaying)) ? PLAY_ICON : PAUSE_ICON;
                 context.drawTexture(RenderPipelines.GUI_TEXTURED, currentPlayIcon, (int)btnPlayX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
                 context.drawTexture(RenderPipelines.GUI_TEXTURED, NEXT_ICON, (int)btnNextX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
                 }
@@ -703,6 +766,7 @@ public class MusicHUD extends AddonModule {
         skiaContext.resetAll(); 
 
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
@@ -763,7 +827,21 @@ public class MusicHUD extends AddonModule {
     }
 
     private void renderBars(DrawContext context, AudioTrack track, double contentX, double y, double contentW) {
-        float audioAmp = PlayMusic.currentAmplitude;
+        boolean spotifyConnected = SpotifyIntegration.isSpotifyConnected;
+        float audioAmp;
+        if (spotifyConnected) {
+            if (SpotifyIntegration.isSpotifyPlaying) {
+                // Spotify doesn't expose real-time audio — simulate a lively amplitude using oscillators.
+                long t = System.currentTimeMillis();
+                audioAmp = (float)(0.35 + 0.35 * Math.abs(Math.sin(t / 650.0))
+                                       + 0.30 * Math.abs(Math.cos(t / 420.0 + 0.8)));
+                audioAmp = Math.min(1.0f, audioAmp);
+            } else {
+                audioAmp = 0f;
+            }
+        } else {
+            audioAmp = PlayMusic.currentAmplitude;
+        }
         if (audioAmp > smoothedAmp) smoothedAmp += (audioAmp - smoothedAmp) * 0.9f;
         else                        smoothedAmp += (audioAmp - smoothedAmp) * 0.08f;
         long  tick     = System.currentTimeMillis();
@@ -786,7 +864,8 @@ public class MusicHUD extends AddonModule {
             double bell    = Math.sin(Math.PI * (i / (double)(BAR_COUNT - 1)));
             float  targetH = (float)(2.0 + combined * maxBarH * bell * smoothedAmp * 0.65);
             if (targetH > maxBarH) targetH = maxBarH;
-            if (PlayMusic.isPlayerPaused()) targetH = 2.0f;
+            boolean barsPaused = spotifyConnected ? !SpotifyIntegration.isSpotifyPlaying : PlayMusic.isPlayerPaused();
+            if (barsPaused) targetH = 2.0f;
             
             barHeights[i] += (targetH - barHeights[i]) * 0.7f;
             
@@ -870,6 +949,80 @@ public class MusicHUD extends AddonModule {
         } catch (Exception e) { return null; }
     }
 
+    public void loadThumbnailFromUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isEmpty()) return;
+        thumbLoading = false;
+        pendingThumbBytesSquare = null; pendingThumbBytesCircle = null;
+        thumbLoading = true;
+        CompletableFuture.runAsync(() -> {
+            try {
+                URL url = new URL(imageUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(4000); conn.setReadTimeout(6000);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+                if (conn.getResponseCode() != 200) { conn.disconnect(); thumbLoading = false; return; }
+                byte[] imgBytes = conn.getInputStream().readAllBytes();
+                conn.disconnect();
+
+                BufferedImage original = ImageIO.read(new ByteArrayInputStream(imgBytes));
+                if (original == null) { thumbLoading = false; return; }
+                int sw = original.getWidth(), sh = original.getHeight(), cropSz = Math.min(sw, sh);
+                BufferedImage square = original.getSubimage((sw - cropSz) / 2, (sh - cropSz) / 2, cropSz, cropSz);
+
+                BufferedImage resizedSquare = new BufferedImage(400, 400, BufferedImage.TYPE_INT_ARGB);
+                java.awt.Graphics2D gSq = resizedSquare.createGraphics();
+                gSq.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                gSq.drawImage(square, 0, 0, 400, 400, null); gSq.dispose();
+                ByteArrayOutputStream baosSq = new ByteArrayOutputStream();
+                ImageIO.write(resizedSquare, "PNG", baosSq);
+                pendingThumbBytesSquare = baosSq.toByteArray();
+
+                BufferedImage circleBuffer = new BufferedImage(400, 400, BufferedImage.TYPE_INT_ARGB);
+                java.awt.Graphics2D gCirc = circleBuffer.createGraphics();
+                gCirc.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                gCirc.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                gCirc.setClip(new java.awt.geom.Ellipse2D.Float(0, 0, 400, 400));
+                gCirc.drawImage(square, 0, 0, 400, 400, null); gCirc.dispose();
+                ByteArrayOutputStream baosCirc = new ByteArrayOutputStream();
+                ImageIO.write(circleBuffer, "PNG", baosCirc);
+                pendingThumbBytesCircle = baosCirc.toByteArray();
+            } catch (Exception e) { thumbLoading = false; }
+        });
+    }
+
+    public void extractColorsFromUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isEmpty()) return;
+        CompletableFuture.runAsync(() -> {
+            try {
+                URL url = new URL(imageUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(4000); conn.setReadTimeout(6000);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+                if (conn.getResponseCode() != 200) { conn.disconnect(); return; }
+                byte[] imgBytes = conn.getInputStream().readAllBytes();
+                conn.disconnect();
+
+                BufferedImage original = ImageIO.read(new ByteArrayInputStream(imgBytes));
+                if (original == null) return;
+                int sw = original.getWidth(), sh = original.getHeight(), cropSz = Math.min(sw, sh);
+                BufferedImage square = original.getSubimage((sw - cropSz) / 2, (sh - cropSz) / 2, cropSz, cropSz);
+
+                long sumR = 0, sumG = 0, sumB = 0; int total = 0;
+                for (int px = 0; px < square.getWidth(); px += 4) {
+                    for (int py = 0; py < square.getHeight(); py += 4) {
+                        int rgb = square.getRGB(px, py); if ((rgb & 0xFFFFFF) == 0) continue;
+                        sumR += (rgb >> 16) & 0xFF; sumG += (rgb >> 8) & 0xFF; sumB += rgb & 0xFF; total++;
+                    }
+                }
+                if (total == 0) total = 1;
+                float[] hsb = Color.RGBtoHSB((int)(sumR / total), (int)(sumG / total), (int)(sumB / total), null);
+                float sat = Math.min(1.0f, hsb[1]); if (sat < 0.4f) sat = 0.7f;
+                int accentRGB = Color.HSBtoRGB(hsb[0], sat, 1.0f);
+                this.targetAccent = new Color((accentRGB >> 16) & 0xFF, (accentRGB >> 8) & 0xFF, accentRGB & 0xFF, 255);
+            } catch (Exception ignored) {}
+        });
+    }
+
     private void uploadPendingThumb(MinecraftClient mc) {
         if (pendingThumbBytesSquare == null || pendingThumbBytesCircle == null) return;
         byte[] bytesSq = pendingThumbBytesSquare; byte[] bytesCirc = pendingThumbBytesCircle;
@@ -945,6 +1098,7 @@ public class MusicHUD extends AddonModule {
         skiaContext.resetAll();
 
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
@@ -1187,6 +1341,7 @@ public class MusicHUD extends AddonModule {
         skiaContext.resetAll();
 
         int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);

@@ -48,15 +48,15 @@ public class AntiPiston2 extends AddonModule {
         @Override public String toString() { return text; }
     }
 
-    public final ModeOption<SwitchMode>  switchMode   = new ModeOption<>(this, "Sword Switch",  "Chế độ đổi kiếm.",                          SwitchMode.Silent);
-    public final ModeOption<InteractionMode> placeMode = new ModeOption<>(this, "Place Mode",    "Bypass mode khi đặt block.",                InteractionMode.Grim);
-    public final SliderOption range       = new SliderOption(this, "Range",        "Tầm quét Piston.",                          5.0, 1.0, 8.0,   0.1);
-    public final SliderOption crystalRange = new SliderOption(this, "Crystal Range","Tầm phá Crystal.",                          5.0, 1.0, 8.0,   0.1);
-    public final ToggleOption antiWeakness = new ToggleOption(this, "Anti Weakness","Tự đổi kiếm khi có Weakness.",             true);
-    public final ToggleOption packetMode   = new ToggleOption(this, "Packet Mode",  "Phản ứng ngay khi nhận packet Piston (nhanh hơn tick).", true);
+    public final ModeOption<SwitchMode>  switchMode   = new ModeOption<>(this, "AntiWeakness Switch",  "",                          SwitchMode.Silent);
+    public final ModeOption<InteractionMode> placeMode = new ModeOption<>(this, "Place Mode",   "",                InteractionMode.Grim);
+    public final SliderOption range       = new SliderOption(this, "Range",        "",                          5.0, 1.0, 8.0,   0.1);
+    public final SliderOption crystalRange = new SliderOption(this, "Crystal Range","",                          5.0, 1.0, 8.0,   0.1);
+    public final ToggleOption antiWeakness = new ToggleOption(this, "Anti Weakness","",             true);
+    public final ToggleOption packetMode   = new ToggleOption(this, "Packet Mode",  "Packet break", true);
 
     private AntiPiston2() {
-        super("AntiPiston2", "Chặn Piston Aura tốc độ cao qua packet hook. Kèm F5 Render.");
+        super("AntiPiston2", "Anti Piston Crystal");
     }
 
     @Override public void onEnable()  { this.active = true; }

@@ -21,7 +21,7 @@ public class ChestButtons extends AddonModule {
     // Đã bổ sung biến active để theo dõi trạng thái module
     public boolean active = false;
 
-    public final SliderOption delay = new SliderOption(this, "Delay (Ticks)", "Delay between each item transfer.", 1.0, 0.0, 20.0, 1.0);
+    public final SliderOption delay = new SliderOption(this, "Delay (Ticks)", "", 1.0, 0.0, 20.0, 1.0);
 
     private boolean isDumping = false;
     private boolean isStealing = false;
@@ -30,7 +30,7 @@ public class ChestButtons extends AddonModule {
     private int lastSlotId = -1;
 
     private ChestButtons() {
-        super("ChestButtons", "Vanilla-style Steal/Dump buttons directly on the chest screen.");
+        super("ChestButtons", "Steal/Dump");
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (this.active && screen instanceof HandledScreen && !(screen instanceof InventoryScreen)) {

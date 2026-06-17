@@ -27,7 +27,7 @@ public class EbookReader extends AddonModule {
     public static final EbookReader INSTANCE = new EbookReader();
     public boolean active = false;
 
-    public final ToggleOption showTitle = new ToggleOption(this, "Show Title", "Hiện tiêu đề sách trên đầu trang đọc.", true);
+    public final ToggleOption showTitle = new ToggleOption(this, "Show Title", "", true);
 
     private final List<File> availableBooks = new ArrayList<>();
     private long lastScanTime = -1L;
@@ -75,7 +75,7 @@ public class EbookReader extends AddonModule {
     private float currentLayoutW = -1, currentLayoutH = -1;
 
     private EbookReader() {
-        super("EbookReader", "Ultimate Ebook Engine hỗ trợ Ảnh, In đậm, In nghiêng.");
+        super("EbookReader", "Read ebooks, open boze/ebook to import epub/txt files.");
     }
 
     @Override

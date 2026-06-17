@@ -12,8 +12,6 @@
     "requireAnnotations": true
   },
   "client": [
-    "MixinMinecraftClient",
-    "ScreenMixin",
-    "CameraMixin"
+    "MixinMinecraftClient"
   ]
 }

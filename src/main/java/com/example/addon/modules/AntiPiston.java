@@ -49,7 +49,7 @@ public class AntiPiston extends AddonModule {
     private long lastAttackTime = 0;
 
     public AntiPiston() {
-        super("AntiPiston", "Advanced counter for packet Piston Aura. Features Fast Packet Detection.");
+        super("AntiPiston", "Advanced counter for anti Piston Aura");
     }
 
     @Override public void onEnable() { this.active = true; }

@@ -39,8 +39,12 @@ public class KitCommand extends AddonCommand {
             )
         );
 
-        // Đã gắn gợi ý vào "load"
+        // "load" alone → show colored list; "load <name>" → load kit
         builder.then(literal("load")
+            .executes(ctx -> {
+                EvilRekit.INSTANCE.listKits();
+                return SINGLE_SUCCESS;
+            })
             .then(argument("name", StringArgumentType.word())
                 .suggests(suggestKits)
                 .executes(ctx -> {
@@ -49,6 +53,13 @@ public class KitCommand extends AddonCommand {
                     return SINGLE_SUCCESS;
                 })
             )
+        );
+
+        builder.then(literal("active")
+            .executes(ctx -> {
+                EvilRekit.INSTANCE.showActiveKit();
+                return SINGLE_SUCCESS;
+            })
         );
 
         builder.then(literal("list")
