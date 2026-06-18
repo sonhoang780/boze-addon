@@ -16,9 +16,12 @@ import org.lwjgl.glfw.GLFW;
 
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackState;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import meteordevelopment.orbit.EventHandler;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.Option;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.ModeOption;
@@ -37,6 +40,12 @@ public class MusicHUD extends AddonModule {
     public static final MusicHUD INSTANCE = new MusicHUD();
     public boolean active = false;
 
+    public enum BackGroundMode {
+        Blur("Blur"), LiquidGlass("Liquid Glass");
+        private final String text;
+        BackGroundMode(String text) { this.text = text; }
+        @Override public String toString() { return text; }
+    }
     public enum LerpMode {
         Full("Full"), Semi("Semi"), Off("Off");
         private final String text;
@@ -54,7 +63,8 @@ public class MusicHUD extends AddonModule {
     public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
     public final ToggleOption openFontUi = new ToggleOption(this, "Add Font", "", false);
     public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "", true);
-    public final SliderOption blurIntensity = new SliderOption(this, "Blur Intensity", "Intensity of the blur effect.", 15.0, 0.0, 50.0, 1.0);
+    public final ModeOption<BackGroundMode> bgMode = new ModeOption<>(this, "BackGround", "Background style of the HUD.", BackGroundMode.Blur);
+    public final SliderOption blurIntensity = new SliderOption(this, "Blur Intensity", "Intensity of the blur effect.", 15.0, 0.0, 50.0, 1.0, () -> bgMode.getValue() != BackGroundMode.LiquidGlass);
     public final SliderOption titleFontSize = new SliderOption(this, "Title Font Size", "Size of the track title font (TextBloomPlus only)", 13.0, 5.0, 30.0, 0.5);
     public final SliderOption authorFontSize = new SliderOption(this, "Author Font Size", "Size of the artist name font (TextBloomPlus only)", 11.0, 5.0, 30.0, 0.5);
     public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Vanilla Text Bloom", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
@@ -142,6 +152,108 @@ public class MusicHUD extends AddonModule {
 
     private DirectContext skiaContext;
 
+    // ── LIQUID GLASS: RuntimeShader (SkSL) sinh bản đồ khúc xạ dạng thấu kính lồi ──
+    // Theo đúng cách Skia làm Liquid Glass (custom RuntimeShader cho light refraction):
+    // shader tính per-pixel vector dịch chuyển hướng ra rìa, mạnh dần về biên (thấu kính
+    // lồi như giọt nước). Bản đồ này được dùng làm displacement map để BẺ CONG nền thật
+    // phía sau HUD — ánh sáng/khung cảnh bị uốn ở rìa kính.
+    private RuntimeEffect lensEffect;
+    private boolean lensEffectFailed = false;
+
+    // Thuật toán refraction học từ ReGlass (github.com/RedxAx/ReGlass):
+    // SDF rounded-box → pháp tuyến bề mặt → khúc xạ theo định luật Snell. Độ bẻ tập trung
+    // ở RÌA (nmerged nhỏ → góc tới lớn), phẳng ở TÂM. Mặc định ReGlass: thickness=20px,
+    // IOR=1.4. Shader xuất vector dịch chuyển (mã hoá RG) cho makeDisplacementMap.
+    private static final String LENS_SKSL =
+        "uniform float2 iResolution;\n" +
+        "uniform float cornerRadius;\n" +
+        "uniform float thickness;\n" +
+        "uniform float ior;\n" +
+        "uniform float dispGain;\n" +
+        "half4 main(float2 fragCoord) {\n" +
+        "    float2 b = iResolution * 0.5;\n" +
+        "    float2 p = fragCoord - b;\n" +
+        "    float r = min(cornerRadius, min(b.x, b.y));\n" +
+        // SDF rounded box + gradient (pháp tuyến) — port từ sdgBox của ReGlass
+        "    float2 w = abs(p) - (b - r);\n" +
+        "    float2 s = float2(p.x < 0.0 ? -1.0 : 1.0, p.y < 0.0 ? -1.0 : 1.0);\n" +
+        "    float g = max(w.x, w.y);\n" +
+        "    float2 q = max(w, 0.0);\n" +
+        "    float l = length(q);\n" +
+        "    float dist = (g > 0.0) ? (l - r) : (g - r);\n" +
+        "    float2 nrm = (g > 0.0) ? (q / max(l, 1e-6)) : ((w.x > w.y) ? float2(1.0, 0.0) : float2(0.0, 1.0));\n" +
+        "    nrm = s * nrm;\n" +
+        "    float nmerged = -dist;\n" +                 // độ sâu vào trong kính (px)
+        "    if (nmerged <= 0.0 || nmerged >= thickness) {\n" +
+        "        return half4(0.5, 0.5, 0.5, 1.0);\n" +   // ngoài kính / vùng tâm phẳng → không bẻ
+        "    }\n" +
+        "    float xR = 1.0 - nmerged / max(thickness, 1e-6);\n" +
+        "    float thetaI = asin(clamp(pow(xR, 2.0), 0.0, 1.0));\n" +
+        "    float thetaT = asin(clamp((1.0 / max(ior, 1e-6)) * sin(thetaI), -1.0, 1.0));\n" +
+        "    float edgeFactor = -tan(thetaT - thetaI);\n" +
+        "    float2 disp = clamp(-nrm * edgeFactor * dispGain, -1.0, 1.0);\n" +
+        "    return half4(half2(disp * 0.5 + 0.5), 0.5, 1.0);\n" +
+        "}\n";
+
+    private RuntimeEffect getLensEffect() {
+        if (lensEffect != null) return lensEffect;
+        if (lensEffectFailed)   return null;
+        try {
+            lensEffect = RuntimeEffect.makeForShader(LENS_SKSL);
+        } catch (Throwable t) {
+            lensEffectFailed = true;
+        }
+        return lensEffect;
+    }
+
+    private static Data floatsToData(float... vals) {
+        java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(vals.length * 4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        for (float v : vals) bb.putFloat(v);
+        return Data.makeFromBytes(bb.array());
+    }
+
+    /** Sinh bản đồ dịch chuyển dạng thấu kính (Snell) như ReGlass. Trả null nếu
+     *  RuntimeShader không khả dụng (gọi nơi dùng sẽ fallback sang gradient tuyến tính). */
+    private Image buildLensDisplacementMap(int dw, int dh, float cornerRadius) {
+        RuntimeEffect effect = getLensEffect();
+        if (effect == null) return null;
+        float thickness = Math.max(8f, Math.min(dw, dh) * 0.30f); // độ dày vành khúc xạ (px)
+        float ior = 1.4f;       // chiết suất kính (ReGlass default)
+        float dispGain = 0.10f; // hệ số quy đổi edgeFactor → biên độ dịch chuyển chuẩn hoá
+        try (Data uniforms = floatsToData((float) dw, (float) dh, cornerRadius, thickness, ior, dispGain);
+             Shader shader = effect.makeShader(uniforms, null, null);
+             Surface ds = Surface.makeRasterN32Premul(dw, dh)) {
+            try (Paint p = new Paint()) {
+                p.setShader(shader);
+                ds.getCanvas().drawRect(Rect.makeWH(dw, dh), p);
+            }
+            return ds.makeImageSnapshot();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Fallback: bản đồ dịch chuyển bằng gradient tuyến tính (không thấu kính lồi nhưng
+     *  vẫn bẻ nền). Dùng khi RuntimeShader lỗi. */
+    private Image buildLinearDisplacementMap(int dw, int dh) {
+        try (Surface dispSurf = Surface.makeRasterN32Premul(dw, dh)) {
+            Canvas dc = dispSurf.getCanvas();
+            dc.drawColor(0xFF323200);
+            try (Shader xs = Shader.makeLinearGradient(0f, 0f, (float) dw, 0f,
+                     new int[]{0xFF960000, 0xFF000000})) {
+                try (Paint xp = new Paint()) { xp.setShader(xs); xp.setBlendMode(BlendMode.PLUS); dc.drawRect(Rect.makeWH(dw, dh), xp); }
+            }
+            try (Shader ys = Shader.makeLinearGradient(0f, 0f, 0f, (float) dh,
+                     new int[]{0xFF009600, 0xFF000000})) {
+                try (Paint yp = new Paint()) { yp.setShader(ys); yp.setBlendMode(BlendMode.PLUS); dc.drawRect(Rect.makeWH(dw, dh), yp); }
+            }
+            return dispSurf.makeImageSnapshot();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private MusicHUD() {
         super("MusicHUD", "Music player HUD with Skia Rounded Corners & Glow.");
         HudRenderCallback.EVENT.register((context, tickDelta) -> {
@@ -151,6 +263,26 @@ public class MusicHUD extends AddonModule {
 
     @Override public void onEnable()  { this.active = true; lastRenderTime = System.currentTimeMillis(); isFirstRender = true; }
     @Override public void onDisable() { this.active = false; }
+
+    // Null-safe config load: bỏ qua option thiếu trong config cũ (vd option "BackGround"
+    // mới thêm) thay vì ném NPE — tránh làm hỏng vòng nạp module khiến các module khác tắt.
+    @Override
+    public AddonModule fromJson(JsonObject object) {
+        try {
+            if (object.has("title"))            setTitle(object.get("title").getAsString());
+            if (object.has("state"))            setState(object.get("state").getAsBoolean());
+            if (object.has("visible"))          setVisible(object.get("visible").getAsBoolean());
+            if (object.has("notify"))           setNotify(object.get("notify").getAsBoolean());
+            if (object.has("onlyWhileHolding")) setOnlyWhileHolding(object.get("onlyWhileHolding").getAsBoolean());
+            for (Option<?> setting : options) {
+                try {
+                    JsonElement el = object.get(setting.name);
+                    if (el != null && el.isJsonObject()) setting.fromJson(el.getAsJsonObject());
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        return this;
+    }
     @EventHandler
     private void onTick(EventTick.Pre event) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -241,6 +373,166 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
 
+    private void drawBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
+        if (bgMode.getValue() == BackGroundMode.LiquidGlass)
+            drawLiquidGlassBackground(x, y, w, h, radius, accent, enableGlow);
+        else
+            drawSkiaBackground(x, y, w, h, radius, accent, enableGlow);
+    }
+
+    private void drawLiquidGlassBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
+        if (skiaContext == null) skiaContext = DirectContext.makeGL();
+        skiaContext.resetAll();
+
+        int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.makeFromBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
+
+            Canvas canvas = surface.getCanvas();
+            float scale = (float) mc.getWindow().getScaleFactor();
+            canvas.scale(scale, scale);
+            float fx = (float)x, fy = (float)y, fw = (float)w, fh = (float)h;
+
+            // ── 1. DROP SHADOW ──
+            try (Paint shadowPaint = new Paint();
+                 MaskFilter shadowBlur = MaskFilter.makeBlur(FilterBlurMode.NORMAL, 14f)) {
+                shadowPaint.setColor(0x60000000);
+                shadowPaint.setMaskFilter(shadowBlur);
+                canvas.drawRRect(RRect.makeXYWH(fx + 2f, fy + 5f, fw, fh, radius), shadowPaint);
+            }
+
+            // ── 2. LENS REFRACTION + CHROMATIC DISPERSION BACKDROP ──
+            // Thấu kính lồi (SkSL) BẺ CONG nền thật. Để có TÁN SẮC chân thực, ta dịch chuyển
+            // nền 3 lần với mức lệch khác nhau cho 3 kênh R/G/B rồi cộng (PLUS) lại:
+            // ở tâm cả 3 trùng nhau → không lệch màu; ở rìa lệch nhau → viền cầu vồng nơi
+            // background bị kéo dãn. Sau đó CHỈ blur rất nhẹ → giữ cảm giác lớp kính trong,
+            // tâm gần như rõ (không còn "gradient mờ đặc" như cũ).
+            int dw = Math.max(8, (int)fw);
+            int dh = Math.max(8, (int)fh);
+            Image dispImg = buildLensDisplacementMap(dw, dh, radius);
+            if (dispImg == null) dispImg = buildLinearDisplacementMap(dw, dh);
+            if (dispImg != null) {
+                ColorMatrix keepR = new ColorMatrix(
+                    1,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,1,0);
+                ColorMatrix keepG = new ColorMatrix(
+                    0,0,0,0,0,  0,1,0,0,0,  0,0,0,0,0,  0,0,0,1,0);
+                ColorMatrix keepB = new ColorMatrix(
+                    0,0,0,0,0,  0,0,0,0,0,  0,0,1,0,0,  0,0,0,1,0);
+                // Tán sắc theo ReGlass: refDisp=7, N=0.985/1.015 → đỏ lệch ×1.105, lam ×0.895.
+                float base = 30f; // biên độ khúc xạ tối đa ở rìa (px)
+                try (Image dispImgClose = dispImg;
+                     ImageFilter dispImgFilter = ImageFilter.makeImage(
+                             dispImg, Rect.makeWH(dw, dh), Rect.makeXYWH(fx, fy, fw, fh), SamplingMode.DEFAULT);
+                     ImageFilter dR = ImageFilter.makeDisplacementMap(ColorChannel.R, ColorChannel.G, base * 1.105f, dispImgFilter, null, null);
+                     ImageFilter dG = ImageFilter.makeDisplacementMap(ColorChannel.R, ColorChannel.G, base,         dispImgFilter, null, null);
+                     ImageFilter dB = ImageFilter.makeDisplacementMap(ColorChannel.R, ColorChannel.G, base * 0.895f, dispImgFilter, null, null);
+                     ColorFilter cfR = ColorFilter.makeMatrix(keepR);
+                     ColorFilter cfG = ColorFilter.makeMatrix(keepG);
+                     ColorFilter cfB = ColorFilter.makeMatrix(keepB);
+                     ImageFilter fR = ImageFilter.makeColorFilter(cfR, dR, null);
+                     ImageFilter fG = ImageFilter.makeColorFilter(cfG, dG, null);
+                     ImageFilter fB = ImageFilter.makeColorFilter(cfB, dB, null);
+                     ImageFilter rg  = ImageFilter.makeBlend(BlendMode.PLUS, fR, fG, null);
+                     ImageFilter rgb = ImageFilter.makeBlend(BlendMode.PLUS, rg, fB, null);
+                     ImageFilter glassFilter = ImageFilter.makeBlur(1.2f, 1.2f, FilterTileMode.CLAMP, rgb, null)) {
+                    canvas.save();
+                    canvas.clipRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), ClipMode.INTERSECT, true);
+                    canvas.saveLayer(new SaveLayerRec(null, null, glassFilter));
+                    // ReGlass mặc định tintAlpha=0 (kính trong hoàn toàn). Để cực nhẹ cho dễ
+                    // đọc chữ trên nền sáng, tâm vẫn gần như nhìn rõ nền thật.
+                    try (Paint bgPaint = new Paint()) {
+                        bgPaint.setColor(new Color(10, 16, 28, 10).getRGB());
+                        bgPaint.setAntiAlias(true);
+                        canvas.drawRect(Rect.makeXYWH(fx, fy, fw, fh), bgPaint);
+                    }
+                    canvas.restore(); // end saveLayer
+                    canvas.restore(); // end clip
+                }
+            }
+
+            // ── 3. GLASS BODY TINT (xanh kính rất nhẹ) ──
+            canvas.save();
+            canvas.clipRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), ClipMode.INTERSECT, true);
+            try (Paint tintPaint = new Paint()) {
+                tintPaint.setColor(new Color(150, 205, 255, 10).getRGB());
+                tintPaint.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), tintPaint);
+            }
+
+            // ── 4. RADIAL DEPTH (làm dịu, chỉ tối nhẹ ở rìa cho cảm giác chiều sâu) ──
+            try (Shader radShader = Shader.makeRadialGradient(
+                     fx + fw * 0.5f, fy + fh * 0.45f,
+                     Math.max(fw, fh) * 0.85f,
+                     new int[]{ 0x0CFFFFFF, 0x04FFFFFF, 0x14000000 },
+                     new float[]{ 0f, 0.55f, 1f })) {
+                try (Paint radPaint = new Paint()) {
+                    radPaint.setShader(radShader);
+                    radPaint.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), radPaint);
+                }
+            }
+            canvas.restore(); // end glass body clip
+
+            // ── 5. OUTER ACCENT GLOW ──
+            if (enableGlow && accent != null) {
+                try (Paint glowPaint = new Paint();
+                     MaskFilter glowBlur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 16f)) {
+                    int ac = accent.getRGB() & 0x00FFFFFF;
+                    glowPaint.setColor((0x22 << 24) | ac);
+                    glowPaint.setMaskFilter(glowBlur);
+                    glowPaint.setAntiAlias(true);
+                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), glowPaint);
+                }
+            }
+
+            // ── 6. SUBTLE EDGE RIM (định hình mép kính, KHÔNG phải dải trắng) ──
+            // Viền trong rất mảnh, alpha thấp — giúp mép kính có "ánh sáng" nhẹ mà không
+            // biến cạnh trên thành mảng trắng.
+            try (Paint rim = new Paint()) {
+                rim.setColor(new Color(200, 225, 255, 36).getRGB());
+                rim.setMode(PaintMode.STROKE);
+                rim.setStrokeWidth(0.8f);
+                rim.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH(fx + 0.5f, fy + 0.5f, fw - 1f, fh - 1f, radius), rim);
+            }
+
+            // ── 7. SPECULAR GLINT (điểm sáng nhỏ ở góc trên-trái như giọt kính) ──
+            // Thay cho dải trắng cũ trên đỉnh: chỉ một đốm phản chiếu nhỏ, tinh tế.
+            canvas.save();
+            canvas.clipRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), ClipMode.INTERSECT, true);
+            float gcx = fx + radius * 1.6f, gcy = fy + radius * 1.2f;
+            try (Shader glint = Shader.makeRadialGradient(
+                     gcx, gcy, Math.max(8f, radius * 2.4f),
+                     new int[]{ 0x40FFFFFF, 0x00FFFFFF },
+                     new float[]{ 0f, 1f })) {
+                try (Paint gp = new Paint()) {
+                    gp.setShader(glint);
+                    gp.setAntiAlias(true);
+                    canvas.drawRect(Rect.makeXYWH(fx, fy, fw, fh), gp);
+                }
+            }
+            canvas.restore();
+
+            skiaContext.flush();
+        }
+
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
+        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
+        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+    }
+
     private Color lerpColor(Color a, Color b, float t) {
         t = Math.max(0f, Math.min(1f, t));
         return new Color(
@@ -274,7 +566,7 @@ public class MusicHUD extends AddonModule {
             hudHoverStartTime = 0; return;
         }
 
-        boolean spotifyOverride = SpotifyIntegration.isSpotifyPlaying;
+        boolean spotifyOverride = SpotifyIntegration.isSpotifyConnected;
         boolean useUltra = disk.getValue() && ultraDisk.getValue();
         double scale  = mc.getWindow().getScaleFactor();
         double mouseX = mc.mouse.getX() / scale;
@@ -365,7 +657,7 @@ public class MusicHUD extends AddonModule {
         if (mouseDown && isHoveringTarget) {
             if (hudHoverStartTime == 0) hudHoverStartTime = System.currentTimeMillis();
             else if (System.currentTimeMillis() - hudHoverStartTime >= 2500) {
-                if (track != null) track.stop();
+                PlayMusic.stopCurrentTrack();
                 isManuallyStopped = true;
                 hudHoverStartTime = 0;
             }
@@ -511,7 +803,7 @@ public class MusicHUD extends AddonModule {
             
             if (!useUltra) {
                 // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-                drawSkiaBackground(x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
+                drawBackground(x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
                 context.drawText(mc.textRenderer, "Not playing", (int)x + 15, (int)y + 28, 0xFFFFFFFF, true);
             }
             return;
@@ -604,7 +896,7 @@ public class MusicHUD extends AddonModule {
 
         if (!useUltra) {
             // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-            drawSkiaBackground(x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
+            drawBackground(x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
         } else {
             drawSkiaCircularGlow(currentThumbX + currentThumbW / 2.0, currentThumbY + currentThumbH / 2.0, currentThumbW / 2.0f, accentColor);
         }

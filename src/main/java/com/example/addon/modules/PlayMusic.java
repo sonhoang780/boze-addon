@@ -15,7 +15,10 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import dev.boze.api.addon.AddonModule;
+import dev.boze.api.option.Option;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.event.EventTick;
@@ -249,11 +252,25 @@ public class PlayMusic extends AddonModule {
     @Override
     public void onEnable() {
         this.active = true;
+        // Bọc toàn bộ khởi tạo nặng trong try/catch: onEnable() có thể được gọi RẤT SỚM
+        // lúc nạp config (trước khi client sẵn sàng). Nếu nó ném lỗi, vòng nạp module của
+        // Boze có thể coi module này hỏng và để nó về TẮT. Nuốt lỗi để state luôn giữ.
+        try {
+            initAudioEngine();
+        } catch (Throwable t) {
+            System.err.println("[PlayMusic] onEnable init failed (deferred): " + t);
+        }
+    }
+
+    private void initAudioEngine() {
         hookConsoleForOauth();
 
         if (playerManager == null) {
             playerManager = new DefaultAudioPlayerManager();
             playerManager.getConfiguration().setOutputFormat(StandardAudioDataFormats.COMMON_PCM_S16_BE);
+            // Khi Pause ta NGỪNG đọc stream (không gọi provide), nên tắt cơ chế tự dọn track
+            // "không được truy vấn" của lavaplayer — nếu không, dừng lâu sẽ bị tự stop track.
+            playerManager.setPlayerCleanupThreshold(Long.MAX_VALUE);
             ytSourceManager = new YoutubeAudioSourceManager(true, new dev.lavalink.youtube.clients.Music(), new dev.lavalink.youtube.clients.TvHtml5Simply(), new dev.lavalink.youtube.clients.AndroidVr(), new dev.lavalink.youtube.clients.Web());
             
             String token = readToken();
@@ -291,8 +308,48 @@ public class PlayMusic extends AddonModule {
         } else if (player != null && player.isPaused()) player.setPaused(false);
     }
 
+    // FIX: mỗi khi khởi động lại Minecraft, PlayMusic bị tắt.
+    // Nguyên nhân: AddonModule.fromJson() gọi object.get(name).getAsJsonObject() — nếu
+    // có option MỚI chưa có trong config cũ (vd: option "BackGround" thêm vào MusicHUD)
+    // thì ném NullPointerException, làm hỏng vòng nạp module và các module đăng ký SAU
+    // (PlayMusic nằm ngay sau MusicHUD) bị về mặc định = tắt.
+    // Override này bỏ qua option thiếu/khác kiểu một cách an toàn nên state luôn được nạp.
     @Override
-    public void onDisable() { this.active = false; currentSuggestions.clear(); animSuggestHeight = 0.0; }
+    public AddonModule fromJson(JsonObject object) {
+        try {
+            if (object.has("title"))            setTitle(object.get("title").getAsString());
+            if (object.has("state"))            setState(object.get("state").getAsBoolean());
+            if (object.has("visible"))          setVisible(object.get("visible").getAsBoolean());
+            if (object.has("notify"))           setNotify(object.get("notify").getAsBoolean());
+            if (object.has("onlyWhileHolding")) setOnlyWhileHolding(object.get("onlyWhileHolding").getAsBoolean());
+            for (Option<?> setting : options) {
+                try {
+                    JsonElement el = object.get(setting.name);
+                    if (el != null && el.isJsonObject()) setting.fromJson(el.getAsJsonObject());
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        return this;
+    }
+
+    @Override
+    public void onDisable() {
+        this.active = false;
+        currentSuggestions.clear();
+        animSuggestHeight = 0.0;
+        if (streamPlayer != null) {
+            streamPlayer.stop = true;
+            if (streamPlayer.line != null) streamPlayer.line.flush();
+            streamPlayer = null;
+        }
+        if (soundThread != null && soundThread.isAlive()) soundThread.interrupt();
+        if (player != null) player.stopTrack();
+    }
+
+    public static void stopCurrentTrack() {
+        if (player != null) player.stopTrack();
+        if (streamPlayer != null && streamPlayer.line != null) streamPlayer.line.flush();
+    }
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
@@ -514,8 +571,10 @@ public class PlayMusic extends AddonModule {
             }
         }
         
-        @Override 
+        @Override
         public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
+            // An toàn kép: nếu đang Pause thì tuyệt đối không tự chuyển bài.
+            if (player.isPaused()) return;
             if (endReason.mayStartNext) {
                 if (loopCurrent.getValue()) {
                     player.startTrack(track.makeClone(), false);
@@ -555,13 +614,25 @@ public class PlayMusic extends AddonModule {
                 line = (SourceDataLine) AudioSystem.getLine(info); line.open(stream.getFormat()); line.start(); playing = true;
                 byte[] buffer = new byte[StandardAudioDataFormats.COMMON_PCM_S16_BE.maximumChunkSize()]; int chunkSize;
                 
-                while (!stop && (chunkSize = stream.read(buffer)) != -1) {
-                    if (chunkSize == 0 || (player != null && player.isPaused())) { 
-                        PlayMusic.currentAmplitude = 0f; 
-                        Thread.sleep(10); 
-                        continue; 
+                while (!stop) {
+                    // FIX "đang dừng mà tự chuyển bài": KHÔNG đọc stream khi đang Pause.
+                    // Trước đây stream.read() nằm trong điều kiện while nên VẪN chạy lúc pause,
+                    // ngốn dần các frame (kể cả frame im lặng) → track bị đẩy tới cuối → onTrackEnd
+                    // → autoplay nhảy bài dù người dùng đang dừng. Giờ pause = ngừng tiêu thụ track.
+                    if (player != null && player.isPaused()) {
+                        PlayMusic.currentAmplitude = 0f;
+                        Thread.sleep(10);
+                        continue;
                     }
-                    
+
+                    chunkSize = stream.read(buffer);
+                    if (chunkSize == -1) break;
+                    if (chunkSize == 0) {
+                        PlayMusic.currentAmplitude = 0f;
+                        Thread.sleep(10);
+                        continue;
+                    }
+
                     int maxSample = 0;
                     for (int i = 0; i < chunkSize - 1; i += 2) {
                         short sample = (short) ((buffer[i] << 8) | (buffer[i + 1] & 0xFF));

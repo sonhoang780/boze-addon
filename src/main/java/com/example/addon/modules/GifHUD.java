@@ -44,6 +44,11 @@ import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
 
 public class GifHUD extends AddonModule {
+    // KHAI BÁO TRƯỚC INSTANCE: static field khởi tạo theo thứ tự văn bản. Nếu để sau
+    // INSTANCE, constructor (chạy lúc khởi tạo INSTANCE) gọi loadHistory() khi HISTORY_FILE
+    // còn null → NPE bị nuốt → lịch sử không nạp được lúc dựng object.
+    private static final File HISTORY_FILE = new File(FabricLoader.getInstance().getGameDir().toFile(), "kingthon_gifs.txt");
+
     public static final GifHUD INSTANCE = new GifHUD();
     public boolean active = false;
 
@@ -78,9 +83,10 @@ public class GifHUD extends AddonModule {
 
     private DirectContext skiaContext;
 
-    private static final File HISTORY_FILE = new File(FabricLoader.getInstance().getGameDir().toFile(), "kingthon_gifs.txt");
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
+    // Auto-load GIF gần nhất bị hoãn tới onTick (khi đã vào thế giới, render sẵn sàng).
+    private boolean pendingAutoLoad = false;
 
     private GifHUD() {
         super("GifHUD", "Display GIF on HUD with Skia Shadow & Parallax.");
@@ -93,14 +99,12 @@ public class GifHUD extends AddonModule {
     @Override
     public void onEnable() {
         this.active = true;
-        if (gifFrames.isEmpty()) {
-            if (gifHistory.isEmpty()) loadHistory();
-            if (!gifHistory.isEmpty()) {
-                int idx = historyIndex >= 0 ? historyIndex : gifHistory.size() - 1;
-                currentUrl = gifHistory.get(idx);
-                loadGifAsync(currentUrl);
-            }
-        }
+        // KHÔNG load GIF ngay tại đây: onEnable có thể chạy lúc nạp config (rất sớm, render
+        // chưa sẵn sàng) → texture đăng ký hỏng nên GIF gần nhất không hiện khi khởi động lại.
+        // Thay vào đó đánh dấu hoãn, để onTick load khi đã vào thế giới (giống nút Prev/Next).
+        if (gifHistory.isEmpty()) loadHistory();
+        if (gifFrames.isEmpty() && !gifHistory.isEmpty()) pendingAutoLoad = true;
+
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null && mc.gameRenderer.getCamera() != null) {
             prevYaw = mc.gameRenderer.getCamera().getYaw(); 
@@ -276,6 +280,17 @@ public class GifHUD extends AddonModule {
     private void onTick(EventTick.Pre event) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null) return;
+
+        // Auto-load GIF gần nhất sau khi vào thế giới (đã hoãn từ onEnable cho an toàn).
+        if (pendingAutoLoad && !isLoading && gifFrames.isEmpty()) {
+            pendingAutoLoad = false;
+            if (gifHistory.isEmpty()) loadHistory();
+            if (!gifHistory.isEmpty()) {
+                int idx = historyIndex >= 0 ? historyIndex : gifHistory.size() - 1;
+                currentUrl = gifHistory.get(idx);
+                loadGifAsync(currentUrl);
+            }
+        }
 
         if (loadClipboard.getValue()) {
             loadClipboard.setValue(false);

@@ -26,19 +26,25 @@ public class ElytraFix extends AddonModule {
     public static final ElytraFix INSTANCE = new ElytraFix();
 
     public enum SwapMode { Normal, Alt, Silent }
-    public enum HoverMode { Blatant, Legit }
+
 
     public final SliderOption durability = new SliderOption(this, "Durability %", "Start repairing when below this %.", 50.0, 1.0, 99.0, 1.0);
     public final ModeOption<SwapMode> swapMode = new ModeOption<>(this, "Swap Mode", "Mode to swap to EXP bottles.", SwapMode.Alt);
     public final ToggleOption fastExp = new ToggleOption(this, "Fast Exp", "Ném exp dồn dập hơn (chờ hấp thụ ngắn hơn). Vẫn không ném phí nhờ cơ chế chờ hấp thụ.", false);
     public final ToggleOption hoverWhileRepair = new ToggleOption(this, "Hover While Repairing", "Đứng yên giữa không trung lúc sửa để chai exp rơi trúng người.", true);
-    // Only applies when ElytraFly is on. Blatant = Creative (stable hover, blocks Baritone).
-    // Legit = ControlRocket (fireworks maintain position, looks more vanilla).
-    public final ModeOption<HoverMode> hoverMode = new ModeOption<>(this, "Hover Mode", "ElytraFly hover style during repair.", HoverMode.Blatant);
+
 
     // Tên module trong Boze core (đổi nếu Boze đặt tên khác).
     private static final String MODULE_AUTO_ARMOR = "AutoArmor";
     private static final String MODULE_ELYTRA_FLY = "ElytraFly";
+    private static final String MODULE_TIMER      = "Timer";
+
+    // ── TIMER MODULE SAVE/RESTORE (bật Timer của Boze lúc mend khi đang bay) ──
+    // Khi mend elytra lúc đang bay bằng ElytraFly: bật module Timer + áp các setting
+    // trong ảnh, mend xong thì TRẢ VỀ giá trị cũ và trạng thái bật/tắt cũ.
+    private boolean timerActivated = false;
+    private boolean savedTimerState = false;
+    private final java.util.Map<String, Object> savedTimerOptions = new java.util.HashMap<>();
 
     // Timer speed exposed to MixinMinecraftClient: 1.0 = normal, 0.1 = hover-slow.
     public static volatile float hoverTimerSpeed = 1.0f;
@@ -64,10 +70,6 @@ public class ElytraFix extends AddonModule {
     // True when ElytraFix enabled ElytraFly (Baritone case) — must disable it when done.
     private boolean enabledElytraFlyForRepair = false;
 
-    // ── LEGIT HOVER: periodic rocket fire ──
-    private static final long LEGIT_ROCKET_INTERVAL_MS = 2500L;
-    private long lastRocketFiredAt = 0L;
-
     // ── ĐỔI ELYTRA ──
     private boolean isSwappingElytra = false;
     private int swapElytraTicks = 0;
@@ -89,7 +91,9 @@ public class ElytraFix extends AddonModule {
         savedFlyModeOption = null;
         savedFlyModeName = null;
         enabledElytraFlyForRepair = false;
-        lastRocketFiredAt = 0L;
+        timerActivated = false;
+        savedTimerOptions.clear();
+
         isSwappingElytra = false;
         swapElytraTicks = 0;
         pendingElytraSlot = -1;
@@ -103,6 +107,7 @@ public class ElytraFix extends AddonModule {
         hoverTimerSpeed = 1.0f;
         restoreSpeed();
         restoreFlyMode();
+        restoreTimer();
         disableElytraFlyIfEnabled();
         cancelElytraSwap();
         if (wasAutoArmorOn) {
@@ -174,7 +179,10 @@ public class ElytraFix extends AddonModule {
                     elytraFlyOn = true; // update local var so elytraFlyHovering is correct this tick
                 }
                 saveAndReduceSpeed();
-                if (elytraFlyOn) saveAndSwitchFlyMode();
+                if (elytraFlyOn) {
+                    saveAndSwitchFlyMode();
+                    enableTimerForRepair();
+                }
             }
             if (isAutoArmorEnabled()) {
                 wasAutoArmorOn = true;
@@ -205,15 +213,16 @@ public class ElytraFix extends AddonModule {
         if (!isRepairing) return;
 
         // FastXP: stop throwing early — let floor XP finish the repair.
-        // When we enabled ElytraFly ourselves (Baritone case): stop at 80% and disable ElytraFly
+        // When we enabled ElytraFly ourselves (Baritone case): stop at 100% and disable ElytraFly
         // so Baritone resumes and the player moves around picking up orbs naturally.
         // Otherwise (ElytraFly was already on): stop at 90%.
         if (fastExp.getValue()) {
-            float threshold = enabledElytraFlyForRepair ? 80f : 90f;
+            float threshold = enabledElytraFlyForRepair ? 100f : 90f;
             if (pct >= threshold) {
                 if (enabledElytraFlyForRepair) {
                     restoreSpeed();
                     restoreFlyMode();
+                    restoreTimer();
                     disableElytraFlyIfEnabled();
                 }
                 return;
@@ -228,31 +237,8 @@ public class ElytraFix extends AddonModule {
         // True when ElytraFly holds the player airborne (vs vanilla gliding or on-ground).
         boolean elytraFlyHovering = hoverWhileRepair.getValue() && elytraFlyOn && !mc.player.isOnGround();
 
-        if (elytraFlyHovering) {
-            // ElytraFly Speed slider is set to 0.1 via saveAndReduceSpeed(). No timer needed.
-            hoverTimerSpeed = 1.0f;
-            pendingThrow = false;
-
-            // Legit: simulate ControlRocket — fire a rocket every ~2.5s.
-            // Rocket gives max-velocity boost for 2-3s (creative-like stable flight),
-            // then velocity decays back to normal. Repeat to maintain altitude.
-            if (hoverMode.getValue() == HoverMode.Legit) {
-                long now = System.currentTimeMillis();
-                if (now - lastRocketFiredAt >= LEGIT_ROCKET_INTERVAL_MS) {
-                    int rocketSlot = InvHelper.find(Items.FIREWORK_ROCKET);
-                    if (rocketSlot != -1) {
-                        InvHelper.swapToSlot(rocketSlot, getBozeSwapType());
-                        mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-                        InvHelper.swapBack();
-                        lastRocketFiredAt = now;
-                        return; // Skip exp throw this tick — can't use two items in one tick
-                    }
-                }
-            }
-        } else {
-            hoverTimerSpeed = 1.0f;
-            pendingThrow = false;
-        }
+        hoverTimerSpeed = 1.0f;
+        pendingThrow = false;
 
         // 3. PHÁO HOA / BOOST: vận tốc còn lớn thì khoan ném.
         if (mc.player.getVelocity().length() > 1.5) return;
@@ -331,6 +317,7 @@ public class ElytraFix extends AddonModule {
         hoverTimerSpeed = 1.0f;
         restoreSpeed();
         restoreFlyMode();
+        restoreTimer();
         disableElytraFlyIfEnabled();
         info("Elytra fully repaired!");
         if (wasAutoArmorOn) {
@@ -472,8 +459,6 @@ public class ElytraFix extends AddonModule {
     }
 
     private void saveAndSwitchFlyMode() {
-        // Legit mode keeps ElytraFly's Mode unchanged — it uses periodic rocket firing instead.
-        if (hoverMode.getValue() != HoverMode.Blatant) return;
         try {
             BaseModule fly = ModuleManager.getClientModule(MODULE_ELYTRA_FLY);
             if (fly == null) return;
@@ -489,11 +474,79 @@ public class ElytraFix extends AddonModule {
     }
 
     private void restoreFlyMode() {
-        if (savedFlyModeOption != null && savedFlyModeName != null) {
-            savedFlyModeOption.setValueByName(savedFlyModeName);
-        }
+        // FIX: KHÔNG trả ElytraFly về mode cũ (Control) nữa. Sau khi mend xong, giữ
+        // nguyên mode "Creative" đã set lúc hover — đây là hành vi người dùng muốn
+        // (trước đây bị trả về Control). Chỉ dọn dẹp tham chiếu.
         savedFlyModeOption = null;
         savedFlyModeName = null;
+    }
+
+    // ─── BẬT / TRẢ VỀ MODULE TIMER CỦA BOZE KHI MEND ───
+
+    private void enableTimerForRepair() {
+        if (timerActivated) return;
+        try {
+            BaseModule timer = ModuleManager.getClientModule(MODULE_TIMER);
+            if (timer == null) return;
+
+            savedTimerOptions.clear();
+            for (Option<?> opt : timer.getOptions()) {
+                String n = opt.name;
+                if (opt instanceof SliderOption sl) {
+                    savedTimerOptions.put(n, sl.getValue());
+                    switch (n.toLowerCase()) {
+                        case "speed"         -> sl.setValue(0.2);
+                        case "active"        -> sl.setValue(9.0);
+                        case "inactive"      -> sl.setValue(2.0);
+                        case "inactivespeed" -> sl.setValue(1.0);
+                        default -> {}
+                    }
+                } else if (opt instanceof ToggleOption tg) {
+                    savedTimerOptions.put(n, tg.getValue());
+                    switch (n.toLowerCase()) {
+                        case "switch"      -> tg.setValue(true);
+                        case "pause"       -> tg.setValue(false);
+                        case "whileeating" -> tg.setValue(true);
+                        case "whilemining" -> tg.setValue(false);
+                        default -> {}
+                    }
+                } else if (opt instanceof ModeOption<?> mo) {
+                    savedTimerOptions.put(n, mo.getModeName());
+                    if (n.equalsIgnoreCase("tpssync")) {
+                        try { mo.setValueByName("Off"); } catch (Exception ignored) {}
+                    }
+                }
+            }
+
+            savedTimerState = ModuleManager.getState(MODULE_TIMER);
+            if (!savedTimerState) ModuleManager.setState(MODULE_TIMER, true);
+            timerActivated = true;
+        } catch (Exception ignored) {}
+    }
+
+    private void restoreTimer() {
+        if (!timerActivated) return;
+        try {
+            BaseModule timer = ModuleManager.getClientModule(MODULE_TIMER);
+            if (timer != null) {
+                for (Option<?> opt : timer.getOptions()) {
+                    Object saved = savedTimerOptions.get(opt.name);
+                    if (saved == null) continue;
+                    if (opt instanceof SliderOption sl && saved instanceof Double d) {
+                        sl.setValue(d);
+                    } else if (opt instanceof ToggleOption tg && saved instanceof Boolean b) {
+                        tg.setValue(b);
+                    } else if (opt instanceof ModeOption<?> mo && saved instanceof String s) {
+                        try { mo.setValueByName(s); } catch (Exception ignored) {}
+                    }
+                }
+                if (ModuleManager.getState(MODULE_TIMER) != savedTimerState) {
+                    ModuleManager.setState(MODULE_TIMER, savedTimerState);
+                }
+            }
+        } catch (Exception ignored) {}
+        savedTimerOptions.clear();
+        timerActivated = false;
     }
 
     private SliderOption findSpeedOption() {
