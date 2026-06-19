@@ -2,9 +2,12 @@ package com.example.addon.mixin;
 
 import com.example.addon.ExampleAddon;
 import com.example.addon.modules.ElytraFix;
+import com.example.addon.screens.CustomLoadingScreen;
 import dev.boze.api.BozeInstance;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.RunArgs;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -12,6 +15,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(MinecraftClient.class)
 public class MixinMinecraftClient {
+
+    // True after the intro loading screen has played once per game session.
+    private static boolean introPlayed = false;
 
     // Accumulator for fractional tick timing (timer hack support for ElytraFix hover).
     private float timerAccumulator = 0f;
@@ -39,6 +45,34 @@ public class MixinMinecraftClient {
             ci.cancel();
         } else {
             timerAccumulator -= 1.0f;
+        }
+    }
+
+    /**
+     * Intercepts the very first navigation to TitleScreen and redirects to
+     * CustomLoadingScreen (which plays the intro video then opens CustomTitleScreen).
+     * Subsequent openings (e.g. returning from a world) go straight to CustomTitleScreen.
+     */
+    @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
+    private void interceptTitleScreen(Screen screen, CallbackInfo ci) {
+        // A/B test switch: create <game-dir>/boze-addon/no_custom_menu.txt to fully
+        // disable the custom menu (vanilla title screen, zero Skija/video from it).
+        // Lets us isolate whether the custom menu — or the Skija 0.143.17 upgrade —
+        // is what affects MusicHUD's TextBloomPlus text.
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir()
+                .resolve("boze-addon/no_custom_menu.txt").toFile().exists()) {
+            return;
+        }
+        if (screen instanceof TitleScreen) {
+            System.err.println("[BozeMenu] Intercepted TitleScreen (introPlayed=" + introPlayed + ")");
+            if (!introPlayed) {
+                introPlayed = true;
+                ((MinecraftClient)(Object)this).setScreen(new CustomLoadingScreen());
+            } else {
+                ((MinecraftClient)(Object)this).setScreen(
+                    new com.example.addon.screens.CustomTitleScreen());
+            }
+            ci.cancel();
         }
     }
 }

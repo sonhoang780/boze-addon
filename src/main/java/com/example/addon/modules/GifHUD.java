@@ -52,8 +52,8 @@ public class GifHUD extends AddonModule {
     public static final GifHUD INSTANCE = new GifHUD();
     public boolean active = false;
 
-    public final SliderOption posX       = new SliderOption(this, "X Position",       "", 50.0,  0.0, 2000.0, 1.0);
-    public final SliderOption posY       = new SliderOption(this, "Y Position",       "", 50.0,  0.0, 1000.0, 1.0);
+    private double posX = com.example.addon.util.HudPositions.getX("GifHUD", 50.0);
+    private double posY = com.example.addon.util.HudPositions.getY("GifHUD", 50.0);
     public final SliderOption width      = new SliderOption(this, "Width",            "", 150.0, 10.0, 1000.0, 1.0);
     public final SliderOption height     = new SliderOption(this, "Height",           "", 150.0, 10.0, 1000.0, 1.0);
     public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "", 50.0,  10.0,  300.0, 1.0);
@@ -135,9 +135,9 @@ public class GifHUD extends AddonModule {
                 mc.getWindow().getFramebufferWidth(),
                 mc.getWindow().getFramebufferHeight(),
                 0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, 
-                io.github.humbleui.skija.SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
+             Surface surface = Surface.wrapBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT,
+                io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
             
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
@@ -152,7 +152,7 @@ public class GifHUD extends AddonModule {
                 
                 canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), paint);
             }
-            skiaContext.flush();
+            skiaContext.flushAndSubmit(false);
         }
         
         // Khôi phục GL State nguyên thủy bằng GL11C
@@ -166,7 +166,7 @@ public class GifHUD extends AddonModule {
         if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
 
         if (isLoading) {
-            context.drawText(mc.textRenderer, "Loading GIF...", (int)(double)posX.getValue(), (int)(double)posY.getValue(), 0xFFFFFF00, true);
+            context.drawText(mc.textRenderer, "Loading GIF...", (int)posX, (int)posY, 0xFFFFFF00, true);
             return;
         }
 
@@ -222,8 +222,8 @@ public class GifHUD extends AddonModule {
             }
         }
 
-        double baseX = posX.getValue();
-        double baseY = posY.getValue();
+        double baseX = posX;
+        double baseY = posY;
         double w = width.getValue();
         double h = height.getValue();
 
@@ -252,14 +252,18 @@ public class GifHUD extends AddonModule {
                     }
                 }
             } else if (!mouseDown) {
-                if (isDraggingHUD) HUDEditor.draggingHUD = "";
+                if (isDraggingHUD) { HUDEditor.draggingHUD = ""; com.example.addon.util.HudPositions.save("GifHUD", posX, posY); }
                 isDraggingHUD = false;
             }
 
             if (isDraggingHUD && mouseDown) {
                 baseX = mx - dragOffsetX - parallaxX; 
                 baseY = my - dragOffsetY - parallaxY;
-                posX.setValue(baseX); posY.setValue(baseY);
+                int screenW = mc.getWindow().getScaledWidth();
+                int screenH = mc.getWindow().getScaledHeight();
+                baseX = Math.max(0, Math.min(baseX, screenW - w));
+                baseY = Math.max(0, Math.min(baseY, screenH - h));
+                posX = baseX; posY = baseY;
                 drawOutline(context, 0, 0, (int)w, (int)h, 0xFF00FF00); 
             } else if (mx >= realX && mx <= realX + w && my >= realY && my <= realY + h) {
                 drawOutline(context, 0, 0, (int)w, (int)h, 0xFFFFFF00); 
@@ -356,26 +360,46 @@ public class GifHUD extends AddonModule {
         } catch (Exception ignored) {}
     }
 
-    private String resolveDirectGifLink(String link) {
-        try {
-            if (link.contains("tenor.com/view/")) {
-                URL url = new URL(link);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-                conn.setConnectTimeout(5000);
-                InputStream in = conn.getInputStream();
-                String html = new String(in.readAllBytes(), "UTF-8");
-                in.close(); conn.disconnect();
-                Matcher m = Pattern.compile("property=\"og:image\"\\s+content=\"(https://[^\"]+\\.gif)\"").matcher(html);
-                if (m.find()) return m.group(1);
-                Matcher m2 = Pattern.compile("\"url\":\"(https://media\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
-                if (m2.find()) return m2.group(1);
-            } else if (link.contains("giphy.com/gifs/")) {
-                String[] parts = link.split("-");
-                String id = parts[parts.length - 1].replaceAll("[^a-zA-Z0-9]", "");
-                return "https://media.giphy.com/media/" + id + "/giphy.gif";
-            }
-        } catch (Exception ignored) {}
+    private String resolveDirectGifLink(String link) throws Exception {
+        if (link.contains("tenor.com/view/")) {
+            URL url = new URL(link);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            conn.setRequestProperty("Accept", "text/html,application/xhtml+xml");
+            conn.setConnectTimeout(6000);
+            conn.setReadTimeout(8000);
+            conn.setInstanceFollowRedirects(true);
+            int code = conn.getResponseCode();
+            if (code != 200) throw new Exception("Tenor page returned HTTP " + code);
+            String html = new String(conn.getInputStream().readAllBytes(), "UTF-8");
+            conn.disconnect();
+
+            // Modern Tenor embeds all media in __NEXT_DATA__ JSON (Next.js).
+            // Covers both media.tenor.com and c.tenor.com subdomains.
+            Matcher m = Pattern.compile(
+                "\"url\":\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+            if (m.find()) return m.group(1);
+            // og:image / og:video content attribute (attribute order varies)
+            m = Pattern.compile(
+                "content=\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+            if (m.find()) return m.group(1);
+            // Any quoted tenor GIF URL anywhere on the page
+            m = Pattern.compile(
+                "\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+            if (m.find()) return m.group(1);
+
+            throw new Exception(
+                "Tenor: GIF nay khong lay duoc URL truc tiep. Dan link .gif thang vao.");
+        } else if (link.contains("giphy.com/gifs/")) {
+            // Slug format: some-description-<base62id>[?query]
+            String path = link.replaceAll("\\?.*", "").replaceAll("/$", "");
+            String[] parts = path.split("-");
+            String id = parts[parts.length - 1].replaceAll("[^a-zA-Z0-9]", "");
+            if (id.isEmpty())
+                throw new Exception("Giphy: khong parse duoc GIF ID tu URL nay.");
+            return "https://media.giphy.com/media/" + id + "/giphy.gif";
+        }
         return link;
     }
 
@@ -396,8 +420,13 @@ public class GifHUD extends AddonModule {
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0");
                 conn.setConnectTimeout(6000);
                 conn.setReadTimeout(10000);
-                if (conn.getResponseCode() != 200)
-                    throw new Exception("HTTP " + conn.getResponseCode());
+                int httpCode = conn.getResponseCode();
+                if (httpCode != 200) {
+                    String hint = (httpCode == 404 && rawUrl.contains("cdn.discordapp.com"))
+                        ? "HTTP 404 - Link Discord CDN da het han. Dan link .gif moi vao."
+                        : "HTTP " + httpCode;
+                    throw new Exception(hint);
+                }
 
                 InputStream in = conn.getInputStream();
                 byte[] gifBytes = in.readAllBytes();

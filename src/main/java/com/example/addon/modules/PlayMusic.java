@@ -163,8 +163,8 @@ public class PlayMusic extends AddonModule {
             if (!this.active || !chatSearch.getValue() || mc.currentScreen == null) return;
             
             if (mc.currentScreen instanceof ChatScreen) {
-                int hudX = (int)(double) MusicHUD.INSTANCE.posX.getValue();
-                int hudY = (int)(double) MusicHUD.INSTANCE.posY.getValue() + 72; // 70 là chiều cao HUD + 2 đệm
+                int hudX = (int)(double) MusicHUD.INSTANCE.posX;
+                int hudY = (int)(double) MusicHUD.INSTANCE.posY + 72; // 70 là chiều cao HUD + 2 đệm
                 int boxW = 320;
                 int itemH = 14;
                 
@@ -393,8 +393,8 @@ public class PlayMusic extends AddonModule {
                         double mx = mc.mouse.getX() / scale;
                         double my = mc.mouse.getY() / scale;
 
-                        int hudX = (int)(double) MusicHUD.INSTANCE.posX.getValue();
-                        int hudY = (int)(double) MusicHUD.INSTANCE.posY.getValue() + 72;
+                        int hudX = (int)(double) MusicHUD.INSTANCE.posX;
+                        int hudY = (int)(double) MusicHUD.INSTANCE.posY + 72;
                         int boxW = 320;
                         int itemH = 14;
 

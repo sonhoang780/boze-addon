@@ -32,6 +32,7 @@ base {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
 
     maven {
@@ -66,7 +67,7 @@ dependencies {
     def rhinoVersion = "1.7.14"
     
     // ─── SKIJA DEPENDENCIES (BẢN MỚI NHẤT) ────────────────────────
-    def skijaVersion = "0.119.5" 
+    def skijaVersion = "0.143.17" 
     def typesVersion = "0.2.0"
     
     implementation "io.github.humbleui:types:${typesVersion}"
@@ -114,6 +115,27 @@ dependencies {
     include "org.mozilla:rhino:${rhinoVersion}"
     implementation "org.mozilla:rhino-engine:${rhinoVersion}"
     include "org.mozilla:rhino-engine:${rhinoVersion}"
+
+    // ─── MP4 / VIDEO DECODER (JavaCV + FFmpeg, Windows x64 natives only) ──
+    // Decodes any codec FFmpeg supports (H.265/HEVC, H.264 High, VP9, AV1…)
+    // with hardware acceleration. Natives are bundled — users install nothing.
+    // transitive=false on javacv avoids pulling opencv/openblas/etc. presets.
+    def javacvVersion = "1.5.11"
+    def ffmpegVersion = "7.1-1.5.11"
+
+    implementation("org.bytedeco:javacv:${javacvVersion}") { transitive = false }
+    include "org.bytedeco:javacv:${javacvVersion}"
+
+    implementation "org.bytedeco:javacpp:${javacvVersion}"
+    include "org.bytedeco:javacpp:${javacvVersion}"
+    implementation "org.bytedeco:javacpp:${javacvVersion}:windows-x86_64"
+    include "org.bytedeco:javacpp:${javacvVersion}:windows-x86_64"
+
+    implementation "org.bytedeco:ffmpeg:${ffmpegVersion}"
+    include "org.bytedeco:ffmpeg:${ffmpegVersion}"
+    implementation "org.bytedeco:ffmpeg:${ffmpegVersion}:windows-x86_64"
+    include "org.bytedeco:ffmpeg:${ffmpegVersion}:windows-x86_64"
+    // ──────────────────────────────────────────────────────────────────────
 }
 
 processResources {

@@ -12,6 +12,8 @@
     "requireAnnotations": true
   },
   "client": [
-    "MixinMinecraftClient"
+    "MixinMinecraftClient",
+    "MixinGameRenderer",
+    "MixinLivingEntityRenderer"
   ]
 }

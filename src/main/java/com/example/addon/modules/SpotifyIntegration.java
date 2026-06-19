@@ -398,6 +398,7 @@ public class SpotifyIntegration extends AddonModule {
 
     private void pausePlayMusic() {
         if (PlayMusic.INSTANCE.active && PlayMusic.getCurrentTrack() != null && !PlayMusic.isPlayerPaused()) {
+            PlayMusic.stopCurrentTrack();      // flush audio line so sound actually stops
             PlayMusic.setPausedExternal(true);
             pausedPlayMusicForSpotify = true;
         } else {

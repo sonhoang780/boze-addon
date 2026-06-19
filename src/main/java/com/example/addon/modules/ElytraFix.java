@@ -18,6 +18,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
@@ -70,6 +72,14 @@ public class ElytraFix extends AddonModule {
     // True when ElytraFix enabled ElytraFly (Baritone case) — must disable it when done.
     private boolean enabledElytraFlyForRepair = false;
 
+    // ── F5 HEAD PITCH VISUAL ──
+    // Set to throw pitch (degrees) in throwExp() so MixinLivingEntityRenderer can inject it
+    // into LivingEntityRenderState.pitch when capturing the local player's render state.
+    // The camera reads mc.player.getPitch() DIRECTLY (bypasses render state) so it stays at
+    // the real pitch. Only the entity model in F5 sees the throw pitch — head nods without
+    // any camera snap in first-person. Cleared at start of the next EventTick.Pre.
+    public static float headPitchOverrideDeg = Float.NaN;
+
     // ── ĐỔI ELYTRA ──
     private boolean isSwappingElytra = false;
     private int swapElytraTicks = 0;
@@ -97,10 +107,13 @@ public class ElytraFix extends AddonModule {
         isSwappingElytra = false;
         swapElytraTicks = 0;
         pendingElytraSlot = -1;
+
+        headPitchOverrideDeg = Float.NaN;
     }
 
     @Override
     public void onDisable() {
+        headPitchOverrideDeg = Float.NaN;
         isRepairing = false;
         damageAtLastThrow = -1;
         pendingThrow = false;
@@ -136,8 +149,15 @@ public class ElytraFix extends AddonModule {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null) return;
 
-        // Không động kho đồ / dùng item khi đang mở GUI (chống kẹt chuột / desync).
-        if (mc.currentScreen != null) return;
+        // Clear the F5 head-pitch override from the previous throw so it doesn't persist
+        // beyond one tick. The mixin only injects it into the render state, so the camera
+        // is never affected; this just prevents stale head nods on non-throw ticks.
+        headPitchOverrideDeg = Float.NaN;
+
+        // Chỉ bỏ khi đang mở màn hình container khác (rương, lò, ...) — slot index thay đổi.
+        // Pause menu, chat, và Boze GUI không ảnh hưởng đến screenHandler → vẫn chạy bình thường.
+        if (mc.currentScreen instanceof HandledScreen
+                && !(mc.currentScreen instanceof InventoryScreen)) return;
 
         boolean elytraFlyOn = isElytraFlyOn();
 
@@ -179,7 +199,7 @@ public class ElytraFix extends AddonModule {
                     elytraFlyOn = true; // update local var so elytraFlyHovering is correct this tick
                 }
                 saveAndReduceSpeed();
-                if (elytraFlyOn) {
+                if (elytraFlyOn && !mc.player.isOnGround()) {
                     saveAndSwitchFlyMode();
                     enableTimerForRepair();
                 }
@@ -264,13 +284,13 @@ public class ElytraFix extends AddonModule {
         unequipArmor(mc);
 
         // 8. NÉM ĐÚNG HƯỚNG.
-        //    Trên không → pitch -90 (ngước lên); đứng đất → pitch +90 (xuống).
-        //    anchor=true khi đang bay+hover: ghim vị trí server để chai không kế thừa vận tốc.
-        //    silentRotate=true khi đứng đất: gửi rotation packet lên server nhưng không xoay camera.
+        //    Bay: pitch -90 (thẳng lên) → chai rơi xuống trúng người.
+        //    Đất: pitch +90 (thẳng xuống) → chai vỡ dưới chân.
+        //    Luôn silent: camera không thay đổi dù ở chế độ nào.
+        //    anchor=true khi bay+hover: ghim vị trí server để chai không kế thừa vận tốc.
         float pitch = flying ? -90f : 90f;
         boolean anchor = flying && hoverWhileRepair.getValue();
-        boolean silentRotate = !flying;
-        throwExp(mc, expSlot, mc.player.getYaw(), pitch, anchor, silentRotate);
+        throwExp(mc, expSlot, mc.player.getYaw(), pitch, anchor);
 
         // Ghi nhận để chờ hấp thụ trước khi ném chai tiếp theo.
         damageAtLastThrow = damage;
@@ -278,18 +298,20 @@ public class ElytraFix extends AddonModule {
     }
 
     /**
-     * Throws an exp bottle at the given server-side yaw/pitch.
-     * silentRotate=true  → rotation packet goes to the server only; camera stays put (on-ground).
-     * silentRotate=false → camera is also rotated to match (flying, so the player sees it).
+     * Throws an exp bottle at the given server-side yaw/pitch, silently.
+     *
+     * In MC 1.21+, PlayerInteractItemC2SPacket embeds player.getYaw()/getPitch() directly,
+     * so the throw direction is determined by the CLIENT rotation at call time — not by
+     * the preceding LookAndOnGround packet. We temporarily set mc.player.setPitch() so
+     * interactItem() picks up our desired pitch, then restore it immediately so the camera
+     * never snaps. headPitchOverrideDeg is set so MixinLivingEntityRenderer can inject the
+     * throw pitch into LivingEntityRenderState.pitch — the entity MODEL renders with the
+     * throw pitch in F5 while the camera reads mc.player.getPitch() (bypass render state)
+     * and stays at the real angle throughout.
      */
-    private void throwExp(MinecraftClient mc, int slot, float yaw, float pitch, boolean anchor, boolean silentRotate) {
+    private void throwExp(MinecraftClient mc, int slot, float yaw, float pitch, boolean anchor) {
         if (mc.interactionManager == null || mc.getNetworkHandler() == null) return;
         var net = mc.getNetworkHandler();
-
-        if (!silentRotate) {
-            mc.player.setYaw(yaw);
-            mc.player.setPitch(pitch);
-        }
 
         boolean onGround = mc.player.isOnGround();
         boolean hColl = mc.player.horizontalCollision;
@@ -300,16 +322,26 @@ public class ElytraFix extends AddonModule {
             net.sendPacket(new PlayerMoveC2SPacket.Full(x, y, z, yaw, pitch, onGround, hColl));
             net.sendPacket(new PlayerMoveC2SPacket.Full(x, y, z, yaw, pitch, onGround, hColl));
         } else {
-            // Tell server the throw direction before the use-item packet.
             net.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, onGround, hColl));
         }
 
+        // Temporarily override client pitch so PlayerInteractItemC2SPacket carries our pitch.
+        // Restore immediately — no camera snap in first-person or third-person.
+        float savedPitch = mc.player.getPitch();
+        mc.player.setPitch(pitch);
         InvHelper.swapToSlot(slot, getBozeSwapType());
         mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
         InvHelper.swapBack();
+        mc.player.setPitch(savedPitch);
+
+        // Signal MixinLivingEntityRenderer to inject the throw pitch into the render state
+        // for the local player model this tick. Camera reads mc.player.getPitch() directly
+        // (not via render state) so it stays at savedPitch. F5 head nods; first-person unchanged.
+        headPitchOverrideDeg = pitch;
     }
 
     private void stopRepairing() {
+        headPitchOverrideDeg = Float.NaN;
         isRepairing = false;
         damageAtLastThrow = -1;
         absorbWaitStartMs = 0L;

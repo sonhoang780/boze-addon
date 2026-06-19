@@ -295,7 +295,7 @@ public class EbookReader extends AddonModule {
         if (fontReg != null) { fontReg.close(); fontBold.close(); fontItalic.close(); fontBoldItalic.close(); }
         
         FontMgr fm = FontMgr.getDefault();
-        Typeface baseTf = Typeface.makeDefault();
+        Typeface baseTf = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
         String familyName = baseTf.getFamilyName(); // Lấy tên họ Font mặc định (VD: Segoe UI, Arial)
 
         // Gọi thẳng bản ngã Đậm/Nghiêng HÀNG AUTH 100% từ Hệ điều hành
@@ -398,8 +398,8 @@ public class EbookReader extends AddonModule {
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.makeFromBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
+             Surface surface = Surface.wrapBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
 
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
@@ -431,7 +431,7 @@ public class EbookReader extends AddonModule {
                 canvas.restore();
             }
             canvas.restore();
-            skiaContext.flush();
+            skiaContext.flushAndSubmit(false);
         }
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
@@ -661,7 +661,7 @@ public class EbookReader extends AddonModule {
             skiaContext.resetAll();
             
             try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 0, org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING), org.lwjgl.opengl.GL30C.GL_RGBA8);
-                 Surface surface = Surface.makeFromBackendRenderTarget(skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.getSRGB())) {
+                 Surface surface = Surface.wrapBackendRenderTarget(skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
                 Canvas canvas = surface.getCanvas();
                 float scale = (float) client.getWindow().getScaleFactor();
                 canvas.scale(scale, scale);
@@ -693,7 +693,7 @@ public class EbookReader extends AddonModule {
                         }
                     }
                 }
-                skiaContext.flush();
+                skiaContext.flushAndSubmit(false);
             }
 
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);

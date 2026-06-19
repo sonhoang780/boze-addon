@@ -33,6 +33,7 @@ project_name: "example-addon-master"
 # Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
 languages:
 - java
+- python
 
 # the encoding used by text files in the project
 # For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings
@@ -68,7 +69,8 @@ ls_specific_settings: {}
 #   additional_workspace_folders:
 #     - ../sibling-package
 #     - ../shared-lib
-additional_workspace_folders: []
+additional_workspace_folders:
+  - ../addon-api-1.21.11
 
 # list of additional paths to ignore in this project.
 # Same syntax as gitignore, so you can use * and **.

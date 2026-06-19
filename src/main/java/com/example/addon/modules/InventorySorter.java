@@ -9,6 +9,7 @@ import dev.boze.api.utility.ChatHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
@@ -33,13 +34,18 @@ public class InventorySorter extends AddonModule {
 
     private int ticks = 0;
     public boolean active = false;
+    // How many consecutive ticks the cursor has been non-empty.
+    // We only dump the cursor to an empty slot after many ticks (server desync guard);
+    // otherwise we wait so the player can place items freely.
+    private int cursorWaitTicks = 0;
+    private static final int CURSOR_DUMP_AFTER_TICKS = 20; // ~1 second at 20 TPS
 
     public InventorySorter() {
-        super("InventorySorter", "HashMap Grouping + Atomic Swap + Component Check");
+        super("InventorySorter", "Auto Sort your inventory");
     }
 
-    @Override 
-    public void onEnable() { 
+    @Override
+    public void onEnable() {
         this.active = true;
         if (EvilRekit.INSTANCE.activeKit.isEmpty()) {
             try {
@@ -61,8 +67,12 @@ public class InventorySorter extends AddonModule {
         MinecraftClient mc = MinecraftClient.getInstance();
 
         if (!this.active || mc.player == null || EvilRekit.INSTANCE.activeKit.isEmpty()) return;
-        if (!silent.getValue() && !(mc.currentScreen instanceof InventoryScreen)) return;
-        if (mc.currentScreen != null && !(mc.currentScreen instanceof InventoryScreen)) return;
+
+        // Block only when a container other than the player's own inventory is open
+        // (chest, furnace, etc. change the screenHandler and slot indices).
+        // Pause menu, chat, and Boze GUI don't affect the screenHandler → sort normally.
+        if (mc.currentScreen instanceof HandledScreen
+                && !(mc.currentScreen instanceof InventoryScreen)) return;
 
         if (ticks < delay.getValue()) {
             ticks++;
@@ -81,18 +91,37 @@ public class InventorySorter extends AddonModule {
         ScreenHandler handler = mc.player.currentScreenHandler;
 
         if (!handler.getCursorStack().isEmpty()) {
+            // Player is holding an item (or sorter left one on cursor from a previous tick).
+            // Wait for them to place it — don't dump it automatically — so the player can
+            // freely pick up and move any item (wrong or correct position).
+            // After CURSOR_DUMP_AFTER_TICKS consecutive ticks, dump to an empty slot as a
+            // desync guard (e.g. server rejected our click and cursor is stuck).
+            cursorWaitTicks++;
+            if (cursorWaitTicks >= CURSOR_DUMP_AFTER_TICKS) {
+                cursorWaitTicks = 0;
+                int emptySlot = findEmptySlot(handler);
+                if (emptySlot != -1) click(emptySlot, 0, SlotActionType.PICKUP);
+            }
             return false;
         }
+        cursorWaitTicks = 0;
 
         // ── GOM RÁC SỬ DỤNG HASHMAP + EXACT COMPONENT CHECK ──
+        // Only collect items that are NOT at their correct kit position.
+        // Merging a correctly-placed item with a misplaced one causes oscillation:
+        // merge moves it → kit sort tries to move it back → infinite swap loop.
         Map<String, List<Integer>> itemGroups = new HashMap<>();
-        
+
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotI = getHandlerSlot(i);
             ItemStack stackI = handler.getSlot(slotI).getStack();
-            
+
             if (stackI.isEmpty() || isShulkerBox(stackI) || stackI.getCount() >= stackI.getMaxCount()) continue;
+
+            // Skip items already at their correct kit position — do not disturb them.
+            EvilRekit.KitItem kitI = EvilRekit.INSTANCE.activeKit.get(i);
+            if (isCorrectItem(stackI, kitI)) continue;
 
             // Dùng ID làm chìa khóa gom nhóm chung
             String key = Registries.ITEM.getId(stackI.getItem()).toString();

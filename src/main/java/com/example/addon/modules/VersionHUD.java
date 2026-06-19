@@ -1,7 +1,6 @@
 package com.example.addon.modules;
 
 import dev.boze.api.addon.AddonModule;
-import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ColorOption;
 import dev.boze.api.render.ColorMaker;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -13,8 +12,8 @@ public class VersionHUD extends AddonModule {
     public static final VersionHUD INSTANCE = new VersionHUD();
     public boolean active = false;
 
-    public final SliderOption posX = new SliderOption(this, "X Position", "Horizontal position.", 100.0, 0.0, 2000.0, 1.0);
-    public final SliderOption posY = new SliderOption(this, "Y Position", "Vertical position.", 100.0, 0.0, 1000.0, 1.0);
+    private double posX = com.example.addon.util.HudPositions.getX("VersionHUD", 100.0);
+    private double posY = com.example.addon.util.HudPositions.getY("VersionHUD", 100.0);
     public final ColorOption textColor = new ColorOption(this, "Text Color", "Color of the version text.", ColorMaker.staticColor(255, 0, 255), 1.0f);
 
     private boolean isDraggingHUD = false;
@@ -58,10 +57,9 @@ public class VersionHUD extends AddonModule {
         int w = mc.textRenderer.getWidth(text);
         int h = mc.textRenderer.fontHeight;
 
-        double x = posX.getValue();
-        double y = posY.getValue();
+        double x = posX;
+        double y = posY;
 
-        // ── LOGIC HUD EDITOR ──
         if (HUDEditor.INSTANCE.active) {
             double scale = mc.getWindow().getScaleFactor();
             double mx = mc.mouse.getX() / scale;
@@ -76,13 +74,17 @@ public class VersionHUD extends AddonModule {
                     }
                 }
             } else if (!mouseDown) {
-                if (isDraggingHUD) HUDEditor.draggingHUD = "";
+                if (isDraggingHUD) { HUDEditor.draggingHUD = ""; com.example.addon.util.HudPositions.save("VersionHUD", posX, posY); }
                 isDraggingHUD = false;
             }
 
             if (isDraggingHUD && mouseDown) {
                 x = mx - dragOffsetX; y = my - dragOffsetY;
-                posX.setValue(x); posY.setValue(y);
+                int screenW = mc.getWindow().getScaledWidth();
+                int screenH = mc.getWindow().getScaledHeight();
+                x = Math.max(0, Math.min(x, screenW - w));
+                y = Math.max(0, Math.min(y, screenH - h));
+                posX = x; posY = y;
                 drawOutline(context, (int)x, (int)y, w, h, 0xFF00FF00);
             } else if (mx >= x && mx <= x + w && my >= y && my <= y + h) {
                 drawOutline(context, (int)x, (int)y, w, h, 0xFFFFFF00);
