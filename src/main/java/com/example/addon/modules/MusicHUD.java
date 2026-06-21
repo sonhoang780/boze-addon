@@ -151,6 +151,8 @@ public class MusicHUD extends AddonModule {
     private long   frozenPlayMusicPositionMs = -1;
 
     private DirectContext skiaContext;
+    private int skiaFboId = -1;
+    private int skiaFboTexId = -1;
 
 
     private MusicHUD() {
@@ -161,7 +163,14 @@ public class MusicHUD extends AddonModule {
     }
 
     @Override public void onEnable()  { this.active = true; lastRenderTime = System.currentTimeMillis(); isFirstRender = true; }
-    @Override public void onDisable() { this.active = false; }
+    @Override public void onDisable() {
+        this.active = false;
+        if (skiaFboId != -1) {
+            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
+            skiaFboId = -1;
+            skiaFboTexId = -1;
+        }
+    }
 
     // Null-safe config load: bỏ qua option thiếu trong config cũ (vd option "BackGround"
     // mới thêm) thay vì ném NPE — tránh làm hỏng vòng nạp module khiến các module khác tắt.
@@ -197,6 +206,26 @@ public class MusicHUD extends AddonModule {
         context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
+    private int bindSkiaFbo(MinecraftClient mc) {
+        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
+        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
+        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
+        // Frame đầu khi mới vào game, texture của MC chưa sẵn sàng (glId <= 0). Tạo FBO trỏ vào
+        // texture rỗng sẽ làm FBO incomplete và bị "kẹt" cho tới khi user tắt/bật module thủ công.
+        // Bỏ qua frame này, frame sau khi texture hợp lệ sẽ tự gắn đúng.
+        if (texId <= 0) return -1;
+        if (skiaFboId == -1) skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
+        // Re-attach MỖI frame: nếu MC tạo lại framebuffer lúc load world / đổi resolution, FBO luôn
+        // trỏ về color texture hiện hành → first-entry tự lành, không cần tắt/bật module nữa.
+        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
+            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
+            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
+            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
+        skiaFboTexId = texId;
+        return skiaFboId;
+    }
+
     private void drawSkiaBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
         MinecraftClient mc = MinecraftClient.getInstance();
         org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
@@ -205,24 +234,28 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll(); 
-
-        int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        skiaContext.resetAll();
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getFramebuffer().textureWidth, mc.getFramebuffer().textureHeight,
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.wrapBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
+            // OUTER GLOW chỉ bám theo VIỀN (outline), không phủ glow lên cả khối nền.
+            // Vẽ một stroke RRect màu accent + MaskFilter blur OUTER → quầng sáng chỉ tỏa ra
+            // phía ngoài đường viền, không lan ra giữa background.
             if (enableGlow && accent != null) {
                 try (Paint glowPaint = new Paint();
-                     MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 12f)) {
+                     MaskFilter glowBlur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 8f)) {
                     glowPaint.setColor(accent.getRGB());
-                    glowPaint.setMaskFilter(blur);
+                    glowPaint.setMode(PaintMode.STROKE);
+                    glowPaint.setStrokeWidth(2.5f);
+                    glowPaint.setMaskFilter(glowBlur);
                     glowPaint.setAntiAlias(true);
                     canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
                 }
@@ -265,6 +298,7 @@ public class MusicHUD extends AddonModule {
             skiaContext.flushAndSubmit(false);
         }
         
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -289,15 +323,15 @@ public class MusicHUD extends AddonModule {
         // (render passes) changes the GL FBO binding; querying after render()
         // returns a temp texture FBO, which makes Skia draw to the wrong surface
         // and produces the "double HUD" artifact.
-        int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
 
         LiquidGlassHud.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, fbH);
         // Run GPU passes (blur + refraction) now, before Skia draws on top.
         LiquidGlassHud.INSTANCE.render();
 
-        // Restore the main FBO after the GPU passes — they may have left a
+        // Restore the HUD FBO after the GPU passes — they may have left a
         // different FBO bound (blur temp textures, etc.).
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, mainFboId);
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
 
         // ── Cheap Skia decorative layers (no backdrop filter, no displacement map) ──
         org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
@@ -307,13 +341,13 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll();
-        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getFramebuffer().textureWidth, mc.getFramebuffer().textureHeight,
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.wrapBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-
             Canvas canvas = surface.getCanvas();
             canvas.scale(scale, scale);
             float fx = (float)x, fy = (float)y, fw = (float)w, fh = (float)h;
@@ -360,11 +394,10 @@ public class MusicHUD extends AddonModule {
 
             // ── 5. OUTER ACCENT GLOW ──
             if (enableGlow && accent != null) {
+                int ac = (0x22 << 24) | (accent.getRGB() & 0x00FFFFFF);
                 try (Paint glowPaint = new Paint();
-                     MaskFilter glowBlur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 16f)) {
-                    int ac = accent.getRGB() & 0x00FFFFFF;
-                    glowPaint.setColor((0x22 << 24) | ac);
-                    glowPaint.setMaskFilter(glowBlur);
+                     ImageFilter glowFilter = ImageFilter.makeDropShadowOnly(0, 0, 16f, 16f, ac)) {
+                    glowPaint.setImageFilter(glowFilter);
                     glowPaint.setAntiAlias(true);
                     canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), glowPaint);
                 }
@@ -382,6 +415,7 @@ public class MusicHUD extends AddonModule {
             skiaContext.flushAndSubmit(false);
         }
 
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -915,20 +949,19 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll(); 
-
-        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        skiaContext.resetAll();
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getFramebuffer().textureWidth, mc.getFramebuffer().textureHeight,
-                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.wrapBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
-            
+
             try (Paint glowPaint = new Paint();
                  ImageFilter dropShadow = ImageFilter.makeDropShadow(0, 0, radius * 0.4f, radius * 0.4f, accent.getRGB())) {
                 glowPaint.setColor(accent.getRGB());
@@ -938,6 +971,7 @@ public class MusicHUD extends AddonModule {
             }
             skiaContext.flushAndSubmit(false);
         }
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -1248,15 +1282,14 @@ public class MusicHUD extends AddonModule {
 
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll();
-
-        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getFramebuffer().textureWidth, mc.getFramebuffer().textureHeight,
-                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.wrapBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
@@ -1304,6 +1337,7 @@ public class MusicHUD extends AddonModule {
             skiaContext.flushAndSubmit(false);
         }
         
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -1452,10 +1486,12 @@ public class MusicHUD extends AddonModule {
 
     // NÚM TIẾN TRÌNH VÀ HOVER GLOW
     private void drawProgressRefractionKnob(Canvas canvas, float cx, float cy, float radius, boolean hover) {
-        float smallR = 4.5f; 
-        try (Paint glow = new Paint(); MaskFilter mf = MaskFilter.makeBlur(FilterBlurMode.OUTER, hover ? 6f : 3f)) {
-            glow.setColor(new Color(255, 255, 255, hover ? 255 : 180).getRGB());
-            glow.setMaskFilter(mf);
+        float smallR = 4.5f;
+        float glowSigma = hover ? 6f : 3f;
+        int glowColor = new Color(255, 255, 255, hover ? 255 : 180).getRGB();
+        try (Paint glow = new Paint();
+             ImageFilter glowFilter = ImageFilter.makeDropShadowOnly(0, 0, glowSigma, glowSigma, glowColor)) {
+            glow.setImageFilter(glowFilter);
             glow.setAntiAlias(true);
             canvas.drawCircle(cx, cy, smallR, glow);
         }
@@ -1491,14 +1527,14 @@ public class MusicHUD extends AddonModule {
         org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll();
-
-        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        if (org.lwjgl.opengl.GL30C.glCheckFramebufferStatus(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER) != org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_COMPLETE) return;
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getFramebuffer().textureWidth, mc.getFramebuffer().textureHeight,
-                0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-          Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) { 
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+             Surface surface = Surface.wrapBackendRenderTarget(
+                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
@@ -1526,6 +1562,7 @@ public class MusicHUD extends AddonModule {
             }
             skiaContext.flushAndSubmit(false);
         }
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);

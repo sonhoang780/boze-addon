@@ -27,8 +27,7 @@ import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ColorSpace;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
-import io.github.humbleui.skija.FilterBlurMode;
-import io.github.humbleui.skija.MaskFilter;
+import io.github.humbleui.skija.ImageFilter;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.Surface;
 import io.github.humbleui.skija.SurfaceOrigin;
@@ -82,6 +81,8 @@ public class GifHUD extends AddonModule {
     private float prevPitch = 0f;
 
     private DirectContext skiaContext;
+    private int skiaFboId = -1;
+    private int skiaFboTexId = -1;
 
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
@@ -113,7 +114,14 @@ public class GifHUD extends AddonModule {
         }
     }
 
-    @Override public void onDisable() { this.active = false; }
+    @Override public void onDisable() {
+        this.active = false;
+        if (skiaFboId != -1) {
+            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
+            skiaFboId = -1;
+            skiaFboTexId = -1;
+        }
+    }
 
     private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
         context.fill(x - 1, y - 1, x + w + 1, y, color);
@@ -122,40 +130,54 @@ public class GifHUD extends AddonModule {
         context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
+    private int bindSkiaFbo(MinecraftClient mc) {
+        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
+        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
+        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
+        // Frame đầu khi mới vào game, texture của MC chưa sẵn sàng (glId <= 0). Tạo FBO trỏ vào
+        // texture rỗng sẽ làm FBO incomplete và bị "kẹt" cho tới khi user tắt/bật module thủ công.
+        // Bỏ qua frame này, frame sau khi texture hợp lệ sẽ tự gắn đúng.
+        if (texId <= 0) return -1;
+        if (skiaFboId == -1) skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
+        // Re-attach MỖI frame: nếu MC tạo lại framebuffer lúc load world / đổi resolution, FBO luôn
+        // trỏ về color texture hiện hành → first-entry tự lành, không cần tắt/bật module nữa.
+        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
+            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
+            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
+            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
+        skiaFboTexId = texId;
+        return skiaFboId;
+    }
+
     private void drawSkiaShadow(double x, double y, double w, double h, float blurRadius, int colorRgb) {
         MinecraftClient mc = MinecraftClient.getInstance();
         
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        // Lệnh tối quan trọng để chống crash
         skiaContext.resetAll();
-
-        int fboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(),
-                mc.getWindow().getFramebufferHeight(),
-                0, 8, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
+                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
+                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
              Surface surface = Surface.wrapBackendRenderTarget(
                 skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT,
                 io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            
             Canvas canvas = surface.getCanvas();
             float scale = (float) mc.getWindow().getScaleFactor();
             canvas.scale(scale, scale);
             
-            // Vẽ Bóng Đổ chuẩn (Dùng FilterBlurMode.OUTER để ở giữa trong suốt)
             try (Paint paint = new Paint();
-                 MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, blurRadius)) {
-                paint.setColor(colorRgb);
-                paint.setMaskFilter(blur);
-                paint.setAntiAlias(true); 
-                
+                 ImageFilter shadowFilter = ImageFilter.makeDropShadowOnly(0, 0, blurRadius, blurRadius, colorRgb)) {
+                paint.setImageFilter(shadowFilter);
+                paint.setAntiAlias(true);
                 canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), paint);
             }
             skiaContext.flushAndSubmit(false);
         }
         
-        // Khôi phục GL State nguyên thủy bằng GL11C
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);

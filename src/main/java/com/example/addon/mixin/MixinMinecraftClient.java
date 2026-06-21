@@ -2,6 +2,7 @@ package com.example.addon.mixin;
 
 import com.example.addon.ExampleAddon;
 import com.example.addon.modules.ElytraFix;
+import com.example.addon.modules.LoadingScreen;
 import com.example.addon.screens.CustomLoadingScreen;
 import dev.boze.api.BozeInstance;
 import net.minecraft.client.MinecraftClient;
@@ -15,9 +16,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(MinecraftClient.class)
 public class MixinMinecraftClient {
-
-    // True after the intro loading screen has played once per game session.
-    private static boolean introPlayed = false;
 
     // Accumulator for fractional tick timing (timer hack support for ElytraFix hover).
     private float timerAccumulator = 0f;
@@ -64,9 +62,10 @@ public class MixinMinecraftClient {
             return;
         }
         if (screen instanceof TitleScreen) {
-            System.err.println("[BozeMenu] Intercepted TitleScreen (introPlayed=" + introPlayed + ")");
-            if (!introPlayed) {
-                introPlayed = true;
+            if (!LoadingScreen.INSTANCE.active) return;
+            System.err.println("[BozeMenu] Intercepted TitleScreen (introPlayed=" + LoadingScreen.INSTANCE.introPlayed + ")");
+            if (!LoadingScreen.INSTANCE.introPlayed) {
+                LoadingScreen.INSTANCE.introPlayed = true;
                 ((MinecraftClient)(Object)this).setScreen(new CustomLoadingScreen());
             } else {
                 ((MinecraftClient)(Object)this).setScreen(

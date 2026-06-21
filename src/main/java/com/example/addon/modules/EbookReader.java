@@ -41,6 +41,8 @@ public class EbookReader extends AddonModule {
     private long lastFrameTime = 0L;
 
     private DirectContext skiaContext;
+    private int skiaFboId = -1;
+    private int skiaFboTexId = -1;
     
     // BỘ FONT ĐA DẠNG ĐỂ HIỂN THỊ RICH TEXT
     private Font fontReg, fontBold, fontItalic, fontBoldItalic;
@@ -90,6 +92,11 @@ public class EbookReader extends AddonModule {
     public void onDisable() {
         this.active = false;
         closeCurrentBook();
+        if (skiaFboId != -1) {
+            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
+            skiaFboId = -1;
+            skiaFboTexId = -1;
+        }
     }
 
     private void closeCurrentBook() {
@@ -295,8 +302,15 @@ public class EbookReader extends AddonModule {
         if (fontReg != null) { fontReg.close(); fontBold.close(); fontItalic.close(); fontBoldItalic.close(); }
         
         FontMgr fm = FontMgr.getDefault();
-        Typeface baseTf = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
-        String familyName = baseTf.getFamilyName(); // Lấy tên họ Font mặc định (VD: Segoe UI, Arial)
+        Typeface baseTf = fm.matchFamilyStyle(null, FontStyle.NORMAL);
+        if (baseTf == null) {
+            for (String n : new String[]{"Segoe UI", "Arial", "Helvetica", "sans-serif"}) {
+                baseTf = fm.matchFamilyStyle(n, FontStyle.NORMAL);
+                if (baseTf != null) break;
+            }
+        }
+        if (baseTf == null) return;
+        String familyName = baseTf.getFamilyName();
 
         // Gọi thẳng bản ngã Đậm/Nghiêng HÀNG AUTH 100% từ Hệ điều hành
         Typeface tfReg = fm.matchFamilyStyle(familyName, FontStyle.NORMAL);
@@ -385,6 +399,25 @@ public class EbookReader extends AddonModule {
         if (currentPageIndex >= currentPages.size()) currentPageIndex = Math.max(0, currentPages.size() - 1);
     }
 
+    private int bindSkiaFbo(MinecraftClient mc) {
+        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
+        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
+        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
+        if (skiaFboId != -1 && skiaFboTexId == texId) {
+            org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
+            return skiaFboId;
+        }
+        if (skiaFboId != -1) org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
+        skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
+        skiaFboTexId = texId;
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
+        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
+            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
+            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
+            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
+        return skiaFboId;
+    }
+
     private void drawSkiaPanel(double x, double y, double w, double h, float radius, boolean enableGlow) {
         MinecraftClient mc = MinecraftClient.getInstance();
         org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
@@ -394,7 +427,9 @@ public class EbookReader extends AddonModule {
         if (skiaContext == null) skiaContext = DirectContext.makeGL();
         skiaContext.resetAll();
 
-        int mainFboId = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+        int mainFboId = bindSkiaFbo(mc);
+        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
         try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
                 mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
                 0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
@@ -433,6 +468,7 @@ public class EbookReader extends AddonModule {
             canvas.restore();
             skiaContext.flushAndSubmit(false);
         }
+        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
         org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
         org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
@@ -659,8 +695,12 @@ public class EbookReader extends AddonModule {
 
             if (skiaContext == null) skiaContext = DirectContext.makeGL();
             skiaContext.resetAll();
-            
-            try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 0, org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING), org.lwjgl.opengl.GL30C.GL_RGBA8);
+
+            int savedFboR = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
+            int fboId = bindSkiaFbo(client);
+            if (fboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFboR); return; }
+
+            try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
                  Surface surface = Surface.wrapBackendRenderTarget(skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
                 Canvas canvas = surface.getCanvas();
                 float scale = (float) client.getWindow().getScaleFactor();
@@ -696,6 +736,7 @@ public class EbookReader extends AddonModule {
                 skiaContext.flushAndSubmit(false);
             }
 
+            org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFboR);
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
             org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
             org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);

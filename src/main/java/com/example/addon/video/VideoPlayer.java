@@ -6,29 +6,33 @@ import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
 import org.lwjgl.system.MemoryUtil;
 
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.SourceDataLine;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.nio.ShortBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Decodes a video file with JavaCV/FFmpeg on a background daemon thread.
  *
  * Two modes:
  *   • Non-streaming (default): pre-decodes up to maxFrames into a List<NativeImage>
- *     for random-access playback via getFrame(idx). Used for intro (plays once, short).
- *   • Streaming: bounded BlockingQueue; the BG thread blocks when full, so memory stays
- *     bounded regardless of video length. Looping is handled in the decode thread by
- *     re-opening the file after EOF. Consumer calls pollStreamFrame() sequentially.
- *     Used for the looping background video (long clip, no random-access needed).
+ *     for random-access playback via getFrame(idx).
+ *   • Streaming: bounded BlockingQueue; BG thread blocks when full. Looping re-opens
+ *     the file at EOF. Consumer calls pollStreamFrame() sequentially.
  *
- * Frame conversion: FFmpeg outputs RGBA directly (setPixelFormat AV_PIX_FMT_RGBA).
- * toNativeImage() does a single bulk MemoryUtil.memCopy from the RGBA ByteBuffer to
- * NativeImage's native memory — no per-pixel Java loop. Falls back to a pixel loop
- * if reflection on NativeImage's pointer field fails.
+ * Frame conversion: FFmpeg outputs RGBA directly (AV_PIX_FMT_RGBA). toNativeImage()
+ * does a single bulk MemoryUtil.memCopy — no per-pixel Java loop. Falls back to pixel
+ * loop if reflection on NativeImage's pointer field fails.
+ *
+ * Audio (streaming mode only): decode thread also grabs audio frames via grab() and
+ * plays them through a javax.sound SourceDataLine. Controlled by setAudioEnabled().
  */
 public class VideoPlayer {
 
@@ -55,10 +59,14 @@ public class VideoPlayer {
     private volatile boolean finished = false;
     private volatile double  fps      = 30.0;
 
+    // ── Audio (streaming mode only) ──────────────────────────────────────────
+    private volatile boolean audioEnabled = false;
+    private SourceDataLine   audioLine    = null; // opened in decode thread, closed in dispose()
+    private byte[]           audioBuf     = new byte[0]; // reusable; grows as needed
+
     // ── Bulk-copy fast path ──────────────────────────────────────────────────
-    // Reflect on NativeImage's native memory pointer (the only long field) so
-    // we can do a single MemoryUtil.memCopy per frame instead of 2M setColorArgb
-    // calls. Initialised once; null means fallback to pixel loop.
+    // Reflect on NativeImage's native memory pointer (the only long field) so we can
+    // do a single MemoryUtil.memCopy per frame instead of 2M setColorArgb calls.
     private static final Field NI_POINTER;
     static {
         Field f = null;
@@ -91,7 +99,7 @@ public class VideoPlayer {
 
     /**
      * Streaming: memory-bounded continuous decode.
-     * BG thread blocks when the queue is full; seamlessly re-opens the file for looping.
+     * BG thread blocks when the queue is full; seamlessly re-opens file for looping.
      */
     public VideoPlayer(String id, boolean looping, int maxW, int maxH,
                        int streamBufferFrames, boolean streaming) {
@@ -116,8 +124,6 @@ public class VideoPlayer {
                 FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(file);
                 grabber.setImageWidth(maxW);
                 grabber.setImageHeight(maxH);
-                // Request RGBA output directly from FFmpeg — avoids Java2DFrameConverter
-                // and the intermediate BufferedImage entirely.
                 grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
                 try {
                     if (!firstNotified) {
@@ -132,25 +138,44 @@ public class VideoPlayer {
                     }
                     int loopDecoded = 0;
                     Frame f;
-                    while (!disposing && loopDecoded < maxFrames && (f = grabber.grabImage()) != null) {
-                        if (f.image == null || f.image.length == 0) continue;
-                        if (!(f.image[0] instanceof ByteBuffer)) continue;
-                        NativeImage ni = toNativeImage(f);
-                        if (ni == null) continue;
-                        if (streamingMode) {
-                            boolean offered = false;
-                            while (!disposing && !offered) {
-                                try { offered = streamQueue.offer(ni, 50, TimeUnit.MILLISECONDS); }
-                                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+
+                    if (streamingMode) {
+                        // Streaming: use grab() to receive both video and audio frames.
+                        while (!disposing && (f = grabber.grab()) != null) {
+                            // Audio frame — always processed first, never blocked, keeps audio smooth.
+                            if (f.samples != null && f.samples.length > 0 && f.samples[0] instanceof ShortBuffer) {
+                                playAudioFrame(f, grabber);
                             }
-                            if (!offered) { ni.close(); break; }
-                        } else {
-                            synchronized (lock) { frames.add(ni); }
+                            // Video frame — non-blocking offer; drop frame if queue is full so
+                            // the decode thread never stalls and audio stays uninterrupted.
+                            if (f.image != null && f.image.length > 0 && f.image[0] instanceof ByteBuffer) {
+                                NativeImage ni = toNativeImage(f);
+                                if (ni != null) {
+                                    if (streamQueue.offer(ni)) {
+                                        loopDecoded++;
+                                        if (!firstNotified) {
+                                            firstNotified = true;
+                                            if (onFirstFrame != null) onFirstFrame.run();
+                                        }
+                                    } else {
+                                        ni.close(); // queue full — drop frame, audio keeps going
+                                    }
+                                }
+                            }
                         }
-                        loopDecoded++;
-                        if (!firstNotified) {
-                            firstNotified = true;
-                            if (onFirstFrame != null) onFirstFrame.run();
+                    } else {
+                        // Non-streaming: grabImage() only — no audio needed for intro.
+                        while (!disposing && loopDecoded < maxFrames && (f = grabber.grabImage()) != null) {
+                            if (f.image == null || f.image.length == 0) continue;
+                            if (!(f.image[0] instanceof ByteBuffer)) continue;
+                            NativeImage ni = toNativeImage(f);
+                            if (ni == null) continue;
+                            synchronized (lock) { frames.add(ni); }
+                            loopDecoded++;
+                            if (!firstNotified) {
+                                firstNotified = true;
+                                if (onFirstFrame != null) onFirstFrame.run();
+                            }
                         }
                     }
                 } catch (Throwable e) {
@@ -174,31 +199,25 @@ public class VideoPlayer {
 
     /**
      * Converts an RGBA Frame from FFmpeg into a NativeImage.
-     *
-     * Fast path: single MemoryUtil.memCopy (bulk native memcpy) from the RGBA ByteBuffer
-     * to NativeImage's native memory — O(1) JNI calls regardless of pixel count.
-     * Fallback: per-pixel loop (slow, used only if reflection fails).
+     * Fast path: single MemoryUtil.memCopy (bulk native memcpy).
+     * Fallback: per-pixel loop if reflection fails.
      */
     private static NativeImage toNativeImage(Frame frame) {
         ByteBuffer src = (ByteBuffer) frame.image[0];
         int w      = frame.imageWidth;
         int h      = frame.imageHeight;
-        // imageStride is in bytes for a ByteBuffer; default to w*4 if not set.
         int stride = frame.imageStride > 0 ? frame.imageStride : w * 4;
         if (w <= 0 || h <= 0 || src == null || !src.isDirect()) return null;
 
         NativeImage ni = new NativeImage(NativeImage.Format.RGBA, w, h, false);
 
-        // ── Fast path: bulk memcpy ──────────────────────────────────────────
         if (NI_POINTER != null) {
             try {
-                long dst = (long) NI_POINTER.get(ni);
+                long dst     = (long) NI_POINTER.get(ni);
                 long srcBase = MemoryUtil.memAddress(src);
                 if (stride == w * 4) {
-                    // Contiguous RGBA rows — single copy.
                     MemoryUtil.memCopy(srcBase, dst, (long) w * h * 4);
                 } else {
-                    // Rows have alignment padding — copy row by row.
                     long rowBytes = (long) w * 4;
                     for (int y = 0; y < h; y++) {
                         MemoryUtil.memCopy(srcBase + (long) y * stride,
@@ -209,11 +228,10 @@ public class VideoPlayer {
                 return ni;
             } catch (Exception e) {
                 System.err.println("[BozeMenu] VideoPlayer bulk copy failed, falling back: " + e);
-                // Fall through to pixel loop below.
             }
         }
 
-        // ── Fallback: per-pixel from RGBA ByteBuffer ────────────────────────
+        // Fallback: per-pixel from RGBA ByteBuffer.
         for (int y = 0; y < h; y++) {
             int rowOff = y * stride;
             for (int x = 0; x < w; x++) {
@@ -227,10 +245,80 @@ public class VideoPlayer {
         return ni;
     }
 
+    /** Decodes one audio frame and writes samples to the SourceDataLine. */
+    private void playAudioFrame(Frame f, FFmpegFrameGrabber grabber) {
+        if (!audioEnabled) return;
+
+        // Open line on first audio frame encountered.
+        if (audioLine == null || !audioLine.isOpen()) {
+            try {
+                int rate = grabber.getSampleRate();
+                int ch   = grabber.getAudioChannels();
+                if (rate <= 0) rate = 44100;
+                if (ch   <= 0) ch   = 2;
+                AudioFormat fmt = new AudioFormat(rate, 16, ch, true, false);
+                audioLine = (SourceDataLine) AudioSystem.getLine(new DataLine.Info(SourceDataLine.class, fmt));
+                audioLine.open(fmt, rate * ch * 2); // ~1 s buffer
+                audioLine.start();
+            } catch (Exception e) {
+                System.err.println("[BozeMenu] Audio open failed: " + e);
+                return;
+            }
+        }
+        if (!audioLine.isRunning()) audioLine.start();
+
+        // FFmpeg may output planar audio (one ShortBuffer per channel) or packed
+        // interleaved (all channels in samples[0]). Handle both cases.
+        boolean planar = f.samples.length >= 2 && f.samples[1] instanceof ShortBuffer;
+        if (planar) {
+            // Planar stereo: interleave L and R into a single PCM stream.
+            ShortBuffer left  = (ShortBuffer) f.samples[0];
+            ShortBuffer right = (ShortBuffer) f.samples[1];
+            left.rewind(); right.rewind();
+            int n    = Math.min(left.remaining(), right.remaining());
+            int need = n * 4; // 2 bytes × 2 channels per sample
+            if (audioBuf.length < need) audioBuf = new byte[need];
+            for (int i = 0, j = 0; i < n; i++, j += 4) {
+                short l = left.get(), r = right.get();
+                audioBuf[j]     = (byte)(l & 0xFF);
+                audioBuf[j + 1] = (byte)((l >> 8) & 0xFF);
+                audioBuf[j + 2] = (byte)(r & 0xFF);
+                audioBuf[j + 3] = (byte)((r >> 8) & 0xFF);
+            }
+            audioLine.write(audioBuf, 0, need);
+        } else {
+            // Packed/interleaved (or mono): samples[0] already contains all channels.
+            ShortBuffer sb = (ShortBuffer) f.samples[0];
+            sb.rewind();
+            int n    = sb.remaining();
+            int need = n * 2;
+            if (audioBuf.length < need) audioBuf = new byte[need];
+            for (int i = 0, j = 0; i < n; i++, j += 2) {
+                short s = sb.get();
+                audioBuf[j]     = (byte)(s & 0xFF);
+                audioBuf[j + 1] = (byte)((s >> 8) & 0xFF);
+            }
+            audioLine.write(audioBuf, 0, need);
+        }
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
     public void play() {
         startMs  = System.currentTimeMillis();
         playing  = true;
         finished = false;
+    }
+
+    /** Enable or disable audio playback. Safe to call from any thread. */
+    public void setAudioEnabled(boolean enabled) {
+        this.audioEnabled = enabled;
+        if (!enabled && audioLine != null && audioLine.isOpen()) {
+            audioLine.stop();
+            audioLine.flush();
+        } else if (enabled && audioLine != null && audioLine.isOpen() && !audioLine.isRunning()) {
+            audioLine.start();
+        }
     }
 
     public double  getVideoFps()       { return fps; }
@@ -243,9 +331,8 @@ public class VideoPlayer {
     }
 
     /**
-     * Streaming mode only: returns the next frame from the queue, or null if the queue
-     * is empty (decode hasn't caught up yet). Caller must close the returned NativeImage
-     * after its pixel data has been copied to a texture.
+     * Streaming mode only: returns the next frame from the queue, or null if empty.
+     * Caller must close the NativeImage after uploading to GPU.
      */
     public NativeImage pollStreamFrame() {
         if (!streamingMode || !playing || disposing) return null;
@@ -286,6 +373,11 @@ public class VideoPlayer {
     public void dispose() {
         disposing = true;
         playing   = false;
+        // Close audio line first so the decode thread's audioLine.write() unblocks.
+        if (audioLine != null) {
+            try { audioLine.stop(); audioLine.flush(); audioLine.close(); } catch (Exception ignored) {}
+            audioLine = null;
+        }
         if (streamingMode) {
             List<NativeImage> leftover = new ArrayList<>();
             streamQueue.drainTo(leftover);

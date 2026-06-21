@@ -1,5 +1,6 @@
 package com.example.addon.screens;
 
+import com.example.addon.modules.LoadingScreen;
 import com.example.addon.video.VideoPlayer;
 import io.github.humbleui.skija.*;
 import io.github.humbleui.types.Rect;
@@ -43,6 +44,8 @@ public class CustomTitleScreen extends Screen {
     private static final int HELLO_FRAMES = 40;   // flipbook step count
 
     // ── Background video ────────────────────────────────────────────────────
+    /** Shared reference so LoadingScreen module can control audio from any thread. */
+    public static volatile VideoPlayer activeBgVideo = null;
     private VideoPlayer bgVideo;
     private final FrameTexture bgTex = new FrameTexture("bg");
     private int lastBgIdx = -1;
@@ -121,6 +124,9 @@ public class CustomTitleScreen extends Screen {
                 bgVideo = new VideoPlayer("bg", true, 1920, 1080, 60, true);
                 bgVideo.startDecoding(f, null);
                 bgVideo.play(); // streaming doesn't need pre-buffering
+                activeBgVideo = bgVideo;
+                bgVideo.setAudioEnabled(
+                    LoadingScreen.INSTANCE.active && LoadingScreen.INSTANCE.sound.getValue());
             }
         }
 
@@ -513,6 +519,7 @@ public class CustomTitleScreen extends Screen {
             helloBuildThread = null;
         }
         if (bgVideo != null) { bgVideo.dispose(); bgVideo = null; }
+        activeBgVideo = null;
         bgTex.dispose();
         helloTex.dispose();
         dateTex.dispose();

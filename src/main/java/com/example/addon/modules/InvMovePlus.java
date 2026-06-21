@@ -85,6 +85,7 @@ public class InvMovePlus extends AddonModule {
     @EventHandler
     private void onPacketSend(EventPacket.Send event) {
         if (flushing) return;
+        if (FakeFly.invMoveBypass) return;  // FakeFly chestplate-swap needs precise ordering
         if (mode.getValue() != Mode.GrimStrict) return;
         if (!(event.packet instanceof ClickSlotC2SPacket)) return;
         MinecraftClient mc = MinecraftClient.getInstance();

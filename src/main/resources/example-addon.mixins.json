@@ -14,6 +14,9 @@
   "client": [
     "MixinMinecraftClient",
     "MixinGameRenderer",
-    "MixinLivingEntityRenderer"
+    "MixinLivingEntity",
+    "MixinLivingEntityRenderer",
+    "MixinEntity",
+    "MixinPlayerLikeEntity"
   ]
 }

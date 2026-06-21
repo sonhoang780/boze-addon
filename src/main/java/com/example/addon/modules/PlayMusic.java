@@ -545,32 +545,32 @@ public class PlayMusic extends AddonModule {
 
     private class TrackScheduler extends AudioEventAdapter {
         public final List<AudioTrack> queue = new ArrayList<>();
-        public final List<AudioTrack> historyQueue = new ArrayList<>(); 
-        
+        public final List<AudioTrack> historyQueue = new ArrayList<>();
+
         public void nextTrack() {
-            if (!queue.isEmpty()) { 
-                forcePlayInstantly(queue.remove(0)); 
+            if (!queue.isEmpty()) {
+                forcePlayInstantly(queue.remove(0));
             } else if (autoPlay.getValue() && player.getPlayingTrack() != null) {
-                String currentId = player.getPlayingTrack().getIdentifier();
-                player.stopTrack(); 
+                AudioTrack current = player.getPlayingTrack();
+                player.stopTrack();
                 safeInfo("Loading recommendations from YouTube Music...");
-                loadAutoMix(currentId);
-            } else { 
-                player.stopTrack(); 
-                safeInfo("Queue is empty."); 
+                loadAutoMix(current);
+            } else {
+                player.stopTrack();
+                safeInfo("Queue is empty.");
             }
         }
 
         public void previousTrack() {
             if (historyQueue.size() >= 2) {
-                historyQueue.remove(historyQueue.size() - 1); 
-                AudioTrack previousTrack = historyQueue.remove(historyQueue.size() - 1); 
-                forcePlayInstantly(previousTrack); 
+                historyQueue.remove(historyQueue.size() - 1);
+                AudioTrack previousTrack = historyQueue.remove(historyQueue.size() - 1);
+                forcePlayInstantly(previousTrack);
             } else {
                 safeInfo("No previous tracks found in history!");
             }
         }
-        
+
         @Override
         public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
             // An toàn kép: nếu đang Pause thì tuyệt đối không tự chuyển bài.
@@ -581,20 +581,56 @@ public class PlayMusic extends AddonModule {
                 } else if (!queue.isEmpty()) {
                     nextTrack();
                 } else if (autoPlay.getValue()) {
-                    loadAutoMix(track.getIdentifier());
+                    loadAutoMix(track);
                 }
             }
         }
 
-        private void loadAutoMix(String trackId) {
+        private void loadAutoMix(AudioTrack sourceTrack) {
+            String trackId = sourceTrack.getIdentifier();
+            String trackTitle = sourceTrack.getInfo().title;
             String mixUrl = "https://music.youtube.com/watch?v=" + trackId + "&list=RDAMVM" + trackId;
             playerManager.loadItem(mixUrl, new AudioLoadResultHandler() {
                 @Override public void trackLoaded(AudioTrack t) { forcePlayInstantly(t); }
                 @Override public void playlistLoaded(AudioPlaylist playlist) {
+                    // First pass: prefer unplayed tracks
                     for (AudioTrack t : playlist.getTracks()) {
                         String nextId = t.getIdentifier();
-                        if (!nextId.equals(trackId) && !playedHistory.contains(nextId)) { 
-                            forcePlayInstantly(t); return; 
+                        if (!nextId.equals(trackId) && !playedHistory.contains(nextId)) {
+                            forcePlayInstantly(t); return;
+                        }
+                    }
+                    // Second pass: history exhausted — play any track that isn't the current one
+                    for (AudioTrack t : playlist.getTracks()) {
+                        if (!t.getIdentifier().equals(trackId)) {
+                            forcePlayInstantly(t); return;
+                        }
+                    }
+                    // Playlist only contained the current track — fall back to search
+                    trySearchFallback(trackTitle, trackId);
+                }
+                // RDAMVM URL not recognized or network error → fall back to title search
+                @Override public void noMatches() { trySearchFallback(trackTitle, trackId); }
+                @Override public void loadFailed(FriendlyException e) { trySearchFallback(trackTitle, trackId); }
+            });
+        }
+
+        private void trySearchFallback(String title, String excludeId) {
+            if (title == null || title.isEmpty()) return;
+            playerManager.loadItem("ytsearch:" + title, new AudioLoadResultHandler() {
+                @Override public void trackLoaded(AudioTrack t) {
+                    if (!t.getIdentifier().equals(excludeId)) forcePlayInstantly(t);
+                }
+                @Override public void playlistLoaded(AudioPlaylist playlist) {
+                    // Prefer unplayed; fall back to any non-current track
+                    for (AudioTrack t : playlist.getTracks()) {
+                        if (!t.getIdentifier().equals(excludeId) && !playedHistory.contains(t.getIdentifier())) {
+                            forcePlayInstantly(t); return;
+                        }
+                    }
+                    for (AudioTrack t : playlist.getTracks()) {
+                        if (!t.getIdentifier().equals(excludeId)) {
+                            forcePlayInstantly(t); return;
                         }
                     }
                 }

@@ -12,8 +12,7 @@ import dev.boze.api.utility.interaction.PlaceHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
@@ -25,12 +24,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Xây cột obsidian hình nấm (stem 4 block + mũ 4×4) để đỡ đòn Mace dive.
+ * Anti-Mace: intercepts enemy mace dives by placing blocks in their predicted path.
  *
- * Cấu trúc (nhìn từ bên hông):
- *   ████  ← mũ nấm 4×4 tại Y+4
- *    █    ← thân 1×1, 4 block (Y đến Y+3)
- *  [Người chơi]
+ * Strategy (fast, no delay):
+ *   1. Detect a diving mace user (airborne, above player, velocity.y < threshold, horizontal dist < range).
+ *   2. Simulate their trajectory with Minecraft physics (gravity 0.04, air-drag 0.91/0.98).
+ *   3. Build queue (in order of priority):
+ *        a. Y+2 and Y+3 directly above player — guaranteed immediate intercept.
+ *        b. Predicted trajectory blocks from player upward — early intercept.
+ *        c. 2×2 cap centered on impact X/Z at Y+3 — lateral coverage.
+ *   4. Place blocksPerTick blocks per tick, no delay.
  */
 public class AntiMace extends AddonModule {
     public static final AntiMace INSTANCE = new AntiMace();
@@ -38,152 +41,208 @@ public class AntiMace extends AddonModule {
     public enum SwapMode { Normal, Alt, Silent }
 
     public final ModeOption<SwapMode> swapMode = new ModeOption<>(this, "Swap Mode",
-        "", SwapMode.Alt);
-    public final SliderOption delay = new SliderOption(this, "Delay",
-        "Tick delay each place", 1.0, 0.0, 10.0, 1.0);
+            "", SwapMode.Alt);
+    // How many blocks to place per game tick (higher = faster, more packet spam)
+    public final SliderOption blocksPerTick = new SliderOption(this, "Blocks/Tick",
+            "Blocks placed per tick (higher = faster).", 3.0, 1.0, 6.0, 1.0);
+    public final SliderOption detectRange = new SliderOption(this, "Detect Range",
+            "Horizontal range to detect diving enemy.", 24.0, 5.0, 40.0, 0.5);
+    public final SliderOption predictTicks = new SliderOption(this, "Predict Ticks",
+            "Physics simulation steps for trajectory prediction.", 12.0, 2.0, 30.0, 1.0);
     public final ToggleOption autoTrigger = new ToggleOption(this, "Auto Trigger",
-        "Auto trigger when enemy with Mace is detected", true);
-
-    // OBSIDIAN_NEEDED = 4 (thân) + 16 (mũ 4×4) = 20
-    private static final int OBSIDIAN_NEEDED = 20;
+            "Auto trigger when enemy with Mace is detected above.", true);
 
     private final List<BlockPos> buildQueue = new ArrayList<>();
-    private int buildIndex = 0;
-    private int tickCount = 0;
-    private boolean building = false;
+    private int  buildIndex    = 0;
+    private boolean building   = false;
+    private long lastBuildEndMs = 0; // cooldown: don't re-trigger immediately after finishing
 
     public AntiMace() {
-        super("AntiMace", "Build obsidian mushroom to block Mace dive.");
+        super("AntiMace", "Places blocks in the mace enemy's dive path.");
     }
 
-    @Override
-    public void onEnable() {
-        reset();
-        if (!autoTrigger.getValue()) {
-            initBuild(MinecraftClient.getInstance());
-        }
-    }
+    @Override public void onEnable()  { reset(); if (!autoTrigger.getValue()) initBuild(MinecraftClient.getInstance(), null); }
+    @Override public void onDisable() { reset(); }
 
-    @Override
-    public void onDisable() {
-        reset();
-    }
+    private void reset() { buildQueue.clear(); buildIndex = 0; building = false; lastBuildEndMs = 0; }
 
-    private void reset() {
-        buildQueue.clear();
-        buildIndex = 0;
-        tickCount = 0;
-        building = false;
-    }
+    // ── Build queue construction ──────────────────────────────────────────────
 
-    /**
-     * Khởi tạo hàng đợi xây tại vị trí hiện tại của người chơi.
-     * Thân: base → base+3 (4 block cao, 1×1).
-     * Mũ: base+4, offset dx/dz từ -1 đến +2 (4×4, tâm ở vị trí người chơi).
-     */
-    private void initBuild(MinecraftClient mc) {
+    private void initBuild(MinecraftClient mc, AbstractClientPlayerEntity threat) {
         if (building || mc.player == null) return;
-
-        int have = countItem(mc, Items.OBSIDIAN);
-        if (have < OBSIDIAN_NEEDED) {
-            ChatHelper.sendMsg("AntiMace", "§cNeed " + OBSIDIAN_NEEDED + " obsidian (have " + have + ")");
-            return;
-        }
-
+        // 1-second cooldown between builds so the module doesn't spam-rebuild every tick
+        // after the previous build completes while the threat is still present.
+        if (System.currentTimeMillis() - lastBuildEndMs < 1000) return;
         buildQueue.clear();
         buildIndex = 0;
 
-        BlockPos base = mc.player.getBlockPos();
+        BlockPos feet  = mc.player.getBlockPos();
+        int      baseY = feet.getY();
 
-        // Thân nấm: 4 block dọc tại vị trí người chơi
-        for (int i = 0; i < 4; i++) {
-            buildQueue.add(base.up(i));
-        }
+        // --- Priority 1: directly above player (Y+2, Y+3) — fastest guaranteed intercept ---
+        addIfReplaceable(mc, feet.up(2));
+        addIfReplaceable(mc, feet.up(3));
 
-        // Mũ nấm: 4×4 tại Y+4, căn giữa theo người chơi
-        int capY = base.getY() + 4;
-        for (int dx = -1; dx <= 2; dx++) {
-            for (int dz = -1; dz <= 2; dz++) {
-                buildQueue.add(new BlockPos(base.getX() + dx, capY, base.getZ() + dz));
+        // --- Priority 2: predicted trajectory from player.Y up to enemy ---
+        if (threat != null) {
+            Vec3d pos = new Vec3d(threat.getX(), threat.getY(), threat.getZ());
+            Vec3d vel = threat.getVelocity();
+            int   n   = predictTicks.getValue().intValue();
+
+            List<BlockPos> path = new ArrayList<>();
+            for (int t = 1; t <= n; t++) {
+                // Minecraft air physics: gravity 0.04, vertical drag 0.98, horizontal drag 0.91
+                vel = new Vec3d(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
+                pos = pos.add(vel);
+
+                int by = (int) Math.floor(pos.y);
+                if (by < baseY + 1) break;    // reached player level, stop
+                if (by > baseY + 20) continue; // too high to be useful
+
+                path.add(new BlockPos((int) Math.floor(pos.x), by, (int) Math.floor(pos.z)));
+            }
+            // Add from lowest Y first so the blocks closest to player are placed first.
+            path.sort((a, b) -> a.getY() - b.getY());
+            for (BlockPos p : path) addIfReplaceable(mc, p);
+
+            // --- Priority 3: 2×2 cap at Y+3 centered on predicted impact X/Z ---
+            // Find the trajectory tick where Y crosses player.Y+3
+            Vec3d impactPos = projectToY(threat, baseY + 3);
+            if (impactPos != null) {
+                int ix = (int) Math.floor(impactPos.x);
+                int iz = (int) Math.floor(impactPos.z);
+                for (int dx = 0; dx <= 1; dx++) {
+                    for (int dz = 0; dz <= 1; dz++) {
+                        addIfReplaceable(mc, new BlockPos(ix + dx, baseY + 3, iz + dz));
+                        addIfReplaceable(mc, new BlockPos(ix + dx, baseY + 4, iz + dz));
+                    }
+                }
             }
         }
 
-        building = true;
-        ChatHelper.sendMsg("AntiMace", "§aBuilding obsidian mushroom (" + buildQueue.size() + " blocks)...");
+        // --- Fallback: column Y+4 to Y+6 directly above player ---
+        for (int dy = 4; dy <= 6; dy++) addIfReplaceable(mc, feet.up(dy));
+
+        if (!buildQueue.isEmpty()) {
+            building = true;
+        }
     }
+
+    /** Returns the predicted X/Z position of the entity when it crosses targetY, or null. */
+    private Vec3d projectToY(AbstractClientPlayerEntity e, int targetY) {
+        Vec3d pos = new Vec3d(e.getX(), e.getY(), e.getZ());
+        Vec3d vel = e.getVelocity();
+        for (int t = 1; t <= 40; t++) {
+            vel = new Vec3d(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
+            pos = pos.add(vel);
+            if (pos.y <= targetY) return pos;
+        }
+        return null;
+    }
+
+    private void addIfReplaceable(MinecraftClient mc, BlockPos p) {
+        if (mc.world.getBlockState(p).isReplaceable() && !buildQueue.contains(p)) {
+            buildQueue.add(p);
+        }
+    }
+
+    // ── Tick handler ─────────────────────────────────────────────────────────
 
     @EventHandler
     private void onTick(EventTick.Post event) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null) return;
 
-        // Auto trigger: phát hiện kẻ địch cầm mace đang bay bên trên và gần
-        if (autoTrigger.getValue() && !building && buildQueue.isEmpty()) {
-            boolean threat = mc.world.getPlayers().stream()
-                .anyMatch(p -> p != mc.player
-                    && !p.isOnGround()
-                    && p.getY() > mc.player.getY() + 3
-                    && horizontalDist(mc.player.getX(), mc.player.getZ(), p.getX(), p.getZ()) < 24.0
-                    && (p.getMainHandStack().isOf(Items.MACE) || p.getOffHandStack().isOf(Items.MACE)));
-            if (threat) initBuild(mc);
+        // Auto trigger: find closest diving mace threat
+        if (autoTrigger.getValue() && !building) {
+            AbstractClientPlayerEntity threat = findThreat(mc);
+            if (threat != null) initBuild(mc, threat);
         }
 
         if (!building) return;
 
-        if (buildIndex >= buildQueue.size()) {
-            ChatHelper.sendMsg("AntiMace", "§aCompleted!");
-            building = false;
-            return;
-        }
+        int placed = 0;
+        int max    = blocksPerTick.getValue().intValue();
 
-        if (tickCount < delay.getValue()) {
-            tickCount++;
-            return;
-        }
-        tickCount = 0;
+        while (buildIndex < buildQueue.size() && placed < max) {
+            BlockPos target = buildQueue.get(buildIndex++);
 
-        BlockPos target = buildQueue.get(buildIndex++);
+            // Skip if already occupied
+            if (!mc.world.getBlockState(target).isReplaceable()) continue;
 
-        if (mc.world.getBlockState(target).isReplaceable()) {
-            int slot = findItem(mc, Items.OBSIDIAN);
+            int slot = swapMode.getValue() == SwapMode.Alt
+                    ? InvHelper.find(Items.OBSIDIAN)
+                    : InvHelper.findInHotbar(Items.OBSIDIAN);
             if (slot == -1) {
-                ChatHelper.sendMsg("AntiMace", "§cHết obsidian!");
+                ChatHelper.sendMsg("AntiMace", "§cNo obsidian!");
                 building = false;
                 return;
             }
+
+            BlockHitResult hit = getHitResult(mc, target);
+            if (hit == null) continue; // no solid neighbour yet, skip this position
+
             InvHelper.swapToSlot(slot, getSwapType());
-            BlockHitResult hit = new BlockHitResult(
-                new Vec3d(target.getX() + 0.5, target.getY(), target.getZ() + 0.5),
-                Direction.UP, target, false
-            );
             PlaceHelper.place(InteractionMode.NCP, hit, Hand.MAIN_HAND);
             InvHelper.swapBack();
+            placed++;
+        }
+
+        if (buildIndex >= buildQueue.size()) {
+            building = false;
+            lastBuildEndMs = System.currentTimeMillis();
         }
     }
 
-    private double horizontalDist(double ax, double az, double bx, double bz) {
-        double dx = ax - bx, dz = az - bz;
-        return Math.sqrt(dx * dx + dz * dz);
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private AbstractClientPlayerEntity findThreat(MinecraftClient mc) {
+        AbstractClientPlayerEntity best    = null;
+        double                    bestDist = Double.MAX_VALUE;
+
+        for (AbstractClientPlayerEntity p : mc.world.getPlayers()) {
+            if (p == mc.player) continue;
+            if (p.isOnGround()) continue;
+            if (p.getY() <= mc.player.getY() + 2) continue;  // not above us
+            if (p.getVelocity().y >= -0.05) continue;         // not diving down
+            double hDist = hDist(mc.player, p);
+            if (hDist > detectRange.getValue()) continue;
+            if (!p.getMainHandStack().isOf(Items.MACE) && !p.getOffHandStack().isOf(Items.MACE)) continue;
+            if (hDist < bestDist) { bestDist = hDist; best = p; }
+        }
+        return best;
     }
 
-    private int findItem(MinecraftClient mc, Item item) {
-        return swapMode.getValue() == SwapMode.Alt ? InvHelper.find(item) : InvHelper.findInHotbar(item);
+    private static double hDist(net.minecraft.entity.Entity a, net.minecraft.entity.Entity b) {
+        double dx = a.getX() - b.getX(), dz = a.getZ() - b.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     private SwapType getSwapType() {
         return switch (swapMode.getValue()) {
             case Normal -> SwapType.Normal;
             case Silent -> SwapType.Silent;
-            default -> SwapType.Alt;
+            default     -> SwapType.Alt;
         };
     }
 
-    private int countItem(MinecraftClient mc, Item item) {
-        int n = 0;
-        for (int i = 0; i < 36; i++) {
-            ItemStack s = mc.player.getInventory().getStack(i);
-            if (s.isOf(item)) n += s.getCount();
+    /**
+     * Returns a BlockHitResult that clicks on a solid neighbour of {@code target}
+     * so PlaceHelper can place a block into the target position.
+     * Returns null if all six neighbours are also replaceable (can't place yet).
+     */
+    private BlockHitResult getHitResult(MinecraftClient mc, BlockPos target) {
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbour = target.offset(dir);
+            if (!mc.world.getBlockState(neighbour).isReplaceable()) {
+                Direction face = dir.getOpposite();
+                Vec3d hitVec = Vec3d.ofCenter(neighbour).add(
+                        face.getOffsetX() * 0.5,
+                        face.getOffsetY() * 0.5,
+                        face.getOffsetZ() * 0.5);
+                return new BlockHitResult(hitVec, face, neighbour, false);
+            }
         }
-        return n;
+        return null;
     }
 }
