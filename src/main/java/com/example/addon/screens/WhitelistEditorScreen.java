@@ -68,7 +68,7 @@ public class WhitelistEditorScreen extends Screen {
 
     private void rebuildWhitelistItems() {
         whitelistItems = InventoryCleaner.whitelist.stream()
-            .map(key -> BuiltInRegistries.ITEM.getValue(Identifier.parse(key)))
+            .map(key -> BuiltInRegistries.ITEM.getValue(Identifier.tryParse(key)))
             .filter(item -> item != null && item != Items.AIR)
             .sorted(Comparator.comparing(item -> item.getName(item.getDefaultInstance()).getString()))
             .collect(Collectors.toList());
