@@ -34,7 +34,7 @@ public class InventoryCleaner extends AddonModule {
         "Skip hotbar slots (0-8) when cleaning.", true);
 
     public final ToggleOption throwWorse = new ToggleOption(this, "ThrowWorse",
-        "Drop lower-durability duplicate tools (same type, e.g. two pickaxes).", true);
+        "Drop lower-tier duplicate tools of same type (e.g. diamond+iron pickaxe → drop iron). Compares base tier, not remaining HP.", true);
 
     public final ToggleOption editWhitelist = new ToggleOption(this, "EditWhitelist",
         "Open the whitelist editor screen.", false);
