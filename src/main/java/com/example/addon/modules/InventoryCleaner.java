@@ -36,6 +36,9 @@ public class InventoryCleaner extends AddonModule {
     public final ToggleOption throwWorse = new ToggleOption(this, "ThrowWorse",
         "Drop lower-durability duplicate tools (same type, e.g. two pickaxes).", true);
 
+    public final ToggleOption editWhitelist = new ToggleOption(this, "EditWhitelist",
+        "Open the whitelist editor screen.", false);
+
     // ── Whitelist (static so WhitelistEditorScreen can read/write directly) ──
     public static Set<String> whitelist = new HashSet<>();
 
@@ -76,6 +79,13 @@ public class InventoryCleaner extends AddonModule {
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
         Minecraft mc = Minecraft.getInstance();
+
+        if (editWhitelist.getValue()) {
+            editWhitelist.setValue(false);
+            mc.execute(() -> mc.setScreen(new com.example.addon.screens.WhitelistEditorScreen()));
+            return;
+        }
+
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 
         // Skip when external container (chest, furnace, etc.) is open
