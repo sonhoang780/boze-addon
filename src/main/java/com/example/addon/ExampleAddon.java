@@ -2,10 +2,12 @@ package com.example.addon;
 
 import java.util.Map;
 
+import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.modules.AntiMace;
+import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.MaceAura;
 import com.example.addon.modules.MaceDebug;
 import com.example.addon.modules.AntiPiston;
@@ -57,10 +59,12 @@ public class ExampleAddon extends Addon {
                 "Swap Mode",       "Swap"
             )
         ));
+        dispatcher.registerCommand(ItemDropCommand.INSTANCE);
         dispatcher.registerCommand(KitCommand.INSTANCE);
         dispatcher.registerCommand(PrintModuleCommand.INSTANCE);
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
+        modules.add(BetterBasePlace.INSTANCE);
         modules.add(MaceAura.INSTANCE);
         modules.add(MaceDebug.INSTANCE);
         modules.add(Dummy.INSTANCE);
