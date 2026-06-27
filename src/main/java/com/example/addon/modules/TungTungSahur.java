@@ -1,119 +1,138 @@
 package com.example.addon.modules;
 
-import com.example.addon.render.TungTungModel;
+import com.example.addon.render.ObjMesh;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.RenderSetup;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.WorldRenderer;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.LevelRenderer;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.resources.Identifier;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import com.mojang.math.Axis;
+import net.minecraft.world.phys.Vec3;
 
-/**
- * TungTungSahur — 3D companion modelled after the "Tung Tung Tung Sahur" meme character.
- * Thin cylindrical body, very long arms, oversized head with big round eyes.
- *
- * Architecture:
- *   WorldRenderEvents.AFTER_ENTITIES  → render the model (registered once at class load).
- *   EventTick.Pre                     → update follow position + limb animation each tick.
- *
- * Sub-tick interpolation: prevPos* is saved at the start of each tick, and the
- * render lerps between prevPos and pos using tickDelta → smooth 60 fps motion.
- */
 public class TungTungSahur extends AddonModule {
     public static final TungTungSahur INSTANCE = new TungTungSahur();
 
     private static final Identifier TEXTURE_ID =
-        Identifier.of("example-addon", "tung_tung_companion");
+        Identifier.fromNamespaceAndPath("example-addon", "tung_tung_companion");
 
-    private static final SoundEvent SCREAM_SOUND =
-        SoundEvent.of(Identifier.of("example-addon", "scream"));
+    private static final Identifier SCREAM_ID = Identifier.fromNamespaceAndPath("example-addon", "scream");
+    private static final SoundEvent SCREAM_SOUND = SoundEvent.createVariableRangeEvent(SCREAM_ID);
 
-    public final ToggleOption scream = new ToggleOption(this, "Scream", "Phát âm thanh scream.ogg khi tắt module.", false);
+    private static final long FADE_DURATION_MS = 2000L;
 
-    private static RenderLayer renderLayer;
+    public final ToggleOption scream = new ToggleOption(this, "Scream", "We popped the ai bubble", false);
+    public final SliderOption modelScale = new SliderOption(this, "Scale", "Model scale multiplier", 1.0, 0.01, 5.0, 0.01);
+
+    private static RenderType renderLayerCutout;
+    private static RenderType renderLayerTranslucent;
 
     // ── Follow state ──────────────────────────────────────────────────────────
     private double  posX, posY, posZ;
-    private double  prevPosX, prevPosY, prevPosZ;   // for sub-tick interpolation
+    private double  prevPosX, prevPosY, prevPosZ;
     private float   bodyYaw;
     private float   prevBodyYaw;
-    private float   limbAngle;
-    private float   limbDistance;
     private float   ageInTicks;
-    private boolean isFlying;
     private boolean initialized;
-    private TungTungModel model;
+    private ObjMesh mesh;
+
+    // ── Fade-out state (persists past onDisable) ──────────────────────────────
+    boolean fadingOut    = false;
+    private long fadeStartMs  = 0L;
+    private int  smokeCounter = 0;
+
+    private SoundInstance currentScreamSound;
 
     static {
-        WorldRenderEvents.AFTER_ENTITIES.register(ctx -> {
-            if (INSTANCE.getState()) INSTANCE.onWorldRender(ctx);
+        LevelRenderEvents.AFTER_SOLID_FEATURES.register(ctx -> {
+            if (INSTANCE.getState() || INSTANCE.fadingOut) INSTANCE.onWorldRender(ctx);
         });
     }
 
     public TungTungSahur() {
-        super("TungTungSahur", "3D companion that follows you.");
+        super("TungTungSahur", "TUNG TUNG");
     }
 
     @Override
     public void onEnable() {
-        initialized  = false;
-        limbAngle    = 0f;
-        limbDistance = 0f;
-        ageInTicks   = 0f;
+        Minecraft mc = Minecraft.getInstance();
 
-        ModelPart root = TungTungModel.getTexturedModelData().createModel();
-        model = new TungTungModel(root);
+        // Cancel any in-progress fade
+        fadingOut = false;
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc != null) buildTexture(mc);
+        if (mc != null && mc.getSoundManager() != null && currentScreamSound != null) {
+            mc.getSoundManager().stop(currentScreamSound);
+            currentScreamSound = null;
+        }
+
+        initialized = false;
+        ageInTicks  = 0f;
+        mesh        = null;
+
+        if (mc != null) {
+            buildTexture(mc);
+            loadMesh(mc);
+        }
     }
 
     @Override
     public void onDisable() {
-        if (scream.getValue()) {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc != null && mc.getSoundManager() != null)
-                mc.getSoundManager().play(PositionedSoundInstance.ui(SCREAM_SOUND, 1.0f, 4.0f));
+        Minecraft mc = Minecraft.getInstance();
+
+        if (mc != null && mc.getSoundManager() != null) {
+            if (currentScreamSound != null) {
+                mc.getSoundManager().stop(currentScreamSound);
+                currentScreamSound = null;
+            }
+            if (scream.getValue()) {
+                currentScreamSound = SimpleSoundInstance.forUI(SCREAM_SOUND, 1.0f, 4.0f);
+                mc.getSoundManager().play(currentScreamSound);
+            }
         }
-        model       = null;
-        initialized = false;
+
+        // Start fade instead of clearing immediately
+        if (mesh != null && initialized) {
+            fadingOut    = true;
+            fadeStartMs  = System.currentTimeMillis();
+            smokeCounter = 0;
+        } else {
+            mesh        = null;
+            initialized = false;
+        }
     }
 
-    // ── Tick: update follow position + limb animation ─────────────────────────
+    // ── Tick: update follow position ─────────────────────────────────────────
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null || model == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mesh == null) return;
 
         ageInTicks++;
 
-        double yawRad  = Math.toRadians(mc.player.getYaw());
+        double yawRad  = Math.toRadians(mc.player.getYRot());
         double sinYaw  = Math.sin(yawRad);
         double cosYaw  = Math.cos(yawRad);
-        // forward = (-sin, +cos); screen-left = (cos, sin). Place the companion ahead-LEFT of the
-        // player so it sits in the left of view (the circled spot) instead of dead-centre in front.
-        double fwd  = 1.8;   // a bit ahead so it stays on-screen
-        double side = 2.2;   // to the player's left
+        double fwd  = 1.8;
+        double side = 2.2;
         double targetX = mc.player.getX() - sinYaw * fwd + cosYaw * side;
         double targetY = mc.player.getY();
         double targetZ = mc.player.getZ() + cosYaw * fwd + sinYaw * side;
@@ -121,11 +140,10 @@ public class TungTungSahur extends AddonModule {
         if (!initialized) {
             posX = targetX; posY = targetY; posZ = targetZ;
             prevPosX = posX; prevPosY = posY; prevPosZ = posZ;
-            bodyYaw = mc.player.getYaw();
+            bodyYaw = mc.player.getYRot();
             prevBodyYaw = bodyYaw;
             initialized = true;
         } else {
-            // Save previous positions before update for sub-tick interpolation
             prevPosX = posX; prevPosY = posY; prevPosZ = posZ;
             prevBodyYaw = bodyYaw;
 
@@ -135,83 +153,109 @@ public class TungTungSahur extends AddonModule {
             posZ += (targetZ - posZ) * k;
         }
 
-        isFlying = mc.player.isGliding();
-        Vec3d vel = mc.player.getVelocity();
-        if (isFlying) {
-            limbDistance = 0f;
-        } else {
-            float speed = (float) Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-            limbDistance = Math.min(speed * 3.5f, 1.0f);
-            if (limbDistance > 0.01f) limbAngle += 0.6f;
-        }
-
-        float dYaw = MathHelper.wrapDegrees(mc.player.getYaw() - bodyYaw);
+        float dYaw = Mth.wrapDegrees(mc.player.getYRot() - bodyYaw);
         bodyYaw += dYaw * 0.15f;
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
 
-    private void onWorldRender(WorldRenderContext ctx) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null || model == null || !initialized) return;
+    private void onWorldRender(LevelRenderContext ctx) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mesh == null || !initialized) return;
 
-        VertexConsumerProvider consumers = ctx.consumers();
+        MultiBufferSource consumers = ctx.bufferSource();
         if (consumers == null) return;
 
-        MatrixStack matrices = ctx.matrices();
-        Vec3d camPos = mc.gameRenderer.getCamera().getCameraPos();
+        // Compute fade alpha; end fade if expired
+        int alphaInt = 255;
+        boolean isFading = fadingOut;
+        if (isFading) {
+            long elapsed = System.currentTimeMillis() - fadeStartMs;
+            float alpha  = 1f - (float) elapsed / FADE_DURATION_MS;
+            if (alpha <= 0f) {
+                fadingOut   = false;
+                mesh        = null;
+                initialized = false;
+                return;
+            }
+            alphaInt = Math.max(1, (int)(alpha * 255));
 
-        float tickDelta = mc.getRenderTickCounter().getTickProgress(false);
+            // Emit rising smoke particles every 4th render call
+            smokeCounter++;
+            if (smokeCounter % 4 == 0) {
+                double smokeX = posX + (Math.random() - 0.5) * 0.6;
+                double smokeY = posY + 0.5 + Math.random() * 0.8;
+                double smokeZ = posZ + (Math.random() - 0.5) * 0.6;
+                mc.level.addParticle(ParticleTypes.CAMPFIRE_COSY_SMOKE,
+                    smokeX, smokeY, smokeZ, 0.0, 0.04, 0.0);
+            }
+        }
 
-        // Sub-tick interpolated position
+        PoseStack matrices = ctx.poseStack();
+        Vec3 camPos = mc.gameRenderer.getMainCamera().position();
+
+        float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+
         double renderX   = prevPosX + (posX - prevPosX) * tickDelta;
         double renderY   = prevPosY + (posY - prevPosY) * tickDelta;
         double renderZ   = prevPosZ + (posZ - prevPosZ) * tickDelta;
-        float  renderYaw = prevBodyYaw + MathHelper.wrapDegrees(bodyYaw - prevBodyYaw) * tickDelta;
+        float  renderYaw = prevBodyYaw + Mth.wrapDegrees(bodyYaw - prevBodyYaw) * tickDelta;
 
-        int light   = WorldRenderer.getLightmapCoordinates(mc.world,
-                          BlockPos.ofFloored(renderX, renderY, renderZ));
-        int overlay = OverlayTexture.DEFAULT_UV;
+        int light   = LevelRenderer.getLightCoords(mc.level,
+                          BlockPos.containing(renderX, renderY, renderZ));
+        int overlay = OverlayTexture.NO_OVERLAY;
 
-        matrices.push();
+        float scale = modelScale.getValue().floatValue();
+
+        matrices.pushPose();
         matrices.translate(renderX - camPos.x, renderY - camPos.y, renderZ - camPos.z);
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180f - renderYaw));
-        matrices.scale(-0.5f, -0.5f, 0.5f);
-        // 128×128 model: head(16)+body(24)+legs(20)=60px at 1/32 block = 1.875 blocks
-        matrices.translate(0f, -2.75f, 0f);
+        matrices.mulPose(Axis.YP.rotationDegrees(180f - renderYaw));
+        matrices.scale(scale, scale, scale);
+        // Lift model so lowest vertex sits exactly at renderY (feet on ground)
+        matrices.translate(0.0, -mesh.getMinY(), 0.0);
 
-        model.animate(limbAngle, limbDistance, ageInTicks + tickDelta, isFlying);
+        RenderType rt = isFading ? getTranslucentLayer() : getCutoutLayer();
+        VertexConsumer consumer = consumers.getBuffer(rt);
+        mesh.render(matrices.last(), consumer, light, overlay, alphaInt);
 
-        VertexConsumer consumer = consumers.getBuffer(getEntityCutoutLayer());
-        model.render(matrices, consumer, light, overlay);
-
-        matrices.pop();
+        matrices.popPose();
     }
 
-    // ── RenderLayer (lazy) ────────────────────────────────────────────────────
+    // ── RenderType (lazy) ────────────────────────────────────────────────────
 
-    private static RenderLayer getEntityCutoutLayer() {
-        if (renderLayer == null) {
-            renderLayer = RenderLayer.of("tung_tung_companion",
-                RenderSetup.builder(RenderPipelines.ENTITY_CUTOUT)
-                    .texture("Sampler0", TEXTURE_ID)
-                    .useLightmap()
-                    .useOverlay()
-                    .build());
-        }
-        return renderLayer;
+    private static RenderType getCutoutLayer() {
+        if (renderLayerCutout == null) renderLayerCutout = RenderTypes.entityCutout(TEXTURE_ID);
+        return renderLayerCutout;
     }
 
-    // ── File-based texture (baked from the real Sketchfab GLB model) ─────────
+    private static RenderType getTranslucentLayer() {
+        if (renderLayerTranslucent == null) renderLayerTranslucent = RenderTypes.entityTranslucent(TEXTURE_ID);
+        return renderLayerTranslucent;
+    }
 
-    private void buildTexture(MinecraftClient mc) {
+    // ── Texture ──────────────────────────────────────────────────────────────
+
+    private void buildTexture(Minecraft mc) {
         try {
-            Identifier fileId = Identifier.of("example-addon", "textures/entity/tung_tung.png");
-            try (var stream = mc.getResourceManager().getResourceOrThrow(fileId).getInputStream()) {
+            Identifier fileId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung.png");
+            try (var stream = mc.getResourceManager().getResourceOrThrow(fileId).open()) {
                 NativeImage img = NativeImage.read(stream);
-                mc.getTextureManager().registerTexture(TEXTURE_ID,
-                    new NativeImageBackedTexture(() -> "tung_tung_companion", img));
+                mc.getTextureManager().register(TEXTURE_ID,
+                    new DynamicTexture(() -> "tung_tung_companion", img));
             }
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {}
+    }
+
+    // ── OBJ Mesh ─────────────────────────────────────────────────────────────
+
+    private void loadMesh(Minecraft mc) {
+        try {
+            Identifier meshId = Identifier.fromNamespaceAndPath("example-addon", "models/tung_tung.obj");
+            try (var stream = mc.getResourceManager().getResourceOrThrow(meshId).open()) {
+                mesh = ObjMesh.load(stream);
+            }
+        } catch (Exception e) {
+            // Mesh failed to load — module will remain inactive (mesh == null check in render/tick)
+        }
     }
 }
