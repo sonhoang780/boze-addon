@@ -1,6 +1,6 @@
 package com.example.addon.video;
 
-import net.minecraft.client.texture.NativeImage;
+import com.mojang.blaze3d.platform.NativeImage;
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
@@ -239,7 +239,7 @@ public class VideoPlayer {
                 int r = src.get(off)     & 0xFF;
                 int g = src.get(off + 1) & 0xFF;
                 int b = src.get(off + 2) & 0xFF;
-                ni.setColorArgb(x, y, 0xFF000000 | (r << 16) | (g << 8) | b);
+                ni.setPixel(x, y, 0xFF000000 | (b << 16) | (g << 8) | r);
             }
         }
         return ni;

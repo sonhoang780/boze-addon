@@ -22,25 +22,19 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
-import io.github.humbleui.skija.BackendRenderTarget;
-import io.github.humbleui.skija.Canvas;
-import io.github.humbleui.skija.ColorSpace;
-import io.github.humbleui.skija.ColorType;
-import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.ImageFilter;
 import io.github.humbleui.skija.Paint;
-import io.github.humbleui.skija.Surface;
-import io.github.humbleui.skija.SurfaceOrigin;
 import io.github.humbleui.types.Rect;
 import meteordevelopment.orbit.EventHandler;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.example.addon.screens.CachedSkiaTexture;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 public class GifHUD extends AddonModule {
     // KHAI BÁO TRƯỚC INSTANCE: static field khởi tạo theo thứ tự văn bản. Nếu để sau
@@ -55,21 +49,21 @@ public class GifHUD extends AddonModule {
     private double posY = com.example.addon.util.HudPositions.getY("GifHUD", 50.0);
     public final SliderOption width      = new SliderOption(this, "Width",            "", 150.0, 10.0, 1000.0, 1.0);
     public final SliderOption height     = new SliderOption(this, "Height",           "", 150.0, 10.0, 1000.0, 1.0);
-    public final SliderOption frameDelay = new SliderOption(this, "Frame Delay (ms)", "", 50.0,  10.0,  300.0, 1.0);
-    public final ToggleOption loadClipboard = new ToggleOption(this, "Load from Clipboard", "", false);
-    public final ToggleOption prevGif       = new ToggleOption(this, "Prev Saved GIF",      "", false);
-    public final ToggleOption nextGif       = new ToggleOption(this, "Next Saved GIF",      "", false);
+    public final SliderOption frameDelay = new SliderOption(this, "FrameDelay", "", 50.0,  10.0,  300.0, 1.0);
+    public final ToggleOption loadClipboard = new ToggleOption(this, "LoadClipboard", "", false);
+    public final ToggleOption prevGif       = new ToggleOption(this, "PrevGIF",      "", false);
+    public final ToggleOption nextGif       = new ToggleOption(this, "NextGIF",      "", false);
     
-    public final ToggleOption dropShadow    = new ToggleOption(this, "Drop Shadow", "Do bong Skia 3D.", true);
+    public final ToggleOption dropShadow    = new ToggleOption(this, "DropShadow", "Do bong Skia 3D.", true);
     public final ToggleOption parallax      = new ToggleOption(this, "Parallax", "Hieu ung luot (Sway) theo goc nhin va chuot.", true);
-    public final SliderOption parallaxSpeed = new SliderOption(this, "Parallax Speed", "Do nhay cua Parallax.", 5.0, 1.0, 20.0, 0.5);
+    public final SliderOption parallaxSpeed = new SliderOption(this, "ParallaxSpeed", "Do nhay cua Parallax.", 5.0, 1.0, 20.0, 0.5);
 
     private boolean isDraggingHUD = false;
     private double dragOffsetX = 0, dragOffsetY = 0;
     private boolean wasMouseDownEditor = false;
 
     private final List<Identifier>               gifFrames     = new ArrayList<>();
-    private final List<NativeImageBackedTexture> frameTextures = new ArrayList<>();
+    private final List<DynamicTexture> frameTextures = new ArrayList<>();
     private int     currentFrame  = 0;
     private long    lastFrameTime = 0;
     private boolean isLoading     = false;
@@ -80,9 +74,7 @@ public class GifHUD extends AddonModule {
     private float prevYaw = 0f;
     private float prevPitch = 0f;
 
-    private DirectContext skiaContext;
-    private int skiaFboId = -1;
-    private int skiaFboTexId = -1;
+    private CachedSkiaTexture shadowTex;
 
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
@@ -92,7 +84,7 @@ public class GifHUD extends AddonModule {
     private GifHUD() {
         super("GifHUD", "Display GIF on HUD with Skia Shadow & Parallax.");
         loadHistory();
-        HudRenderCallback.EVENT.register((context, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "gifhud"), (context, tracker) -> {
             if (this.active) render(context);
         });
     }
@@ -106,89 +98,63 @@ public class GifHUD extends AddonModule {
         if (gifHistory.isEmpty()) loadHistory();
         if (gifFrames.isEmpty() && !gifHistory.isEmpty()) pendingAutoLoad = true;
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player != null && mc.gameRenderer.getCamera() != null) {
-            prevYaw = mc.gameRenderer.getCamera().getYaw(); 
-            prevPitch = mc.gameRenderer.getCamera().getPitch(); 
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.gameRenderer.getMainCamera() != null) {
+            prevYaw = mc.gameRenderer.getMainCamera().yRot(); 
+            prevPitch = mc.gameRenderer.getMainCamera().xRot(); 
             parallaxX = 0; parallaxY = 0;
         }
     }
 
     @Override public void onDisable() {
         this.active = false;
-        if (skiaFboId != -1) {
-            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
-            skiaFboId = -1;
-            skiaFboTexId = -1;
-        }
+        if (shadowTex != null) { shadowTex.dispose(); shadowTex = null; }
     }
 
-    private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
+    private void drawOutline(GuiGraphicsExtractor context, int x, int y, int w, int h, int color) {
         context.fill(x - 1, y - 1, x + w + 1, y, color);
         context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
         context.fill(x - 1, y, x, y + h, color);
         context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
-    private int bindSkiaFbo(MinecraftClient mc) {
-        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
-        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
-        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
-        // Frame đầu khi mới vào game, texture của MC chưa sẵn sàng (glId <= 0). Tạo FBO trỏ vào
-        // texture rỗng sẽ làm FBO incomplete và bị "kẹt" cho tới khi user tắt/bật module thủ công.
-        // Bỏ qua frame này, frame sau khi texture hợp lệ sẽ tự gắn đúng.
-        if (texId <= 0) return -1;
-        if (skiaFboId == -1) skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
-        // Re-attach MỖI frame: nếu MC tạo lại framebuffer lúc load world / đổi resolution, FBO luôn
-        // trỏ về color texture hiện hành → first-entry tự lành, không cần tắt/bật module nữa.
-        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
-            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
-            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
-            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
-        skiaFboTexId = texId;
-        return skiaFboId;
-    }
+    /**
+     * Renders the drop shadow offscreen (CPU raster, no live GL framebuffer access)
+     * and composites it via the normal GuiGraphicsExtractor.blit path. The raw-GL FBO
+     * hack this used to use gets silently overwritten by the GUI submission phase in
+     * 26.1.2's extraction/submission render pipeline — this is immune to that.
+     */
+    private void drawSkiaShadow(GuiGraphicsExtractor context, double x, double y, double w, double h, float blurRadius, int colorRgb) {
+        Minecraft mc = Minecraft.getInstance();
+        float scale = (float) mc.getWindow().getGuiScale();
+        float margin = blurRadius * 3f;
+        int pw = Math.round((float)(w + margin * 2) * scale);
+        int ph = Math.round((float)(h + margin * 2) * scale);
+        if (pw <= 0 || ph <= 0) return;
 
-    private void drawSkiaShadow(double x, double y, double w, double h, float blurRadius, int colorRgb) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT,
-                io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
+        if (shadowTex == null) shadowTex = new CachedSkiaTexture("gifhud_shadow");
+        // Shadow shape depends only on size/blur/colour/scale (NOT the GIF frames),
+        // so this rasters once and is reused every frame thereafter.
+        String key = pw + "x" + ph + "|" + blurRadius + "|" + colorRgb;
+        shadowTex.render(pw, ph, key, canvas -> {
             canvas.scale(scale, scale);
-            
             try (Paint paint = new Paint();
                  ImageFilter shadowFilter = ImageFilter.makeDropShadowOnly(0, 0, blurRadius, blurRadius, colorRgb)) {
                 paint.setImageFilter(shadowFilter);
                 paint.setAntiAlias(true);
-                canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), paint);
+                canvas.drawRect(Rect.makeXYWH(margin, margin, (float)w, (float)h), paint);
             }
-            skiaContext.flushAndSubmit(false);
-        }
-        
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
+        });
+        shadowTex.blit(context, (int)Math.round(x - margin), (int)Math.round(y - margin),
+            (int)Math.round(w + margin * 2), (int)Math.round(h + margin * 2));
     }
 
-    private void render(DrawContext context) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
+    private void render(GuiGraphicsExtractor context) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.hideGui && !(mc.screen instanceof MusicHUD.FontScreen)) return;
 
         if (isLoading) {
-            context.drawText(mc.textRenderer, "Loading GIF...", (int)posX, (int)posY, 0xFFFFFF00, true);
+            context.text(mc.font, "Loading GIF...", (int)posX, (int)posY, 0xFFFFFF00, true);
             return;
         }
 
@@ -201,25 +167,25 @@ public class GifHUD extends AddonModule {
 
         Identifier frame = gifFrames.isEmpty() ? null : gifFrames.get(currentFrame);
 
-        if (parallax.getValue() && mc.player != null && mc.gameRenderer.getCamera() != null) {
+        if (parallax.getValue() && mc.player != null && mc.gameRenderer.getMainCamera() != null) {
             float intensity = (float)(double) parallaxSpeed.getValue();
             float targetX = 0, targetY = 0;
 
-            if (mc.currentScreen != null) {
+            if (mc.screen != null) {
                 // ĐÃ FIX: Tắt Parallax chuột khi mở Chat / Inventory
                 targetX = 0;
                 targetY = 0;
-                prevYaw = mc.gameRenderer.getCamera().getYaw(); 
-                prevPitch = mc.gameRenderer.getCamera().getPitch();
+                prevYaw = mc.gameRenderer.getMainCamera().yRot(); 
+                prevPitch = mc.gameRenderer.getMainCamera().xRot();
             } else {
                 // Chỉ áp dụng Parallax khi xoay Camera trong lúc chơi
-                float yaw = mc.gameRenderer.getCamera().getYaw();
-                float pitch = mc.gameRenderer.getCamera().getPitch();
+                float yaw = mc.gameRenderer.getMainCamera().yRot();
+                float pitch = mc.gameRenderer.getMainCamera().xRot();
                 
-                float dYaw = net.minecraft.util.math.MathHelper.wrapDegrees(yaw - prevYaw);
+                float dYaw = net.minecraft.util.Mth.wrapDegrees(yaw - prevYaw);
                 float dPitch = pitch - prevPitch;
-                dYaw = net.minecraft.util.math.MathHelper.clamp(dYaw, -20f, 20f);
-                dPitch = net.minecraft.util.math.MathHelper.clamp(dPitch, -20f, 20f);
+                dYaw = net.minecraft.util.Mth.clamp(dYaw, -20f, 20f);
+                dPitch = net.minecraft.util.Mth.clamp(dPitch, -20f, 20f);
                 
                 targetX = -dYaw * intensity * 0.8f; 
                 targetY = -dPitch * intensity * 0.8f;
@@ -230,7 +196,7 @@ public class GifHUD extends AddonModule {
 
             parallaxX += (targetX - parallaxX) * 0.15f; 
             parallaxY += (targetY - parallaxY) * 0.15f;
-            if (mc.currentScreen == null) { parallaxX *= 0.8f; parallaxY *= 0.8f; }
+            if (mc.screen == null) { parallaxX *= 0.8f; parallaxY *= 0.8f; }
         else {
                 // Tăng tốc độ hồi vị trí gốc êm ái khi đang bật GUI
                 parallaxX *= 0.5f; 
@@ -238,9 +204,9 @@ public class GifHUD extends AddonModule {
             }
         } else {
             parallaxX = 0; parallaxY = 0;
-            if (mc.player != null && mc.gameRenderer.getCamera() != null) { 
-                prevYaw = mc.gameRenderer.getCamera().getYaw(); 
-                prevPitch = mc.gameRenderer.getCamera().getPitch(); 
+            if (mc.player != null && mc.gameRenderer.getMainCamera() != null) { 
+                prevYaw = mc.gameRenderer.getMainCamera().yRot(); 
+                prevPitch = mc.gameRenderer.getMainCamera().xRot(); 
             }
         }
 
@@ -254,17 +220,17 @@ public class GifHUD extends AddonModule {
 
         if (dropShadow.getValue() && frame != null) {
             int shadowColor = new java.awt.Color(0, 0, 0, 160).getRGB();
-            drawSkiaShadow(realX, realY, w, h, 18f, shadowColor);
+            drawSkiaShadow(context, realX, realY, w, h, 18f, shadowColor);
         }
 
-        context.getMatrices().pushMatrix();
-        context.getMatrices().translate((float)realX, (float)realY);
+        context.pose().pushMatrix();
+        context.pose().translate((float)realX, (float)realY);
 
         if (HUDEditor.INSTANCE.active) {
-            double scale = mc.getWindow().getScaleFactor();
-            double mx = mc.mouse.getX() / scale;
-            double my = mc.mouse.getY() / scale;
-            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+            double scale = mc.getWindow().getGuiScale();
+            double mx = mc.mouseHandler.xpos() / scale;
+            double my = mc.mouseHandler.ypos() / scale;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().handle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
 
             if (mouseDown && !wasMouseDownEditor) {
                 if (mx >= realX && mx <= realX + w && my >= realY && my <= realY + h) {
@@ -281,8 +247,8 @@ public class GifHUD extends AddonModule {
             if (isDraggingHUD && mouseDown) {
                 baseX = mx - dragOffsetX - parallaxX; 
                 baseY = my - dragOffsetY - parallaxY;
-                int screenW = mc.getWindow().getScaledWidth();
-                int screenH = mc.getWindow().getScaledHeight();
+                int screenW = mc.getWindow().getGuiScaledWidth();
+                int screenH = mc.getWindow().getGuiScaledHeight();
                 baseX = Math.max(0, Math.min(baseX, screenW - w));
                 baseY = Math.max(0, Math.min(baseY, screenH - h));
                 posX = baseX; posY = baseY;
@@ -294,17 +260,17 @@ public class GifHUD extends AddonModule {
         }
 
         if (frame == null) {
-            context.drawText(mc.textRenderer, "No GIF Loaded", 0, 0, 0xFFFF5555, true);
+            context.text(mc.font, "No GIF Loaded", 0, 0, 0xFFFF5555, true);
         } else {
-            context.drawTexture(RenderPipelines.GUI_TEXTURED, frame, 0, 0, 0, 0, (int)w, (int)h, (int)w, (int)h);
+            context.blit(RenderPipelines.GUI_TEXTURED, frame, 0, 0, 0, 0, (int)w, (int)h, (int)w, (int)h);
         }
 
-        context.getMatrices().popMatrix();
+        context.pose().popMatrix();
     }
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
         // Auto-load GIF gần nhất sau khi vào thế giới (đã hoãn từ onEnable cho an toàn).
@@ -320,16 +286,16 @@ public class GifHUD extends AddonModule {
 
         if (loadClipboard.getValue()) {
             loadClipboard.setValue(false);
-            String clipboard = mc.keyboard.getClipboard();
+            String clipboard = mc.keyboardHandler.getClipboard();
             if (clipboard != null && clipboard.startsWith("http")) {
                 if (clipboard.equals(currentUrl)) {
-                    mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §eLink is already loaded!"), false);
+                    mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§d[GifHUD] §eLink is already loaded!"));
                 } else {
                     currentUrl = clipboard;
                     loadGifAsync(clipboard);
                 }
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cPlease copy a valid GIF URL to the clipboard!"), false);
+                mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§d[GifHUD] §cPlease copy a valid GIF URL to the clipboard!"));
             }
         }
 
@@ -340,7 +306,7 @@ public class GifHUD extends AddonModule {
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cNone of GIFS saved!"), false);
+                mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§d[GifHUD] §cNone of GIFS saved!"));
             }
         }
 
@@ -351,7 +317,7 @@ public class GifHUD extends AddonModule {
                 currentUrl = gifHistory.get(historyIndex);
                 loadGifAsync(currentUrl);
             } else {
-                mc.player.sendMessage(net.minecraft.text.Text.literal("§d[GifHUD] §cNone of GIFS saved!"), false);
+                mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§d[GifHUD] §cNone of GIFS saved!"));
             }
         }
     }
@@ -397,18 +363,25 @@ public class GifHUD extends AddonModule {
             String html = new String(conn.getInputStream().readAllBytes(), "UTF-8");
             conn.disconnect();
 
-            // Modern Tenor embeds all media in __NEXT_DATA__ JSON (Next.js).
-            // Covers both media.tenor.com and c.tenor.com subdomains.
+            // Tenor shards its CDN across numbered subdomains (media.tenor.com,
+            // media1.tenor.com, media2.tenor.com, ...) in addition to c.tenor.com —
+            // must match all of them, not just the bare "media." host.
+            final String TENOR_CDN = "https://(?:media[0-9]*|c)\\.tenor\\.com/[^\"]+\\.gif";
+            // og:image / og:video content attribute — checked FIRST: this meta tag is
+            // curated by Tenor to represent THIS specific page's gif, unlike the JSON
+            // scrape below which can match an unrelated "related gifs" data block and
+            // silently return the wrong gif.
             Matcher m = Pattern.compile(
-                "\"url\":\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+                "property=\"og:(?:image|video)\" content=\"(" + TENOR_CDN + ")\"").matcher(html);
             if (m.find()) return m.group(1);
-            // og:image / og:video content attribute (attribute order varies)
-            m = Pattern.compile(
-                "content=\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+            // Fallback: content attribute regardless of preceding property order
+            m = Pattern.compile("content=\"(" + TENOR_CDN + ")\"").matcher(html);
+            if (m.find()) return m.group(1);
+            // Modern Tenor embeds all media in __NEXT_DATA__ JSON (Next.js).
+            m = Pattern.compile("\"url\":\"(" + TENOR_CDN + ")\"").matcher(html);
             if (m.find()) return m.group(1);
             // Any quoted tenor GIF URL anywhere on the page
-            m = Pattern.compile(
-                "\"(https://(?:media|c)\\.tenor\\.com/[^\"]+\\.gif)\"").matcher(html);
+            m = Pattern.compile("\"(" + TENOR_CDN + ")\"").matcher(html);
             if (m.find()) return m.group(1);
 
             throw new Exception(
@@ -429,10 +402,10 @@ public class GifHUD extends AddonModule {
         if (isLoading) return;
         isLoading = true;
 
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player != null)
-            mc.execute(() -> mc.player.sendMessage(
-                net.minecraft.text.Text.literal("§d[GifHUD] §aLoading GIF..."), false));
+            mc.execute(() -> mc.player.sendSystemMessage(
+                net.minecraft.network.chat.Component.literal("§d[GifHUD] §aLoading GIF...")));
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -482,9 +455,9 @@ public class GifHUD extends AddonModule {
                         for (int i = 0; i < rawFrames.size(); i++) {
                             final int fi = i;
                             NativeImage img = NativeImage.read(new ByteArrayInputStream(rawFrames.get(fi)));
-                            Identifier fid = Identifier.of("gifhud", "frame_" + System.nanoTime() + "_" + fi);
-                            NativeImageBackedTexture tex = new NativeImageBackedTexture(() -> "gifhud_" + fi, img);
-                            mc.getTextureManager().registerTexture(fid, tex);
+                            Identifier fid = Identifier.fromNamespaceAndPath("gifhud", "frame_" + System.nanoTime() + "_" + fi);
+                            DynamicTexture tex = new DynamicTexture(() -> "gifhud_" + fi, img);
+                            mc.getTextureManager().register(fid, tex);
                             gifFrames.add(fid);
                             frameTextures.add(tex);
                         }
@@ -501,8 +474,8 @@ public class GifHUD extends AddonModule {
                 e.printStackTrace();
                 mc.execute(() -> {
                     if (mc.player != null)
-                        mc.player.sendMessage(net.minecraft.text.Text.literal(
-                            "§d[GifHUD] §cError loading link! " + e.getMessage()), false);
+                        mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "§d[GifHUD] §cError loading link! " + e.getMessage()));
                     isLoading = false;
                 });
             }
@@ -510,9 +483,9 @@ public class GifHUD extends AddonModule {
     }
 
     private void clearFrames() {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         for (int i = 0; i < gifFrames.size(); i++) {
-            if (gifFrames.get(i) != null) mc.getTextureManager().destroyTexture(gifFrames.get(i));
+            if (gifFrames.get(i) != null) mc.getTextureManager().release(gifFrames.get(i));
             if (frameTextures.get(i) != null) frameTextures.get(i).close();
         }
         gifFrames.clear();

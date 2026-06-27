@@ -7,17 +7,17 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.utility.ChatHelper;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.block.ShulkerBoxBlock;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.Identifier;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.resources.Identifier;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,7 +29,7 @@ public class InventorySorter extends AddonModule {
 
     public final SliderOption delay = new SliderOption(this, "Delay", "Tick delay", 1.0, 0.0, 10.0, 1.0);
     public final SliderOption actionsPerTick = new SliderOption(this, "Actions/Tick", "Max actions per tick", 1.0, 1.0, 5.0, 1.0);
-    public final ToggleOption ignoreHotbar = new ToggleOption(this, "Ignore Hotbar", "", false);
+    public final ToggleOption ignoreHotbar = new ToggleOption(this, "IgnoreHotbar", "", false);
     public final ToggleOption silent = new ToggleOption(this, "Silent", "Sort without opening inventory", true);
 
     private int ticks = 0;
@@ -64,15 +64,16 @@ public class InventorySorter extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Post event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
 
         if (!this.active || mc.player == null || EvilRekit.INSTANCE.activeKit.isEmpty()) return;
+        if (mc.player.isCreative()) return;
 
         // Block only when a container other than the player's own inventory is open
         // (chest, furnace, etc. change the screenHandler and slot indices).
         // Pause menu, chat, and Boze GUI don't affect the screenHandler → sort normally.
-        if (mc.currentScreen instanceof HandledScreen
-                && !(mc.currentScreen instanceof InventoryScreen)) return;
+        if (mc.screen instanceof AbstractContainerScreen
+                && !(mc.screen instanceof InventoryScreen)) return;
 
         if (ticks < delay.getValue()) {
             ticks++;
@@ -87,10 +88,10 @@ public class InventorySorter extends AddonModule {
         }
     }
 
-    private boolean sortTick(MinecraftClient mc) {
-        ScreenHandler handler = mc.player.currentScreenHandler;
+    private boolean sortTick(Minecraft mc) {
+        AbstractContainerMenu handler = mc.player.containerMenu;
 
-        if (!handler.getCursorStack().isEmpty()) {
+        if (!handler.getCarried().isEmpty()) {
             // Player is holding an item (or sorter left one on cursor from a previous tick).
             // Wait for them to place it — don't dump it automatically — so the player can
             // freely pick up and move any item (wrong or correct position).
@@ -100,7 +101,7 @@ public class InventorySorter extends AddonModule {
             if (cursorWaitTicks >= CURSOR_DUMP_AFTER_TICKS) {
                 cursorWaitTicks = 0;
                 int emptySlot = findEmptySlot(handler);
-                if (emptySlot != -1) click(emptySlot, 0, SlotActionType.PICKUP);
+                if (emptySlot != -1) click(emptySlot, 0, ContainerInput.PICKUP);
             }
             return false;
         }
@@ -115,16 +116,16 @@ public class InventorySorter extends AddonModule {
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotI = getHandlerSlot(i);
-            ItemStack stackI = handler.getSlot(slotI).getStack();
+            ItemStack stackI = handler.getSlot(slotI).getItem();
 
-            if (stackI.isEmpty() || isShulkerBox(stackI) || stackI.getCount() >= stackI.getMaxCount()) continue;
+            if (stackI.isEmpty() || isShulkerBox(stackI) || stackI.getCount() >= stackI.getItem().getDefaultMaxStackSize()) continue;
 
             // Skip items already at their correct kit position — do not disturb them.
             EvilRekit.KitItem kitI = EvilRekit.INSTANCE.activeKit.get(i);
             if (isCorrectItem(stackI, kitI)) continue;
 
             // Dùng ID làm chìa khóa gom nhóm chung
-            String key = Registries.ITEM.getId(stackI.getItem()).toString();
+            String key = BuiltInRegistries.ITEM.getKey(stackI.getItem()).toString();
             itemGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(slotI);
         }
 
@@ -133,13 +134,13 @@ public class InventorySorter extends AddonModule {
             if (slots.size() > 1) {
                 for (int i = 0; i < slots.size(); i++) {
                     int slot1 = slots.get(i);
-                    ItemStack s1 = handler.getSlot(slot1).getStack();
+                    ItemStack s1 = handler.getSlot(slot1).getItem();
                     for (int j = i + 1; j < slots.size(); j++) {
                         int slot2 = slots.get(j);
-                        ItemStack s2 = handler.getSlot(slot2).getStack();
-                        
+                        ItemStack s2 = handler.getSlot(slot2).getItem();
+
                         // CHỐT CHẶN: Ép game kiểm tra Component trước khi gộp
-                        if (ItemStack.areItemsAndComponentsEqual(s1, s2)) {
+                        if (ItemStack.isSameItemSameComponents(s1, s2)) {
                             atomicSwap(slot2, slot1);
                             return true;
                         }
@@ -153,7 +154,7 @@ public class InventorySorter extends AddonModule {
             if (ignoreHotbar.getValue() && i <= 8) continue;
 
             int targetSlot = getHandlerSlot(i);
-            ItemStack currentStack = handler.getSlot(targetSlot).getStack();
+            ItemStack currentStack = handler.getSlot(targetSlot).getItem();
             if (isShulkerBox(currentStack)) continue;
 
             EvilRekit.KitItem kit = EvilRekit.INSTANCE.activeKit.get(i);
@@ -164,11 +165,11 @@ public class InventorySorter extends AddonModule {
                 int sourceHandlerSlot = getHandlerSlot(sourceInvSlot);
 
                 if (i <= 8 && sourceInvSlot >= 9) {
-                    click(sourceHandlerSlot, i, SlotActionType.SWAP);
+                    click(sourceHandlerSlot, i, ContainerInput.SWAP);
                     return true;
                 }
                 if (sourceInvSlot <= 8 && i >= 9) {
-                    click(targetSlot, sourceInvSlot, SlotActionType.SWAP);
+                    click(targetSlot, sourceInvSlot, ContainerInput.SWAP);
                     return true;
                 }
 
@@ -180,34 +181,34 @@ public class InventorySorter extends AddonModule {
     }
 
     private void atomicSwap(int slot1, int slot2) {
-        click(slot1, 0, SlotActionType.PICKUP);
-        click(slot2, 0, SlotActionType.PICKUP);
-        click(slot1, 0, SlotActionType.PICKUP);
+        click(slot1, 0, ContainerInput.PICKUP);
+        click(slot2, 0, ContainerInput.PICKUP);
+        click(slot1, 0, ContainerInput.PICKUP);
     }
 
-    private void click(int slotId, int button, SlotActionType type) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        mc.interactionManager.clickSlot(mc.player.currentScreenHandler.syncId, slotId, button, type, mc.player);
+    private void click(int slotId, int button, ContainerInput type) {
+        Minecraft mc = Minecraft.getInstance();
+        mc.gameMode.handleContainerInput(mc.player.containerMenu.containerId, slotId, button, type, mc.player);
     }
 
     private boolean isCorrectItem(ItemStack stack, EvilRekit.KitItem kit) {
         if (kit == null) return true;
         if (stack.isEmpty()) return false;
-        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
-        return stack.isOf(expected);
+        Item expected = BuiltInRegistries.ITEM.getValue(Identifier.parse(kit.id));
+        return stack.getItem() == expected;
     }
 
-    private int findItemForKit(ScreenHandler handler, EvilRekit.KitItem targetKit) {
+    private int findItemForKit(AbstractContainerMenu handler, EvilRekit.KitItem targetKit) {
         if (targetKit == null) return -1;
-        Item expected = Registries.ITEM.get(Identifier.of(targetKit.id));
+        Item expected = BuiltInRegistries.ITEM.getValue(Identifier.parse(targetKit.id));
 
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotI = getHandlerSlot(i);
-            ItemStack stack = handler.getSlot(slotI).getStack();
+            ItemStack stack = handler.getSlot(slotI).getItem();
             if (stack.isEmpty() || isShulkerBox(stack)) continue;
 
-            if (stack.isOf(expected)) {
+            if (stack.getItem() == expected) {
                 EvilRekit.KitItem itsOwnKit = EvilRekit.INSTANCE.activeKit.get(i);
                 if (isCorrectItem(stack, itsOwnKit)) continue;
                 return i;
@@ -216,16 +217,16 @@ public class InventorySorter extends AddonModule {
         return -1;
     }
 
-    private int findEmptySlot(ScreenHandler handler) {
+    private int findEmptySlot(AbstractContainerMenu handler) {
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotId = getHandlerSlot(i);
-            if (handler.getSlot(slotId).getStack().isEmpty() && EvilRekit.INSTANCE.activeKit.get(i) == null) return slotId;
+            if (handler.getSlot(slotId).getItem().isEmpty() && EvilRekit.INSTANCE.activeKit.get(i) == null) return slotId;
         }
         for (int i = 0; i < 36; i++) {
             if (ignoreHotbar.getValue() && i <= 8) continue;
             int slotId = getHandlerSlot(i);
-            if (handler.getSlot(slotId).getStack().isEmpty()) return slotId;
+            if (handler.getSlot(slotId).getItem().isEmpty()) return slotId;
         }
         return -1;
     }

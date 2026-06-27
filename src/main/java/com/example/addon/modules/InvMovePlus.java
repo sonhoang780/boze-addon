@@ -6,9 +6,9 @@ import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ModeOption;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.c2s.play.ClickSlotC2SPacket;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -87,8 +87,8 @@ public class InvMovePlus extends AddonModule {
         if (flushing) return;
         if (FakeFly.invMoveBypass) return;  // FakeFly chestplate-swap needs precise ordering
         if (mode.getValue() != Mode.GrimStrict) return;
-        if (!(event.packet instanceof ClickSlotC2SPacket)) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
+        if (!(event.packet instanceof ServerboundContainerClickPacket)) return;
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
         // Only defer if the player is actually moving or there are already packets queued
@@ -120,12 +120,12 @@ public class InvMovePlus extends AddonModule {
     /** Send all pending packets in order and clear the queue. */
     private void flush() {
         if (pending.isEmpty()) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.getNetworkHandler() == null) { pending.clear(); return; }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() == null) { pending.clear(); return; }
         flushing = true;
         try {
             while (!pending.isEmpty()) {
-                mc.getNetworkHandler().sendPacket(pending.poll());
+                mc.getConnection().send(pending.poll());
             }
         } finally {
             flushing = false;
@@ -137,7 +137,7 @@ public class InvMovePlus extends AddonModule {
      * Threshold 0.001 m²/tick² ≈ 0.032 m/tick ≈ 0.64 m/s — filters out
      * tiny residual velocity from stopping so standing-still clicks go through immediately.
      */
-    private static boolean isMoving(MinecraftClient mc) {
-        return mc.player.getVelocity().horizontalLengthSquared() > 0.001;
+    private static boolean isMoving(Minecraft mc) {
+        return mc.player.getDeltaMovement().horizontalDistanceSqr() > 0.001;
     }
 }

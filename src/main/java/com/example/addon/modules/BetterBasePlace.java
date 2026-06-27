@@ -30,7 +30,7 @@ public class BetterBasePlace extends AddonModule {
         "Milliseconds between placement attempts.", 200.0, 50.0, 500.0, 50.0);
 
     public final ToggleOption airPlace = new ToggleOption(this, "AirPlace",
-        "Allow placing against air blocks (useful when target is airborne).", false);
+        "Allow placing against air blocks (needed for most flat-ground placements).", true);
 
     public final ModeOption<InteractionMode> mode = new ModeOption<>(this, "Mode",
         "Anti-cheat interaction mode.", InteractionMode.NCP);
@@ -56,6 +56,9 @@ public class BetterBasePlace extends AddonModule {
 
         BlockPos best = findBestPosition(mc, target, minDmg);
         if (best == null) return;
+
+        // Best position already has obsidian — nothing to do
+        if (mc.level.getBlockState(best).is(Blocks.OBSIDIAN)) return;
 
         int hotbarSlot = InvHelper.findInHotbar(Blocks.OBSIDIAN);
         int invSlot    = (hotbarSlot == -1) ? InvHelper.find(Blocks.OBSIDIAN) : -1;
@@ -103,10 +106,16 @@ public class BetterBasePlace extends AddonModule {
                     BlockPos pos = new BlockPos(tx + x, ty + dy, tz + z);
 
                     var state = mc.level.getBlockState(pos);
-                    if (state.is(Blocks.OBSIDIAN) || state.is(Blocks.BEDROCK)) continue;
+                    if (state.is(Blocks.BEDROCK)) continue;
                     if (!mc.level.getFluidState(pos).isEmpty()) continue;
                     if (!mc.level.getFluidState(pos.above()).isEmpty()) continue;
-                    if (!PlaceHelper.isEmpty(pos)) continue;
+                    // Skip non-obsidian solid blocks (can't place there); allow obsidian (caller checks)
+                    if (!state.is(Blocks.OBSIDIAN) && !PlaceHelper.isEmpty(pos)) continue;
+                    // Skip if block below pos is already obsidian/bedrock — crystal can go there without us
+                    var belowState = mc.level.getBlockState(pos.below());
+                    if (belowState.is(Blocks.OBSIDIAN) || belowState.is(Blocks.BEDROCK)) continue;
+                    // Skip if crystal spawn position (pos.above) overlaps target hitbox
+                    if (crystalSpawnBlocksTarget(pos, target)) continue;
 
                     double dmg = calcCrystalDamage(pos, target);
                     if (dmg < minDmg) continue;
@@ -116,6 +125,22 @@ public class BetterBasePlace extends AddonModule {
             }
         }
         return bestPos;
+    }
+
+    private boolean crystalSpawnBlocksTarget(BlockPos obsidianPos, AbstractClientPlayer target) {
+        // Crystal entity spawns in the block directly above obsidian
+        BlockPos crystal = obsidianPos.above();
+        // Crystal block AABB
+        double cx1 = crystal.getX(), cx2 = cx1 + 1.0;
+        double cy1 = crystal.getY(), cy2 = cy1 + 1.0;
+        double cz1 = crystal.getZ(), cz2 = cz1 + 1.0;
+        // Target AABB (player: 0.6 wide, 1.8 tall)
+        double tx1 = target.getX() - 0.3, tx2 = target.getX() + 0.3;
+        double ty1 = target.getY(),        ty2 = target.getY() + 1.8;
+        double tz1 = target.getZ() - 0.3, tz2 = target.getZ() + 0.3;
+        return cx1 < tx2 && cx2 > tx1
+            && cy1 < ty2 && cy2 > ty1
+            && cz1 < tz2 && cz2 > tz1;
     }
 
     private double calcCrystalDamage(BlockPos obsidianPos, AbstractClientPlayer target) {

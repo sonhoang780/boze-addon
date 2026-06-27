@@ -11,14 +11,14 @@ import dev.boze.api.utility.interaction.InteractionMode;
 import dev.boze.api.utility.interaction.PlaceHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,11 +45,11 @@ public class AntiMace extends AddonModule {
     // How many blocks to place per game tick (higher = faster, more packet spam)
     public final SliderOption blocksPerTick = new SliderOption(this, "Blocks/Tick",
             "Blocks placed per tick (higher = faster).", 3.0, 1.0, 6.0, 1.0);
-    public final SliderOption detectRange = new SliderOption(this, "Detect Range",
+    public final SliderOption detectRange = new SliderOption(this, "DetectRange",
             "Horizontal range to detect diving enemy.", 24.0, 5.0, 40.0, 0.5);
-    public final SliderOption predictTicks = new SliderOption(this, "Predict Ticks",
+    public final SliderOption predictTicks = new SliderOption(this, "PredictTicks",
             "Physics simulation steps for trajectory prediction.", 12.0, 2.0, 30.0, 1.0);
-    public final ToggleOption autoTrigger = new ToggleOption(this, "Auto Trigger",
+    public final ToggleOption autoTrigger = new ToggleOption(this, "AutoTrigger",
             "Auto trigger when enemy with Mace is detected above.", true);
 
     private final List<BlockPos> buildQueue = new ArrayList<>();
@@ -61,14 +61,14 @@ public class AntiMace extends AddonModule {
         super("AntiMace", "Places blocks in the mace enemy's dive path.");
     }
 
-    @Override public void onEnable()  { reset(); if (!autoTrigger.getValue()) initBuild(MinecraftClient.getInstance(), null); }
+    @Override public void onEnable()  { reset(); if (!autoTrigger.getValue()) initBuild(Minecraft.getInstance(), null); }
     @Override public void onDisable() { reset(); }
 
     private void reset() { buildQueue.clear(); buildIndex = 0; building = false; lastBuildEndMs = 0; }
 
     // ── Build queue construction ──────────────────────────────────────────────
 
-    private void initBuild(MinecraftClient mc, AbstractClientPlayerEntity threat) {
+    private void initBuild(Minecraft mc, AbstractClientPlayer threat) {
         if (building || mc.player == null) return;
         // 1-second cooldown between builds so the module doesn't spam-rebuild every tick
         // after the previous build completes while the threat is still present.
@@ -76,23 +76,23 @@ public class AntiMace extends AddonModule {
         buildQueue.clear();
         buildIndex = 0;
 
-        BlockPos feet  = mc.player.getBlockPos();
+        BlockPos feet  = mc.player.blockPosition();
         int      baseY = feet.getY();
 
         // --- Priority 1: directly above player (Y+2, Y+3) — fastest guaranteed intercept ---
-        addIfReplaceable(mc, feet.up(2));
-        addIfReplaceable(mc, feet.up(3));
+        addIfReplaceable(mc, feet.above(2));
+        addIfReplaceable(mc, feet.above(3));
 
         // --- Priority 2: predicted trajectory from player.Y up to enemy ---
         if (threat != null) {
-            Vec3d pos = new Vec3d(threat.getX(), threat.getY(), threat.getZ());
-            Vec3d vel = threat.getVelocity();
+            Vec3 pos = new Vec3(threat.getX(), threat.getY(), threat.getZ());
+            Vec3 vel = threat.getDeltaMovement();
             int   n   = predictTicks.getValue().intValue();
 
             List<BlockPos> path = new ArrayList<>();
             for (int t = 1; t <= n; t++) {
                 // Minecraft air physics: gravity 0.04, vertical drag 0.98, horizontal drag 0.91
-                vel = new Vec3d(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
+                vel = new Vec3(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
                 pos = pos.add(vel);
 
                 int by = (int) Math.floor(pos.y);
@@ -107,7 +107,7 @@ public class AntiMace extends AddonModule {
 
             // --- Priority 3: 2×2 cap at Y+3 centered on predicted impact X/Z ---
             // Find the trajectory tick where Y crosses player.Y+3
-            Vec3d impactPos = projectToY(threat, baseY + 3);
+            Vec3 impactPos = projectToY(threat, baseY + 3);
             if (impactPos != null) {
                 int ix = (int) Math.floor(impactPos.x);
                 int iz = (int) Math.floor(impactPos.z);
@@ -121,7 +121,7 @@ public class AntiMace extends AddonModule {
         }
 
         // --- Fallback: column Y+4 to Y+6 directly above player ---
-        for (int dy = 4; dy <= 6; dy++) addIfReplaceable(mc, feet.up(dy));
+        for (int dy = 4; dy <= 6; dy++) addIfReplaceable(mc, feet.above(dy));
 
         if (!buildQueue.isEmpty()) {
             building = true;
@@ -129,19 +129,19 @@ public class AntiMace extends AddonModule {
     }
 
     /** Returns the predicted X/Z position of the entity when it crosses targetY, or null. */
-    private Vec3d projectToY(AbstractClientPlayerEntity e, int targetY) {
-        Vec3d pos = new Vec3d(e.getX(), e.getY(), e.getZ());
-        Vec3d vel = e.getVelocity();
+    private Vec3 projectToY(AbstractClientPlayer e, int targetY) {
+        Vec3 pos = new Vec3(e.getX(), e.getY(), e.getZ());
+        Vec3 vel = e.getDeltaMovement();
         for (int t = 1; t <= 40; t++) {
-            vel = new Vec3d(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
+            vel = new Vec3(vel.x * 0.91, (vel.y - 0.04) * 0.98, vel.z * 0.91);
             pos = pos.add(vel);
             if (pos.y <= targetY) return pos;
         }
         return null;
     }
 
-    private void addIfReplaceable(MinecraftClient mc, BlockPos p) {
-        if (mc.world.getBlockState(p).isReplaceable() && !buildQueue.contains(p)) {
+    private void addIfReplaceable(Minecraft mc, BlockPos p) {
+        if (mc.level.getBlockState(p).canBeReplaced() && !buildQueue.contains(p)) {
             buildQueue.add(p);
         }
     }
@@ -150,12 +150,12 @@ public class AntiMace extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Post event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
 
         // Auto trigger: find closest diving mace threat
         if (autoTrigger.getValue() && !building) {
-            AbstractClientPlayerEntity threat = findThreat(mc);
+            AbstractClientPlayer threat = findThreat(mc);
             if (threat != null) initBuild(mc, threat);
         }
 
@@ -168,7 +168,7 @@ public class AntiMace extends AddonModule {
             BlockPos target = buildQueue.get(buildIndex++);
 
             // Skip if already occupied
-            if (!mc.world.getBlockState(target).isReplaceable()) continue;
+            if (!mc.level.getBlockState(target).canBeReplaced()) continue;
 
             int slot = swapMode.getValue() == SwapMode.Alt
                     ? InvHelper.find(Items.OBSIDIAN)
@@ -183,7 +183,7 @@ public class AntiMace extends AddonModule {
             if (hit == null) continue; // no solid neighbour yet, skip this position
 
             InvHelper.swapToSlot(slot, getSwapType());
-            PlaceHelper.place(InteractionMode.NCP, hit, Hand.MAIN_HAND);
+            PlaceHelper.place(InteractionMode.NCP, hit, InteractionHand.MAIN_HAND);
             InvHelper.swapBack();
             placed++;
         }
@@ -196,24 +196,24 @@ public class AntiMace extends AddonModule {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private AbstractClientPlayerEntity findThreat(MinecraftClient mc) {
-        AbstractClientPlayerEntity best    = null;
+    private AbstractClientPlayer findThreat(Minecraft mc) {
+        AbstractClientPlayer best    = null;
         double                    bestDist = Double.MAX_VALUE;
 
-        for (AbstractClientPlayerEntity p : mc.world.getPlayers()) {
+        for (AbstractClientPlayer p : mc.level.players()) {
             if (p == mc.player) continue;
-            if (p.isOnGround()) continue;
+            if (p.onGround()) continue;
             if (p.getY() <= mc.player.getY() + 2) continue;  // not above us
-            if (p.getVelocity().y >= -0.05) continue;         // not diving down
+            if (p.getDeltaMovement().y >= -0.05) continue;         // not diving down
             double hDist = hDist(mc.player, p);
             if (hDist > detectRange.getValue()) continue;
-            if (!p.getMainHandStack().isOf(Items.MACE) && !p.getOffHandStack().isOf(Items.MACE)) continue;
+            if (p.getMainHandItem().getItem() != Items.MACE && p.getOffhandItem().getItem() != Items.MACE) continue;
             if (hDist < bestDist) { bestDist = hDist; best = p; }
         }
         return best;
     }
 
-    private static double hDist(net.minecraft.entity.Entity a, net.minecraft.entity.Entity b) {
+    private static double hDist(net.minecraft.world.entity.Entity a, net.minecraft.world.entity.Entity b) {
         double dx = a.getX() - b.getX(), dz = a.getZ() - b.getZ();
         return Math.sqrt(dx * dx + dz * dz);
     }
@@ -231,15 +231,15 @@ public class AntiMace extends AddonModule {
      * so PlaceHelper can place a block into the target position.
      * Returns null if all six neighbours are also replaceable (can't place yet).
      */
-    private BlockHitResult getHitResult(MinecraftClient mc, BlockPos target) {
+    private BlockHitResult getHitResult(Minecraft mc, BlockPos target) {
         for (Direction dir : Direction.values()) {
-            BlockPos neighbour = target.offset(dir);
-            if (!mc.world.getBlockState(neighbour).isReplaceable()) {
+            BlockPos neighbour = target.relative(dir);
+            if (!mc.level.getBlockState(neighbour).canBeReplaced()) {
                 Direction face = dir.getOpposite();
-                Vec3d hitVec = Vec3d.ofCenter(neighbour).add(
-                        face.getOffsetX() * 0.5,
-                        face.getOffsetY() * 0.5,
-                        face.getOffsetZ() * 0.5);
+                Vec3 hitVec = Vec3.atCenterOf(neighbour).add(
+                        face.getStepX() * 0.5,
+                        face.getStepY() * 0.5,
+                        face.getStepZ() * 0.5);
                 return new BlockHitResult(hitVec, face, neighbour, false);
             }
         }

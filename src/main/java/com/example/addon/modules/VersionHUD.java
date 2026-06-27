@@ -3,10 +3,11 @@ package com.example.addon.modules;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.option.ColorOption;
 import dev.boze.api.render.ColorMaker;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.resources.Identifier;
 
 public class VersionHUD extends AddonModule {
     public static final VersionHUD INSTANCE = new VersionHUD();
@@ -22,7 +23,7 @@ public class VersionHUD extends AddonModule {
 
     private VersionHUD() {
         super("VersionHUD", "Renders the addon version. Uses HUD Editor.");
-        HudRenderCallback.EVENT.register((context, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "version-hud"), (context, tracker) -> {
             if (this.active) render(context);
         });
     }
@@ -30,16 +31,16 @@ public class VersionHUD extends AddonModule {
     @Override public void onEnable() { this.active = true; }
     @Override public void onDisable() { this.active = false; }
 
-    private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
+    private void drawOutline(GuiGraphicsExtractor context, int x, int y, int w, int h, int color) {
         context.fill(x - 1, y - 1, x + w + 1, y, color);
         context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
         context.fill(x - 1, y, x, y + h, color);
         context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
-    private void render(DrawContext context) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
+    private void render(GuiGraphicsExtractor context) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.hideGui && !(mc.screen instanceof MusicHUD.FontScreen)) return;
 
         String version = FabricLoader.getInstance().getModContainer("boze-addon")
                          .map(c -> c.getMetadata().getVersion().getFriendlyString())
@@ -54,17 +55,17 @@ public class VersionHUD extends AddonModule {
         }
         
         String text = version;
-        int w = mc.textRenderer.getWidth(text);
-        int h = mc.textRenderer.fontHeight;
+        int w = mc.font.width(text);
+        int h = mc.font.lineHeight;
 
         double x = posX;
         double y = posY;
 
         if (HUDEditor.INSTANCE.active) {
-            double scale = mc.getWindow().getScaleFactor();
-            double mx = mc.mouse.getX() / scale;
-            double my = mc.mouse.getY() / scale;
-            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+            double scale = mc.getWindow().getGuiScale();
+            double mx = mc.mouseHandler.xpos() / scale;
+            double my = mc.mouseHandler.ypos() / scale;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().handle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
 
             if (mouseDown && !wasMouseDownEditor) {
                 if (mx >= x && mx <= x + w && my >= y && my <= y + h) {
@@ -80,8 +81,8 @@ public class VersionHUD extends AddonModule {
 
             if (isDraggingHUD && mouseDown) {
                 x = mx - dragOffsetX; y = my - dragOffsetY;
-                int screenW = mc.getWindow().getScaledWidth();
-                int screenH = mc.getWindow().getScaledHeight();
+                int screenW = mc.getWindow().getGuiScaledWidth();
+                int screenH = mc.getWindow().getGuiScaledHeight();
                 x = Math.max(0, Math.min(x, screenW - w));
                 y = Math.max(0, Math.min(y, screenH - h));
                 posX = x; posY = y;
@@ -93,6 +94,6 @@ public class VersionHUD extends AddonModule {
         }
 
         int colorInt = textColor.getValue().color.getPacked();
-        context.drawText(mc.textRenderer, text, (int)x, (int)y, colorInt, true);
+        context.text(mc.font, text, (int)x, (int)y, colorInt, true);
     }
 }

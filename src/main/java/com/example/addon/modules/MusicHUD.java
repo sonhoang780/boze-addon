@@ -25,13 +25,16 @@ import dev.boze.api.option.Option;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.option.ModeOption;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.example.addon.mixin.GuiGraphicsExtractorAccessor;
+import com.example.addon.screens.SkiaPipRenderer;
+import com.example.addon.screens.SkiaPipState;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 import io.github.humbleui.skija.*;
 import io.github.humbleui.types.*;
@@ -60,22 +63,22 @@ public class MusicHUD extends AddonModule {
     }
     public double posX = com.example.addon.util.HudPositions.getX("MusicHUD", 10.0);
     public double posY = com.example.addon.util.HudPositions.getY("MusicHUD", 10.0);
-    public final SliderOption barAlpha = new SliderOption(this, "Bar Alpha",  "Transparency of the visualizer bars (0-255).", 80.0,  0.0,  255.0, 1.0);
-    public final ToggleOption openFontUi = new ToggleOption(this, "Add Font", "", false);
-    public final ToggleOption gradientBars = new ToggleOption(this, "Gradient Bars", "", true);
-    public final ModeOption<BackGroundMode> bgMode = new ModeOption<>(this, "BackGround", "Background style of the HUD.", BackGroundMode.Blur);
-    public final SliderOption blurIntensity = new SliderOption(this, "Blur Intensity", "Intensity of the blur effect.", 15.0, 0.0, 50.0, 1.0, () -> bgMode.getValue() != BackGroundMode.LiquidGlass);
-    public final SliderOption titleFontSize = new SliderOption(this, "Title Font Size", "Size of the track title font (TextBloomPlus only)", 13.0, 5.0, 30.0, 0.5);
-    public final SliderOption authorFontSize = new SliderOption(this, "Author Font Size", "Size of the artist name font (TextBloomPlus only)", 11.0, 5.0, 30.0, 0.5);
-    public final ToggleOption textBloom = new ToggleOption(this, "Text Bloom", "Vanilla Text Bloom", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
-    public final ToggleOption textBloomPlus = new ToggleOption(this, "Text Bloom Plus", "", false, () -> this.textBloom == null || !this.textBloom.getValue());
-    public final ToggleOption compactMode = new ToggleOption(this, "Compact Mode", "Collapse the HUD, limiting its height.", false);
+    public final SliderOption barAlpha = new SliderOption(this, "BarAlpha",  "Transparency of the visualizer bars (0-255).", 160.0,  0.0,  255.0, 1.0);
+    public final ToggleOption openFontUi = new ToggleOption(this, "AddFont", "", false);
+    public final ToggleOption gradientBars = new ToggleOption(this, "GradientBars", "", true);
+    public final ModeOption<BackGroundMode> bgMode = new ModeOption<>(this, "BackGround", "Background style of the HUD.", BackGroundMode.LiquidGlass);
+    public final SliderOption blurIntensity = new SliderOption(this, "BlurIntensity", "Intensity of the blur effect.", 3.0, 0.0, 50.0, 1.0, () -> bgMode.getValue() != BackGroundMode.LiquidGlass);
+    public final SliderOption titleFontSize = new SliderOption(this, "TitleFontSize", "Size of the track title font (TextBloomPlus only)", 10.0, 5.0, 30.0, 0.5);
+    public final SliderOption authorFontSize = new SliderOption(this, "AuthorFontSize", "Size of the artist name font (TextBloomPlus only)", 9.0, 5.0, 30.0, 0.5);
+    public final ToggleOption textBloom = new ToggleOption(this, "TextBloom", "Vanilla Text Bloom", false, () -> this.textBloomPlus == null || !this.textBloomPlus.getValue());
+    public final ToggleOption textBloomPlus = new ToggleOption(this, "TextBloomPlus", "", true, () -> this.textBloom == null || !this.textBloom.getValue());
+    public final ToggleOption compactMode = new ToggleOption(this, "CompactMode", "Collapse the HUD, limiting its height.", false);
     public final ToggleOption disk = new ToggleOption(this, "Disk", "Enable to show the spinning record.", true);
-    public final ToggleOption ultraDisk = new ToggleOption(this, "Ultra Disk", "Only display the record, hide everything else.", false, () -> disk.getValue());
-    public final SliderOption diskSize = new SliderOption(this, "Disk Size", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
+    public final ToggleOption ultraDisk = new ToggleOption(this, "UltraDisk", "Only display the record, hide everything else.", false, () -> disk.getValue());
+    public final SliderOption diskSize = new SliderOption(this, "DiskSize", "Size of the music disk (Ultra Disk).", 100.0, 30.0, 300.0, 1.0);
     
     public final ModeOption<LerpMode> lerpMode = new ModeOption<>(this, "Lerp Mode", "Lerp mode for the audio bars.", LerpMode.Full);
-    public final ModeOption<ButtonEffect> buttonEffect = new ModeOption<>(this, "Button Effect", "Visual effect when clicking buttons.", ButtonEffect.Splash);
+    public final ModeOption<ButtonEffect> buttonEffect = new ModeOption<>(this, "Button Effect", "Visual effect when clicking buttons.", ButtonEffect.Gradient);
     private final java.util.List<java.io.File> availableFonts = new java.util.ArrayList<>();
     private java.io.File activeFontFile = null;
     private String lastFontPath = "";
@@ -83,11 +86,11 @@ public class MusicHUD extends AddonModule {
     private static final int    THUMB_W    = 55;
     private static final int    THUMB_H    = 55;
     private static final int    HUD_HEIGHT = 70;
-    private static final Identifier VINYL_TEX = Identifier.of("musichud", "vinyl.png");
-    private static final Identifier PLAY_ICON = Identifier.of("musichud", "play.png");
-    private static final Identifier PAUSE_ICON = Identifier.of("musichud", "pause-button.png");
-    private static final Identifier PREV_ICON = Identifier.of("musichud", "previous.png");
-    private static final Identifier NEXT_ICON = Identifier.of("musichud", "next-button.png");
+    private static final Identifier VINYL_TEX = Identifier.fromNamespaceAndPath("musichud", "vinyl.png");
+    private static final Identifier PLAY_ICON = Identifier.fromNamespaceAndPath("musichud", "play.png");
+    private static final Identifier PAUSE_ICON = Identifier.fromNamespaceAndPath("musichud", "pause-button.png");
+    private static final Identifier PREV_ICON = Identifier.fromNamespaceAndPath("musichud", "previous.png");
+    private static final Identifier NEXT_ICON = Identifier.fromNamespaceAndPath("musichud", "next-button.png");
 
     private boolean isDraggingHUD = false;
     private double dragOffsetX = 0, dragOffsetY = 0;
@@ -124,8 +127,8 @@ public class MusicHUD extends AddonModule {
     private volatile byte[]   pendingThumbBytesCircle = null;
     private Identifier         thumbSquareId    = null;
     private Identifier         thumbCircleId    = null;
-    private NativeImageBackedTexture thumbTexSquare   = null;
-    private NativeImageBackedTexture thumbTexCircle   = null;
+    private DynamicTexture thumbTexSquare   = null;
+    private DynamicTexture thumbTexCircle   = null;
     private boolean            thumbLoading     = false;
     private int                thumbGen         = 0;
 
@@ -150,26 +153,72 @@ public class MusicHUD extends AddonModule {
     // Freeze PlayMusic position display when paused so the bar never drifts.
     private long   frozenPlayMusicPositionMs = -1;
 
-    private DirectContext skiaContext;
-    private int skiaFboId = -1;
-    private int skiaFboTexId = -1;
+    /**
+     * Everything paintSkia() needs, computed by render() during extraction and
+     * consumed once during the Picture-in-Picture render pass (SkiaPipRenderer) that
+     * render() registers via registerSkiaPip(). render() itself never draws — it only
+     * updates state/animation and fills this snapshot.
+     */
+    private static final class PaintState {
+        double x, y, hudW, hudH;
+        boolean useUltra;
+        Color accent;
+        boolean liquidGlass, enableGlow, gpuBlur;
+        float radius;
 
+        boolean notPlaying;
+
+        boolean useDisk;
+        Identifier activeThumbId;
+        int thumbX, thumbY, thumbW, thumbH;
+        float diskRotationDeg;
+
+        boolean showHoldProgress;
+        int holdX1, holdY1, holdX2, holdY2;
+
+        boolean showContent;
+        double contentX, contentW;
+        String titleText = "", authorText = "";
+        boolean textBloomPlus, textBloom;
+
+        AudioTrack track;
+        double barsX, barsY, barsW;
+
+        String timeText;
+        double timeX, timeY;
+
+        double btnPrevX, btnPlayX, btnNextX, btnY;
+        int iconSz;
+        boolean hoverPrev, hoverPlay, hoverNext, hoverProgress;
+        double progX, progY, pBarX, pBarTop;
+        int pBarW, filledW;
+        double waveX, waveY;
+        float waveProgress;
+        ButtonEffect buttonEffect;
+        Identifier playPauseIcon;
+
+        boolean showOutline;
+        int outlineX, outlineY, outlineW, outlineH, outlineColor;
+    }
+
+    private PaintState paintState;
+    private Font skiaFontBody;
 
     private MusicHUD() {
         super("MusicHUD", "Music player HUD with Skia Rounded Corners & Glow.");
-        HudRenderCallback.EVENT.register((context, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "musichud"), (context, tracker) -> {
             if (this.active) render(context);
         });
     }
 
-    @Override public void onEnable()  { this.active = true; lastRenderTime = System.currentTimeMillis(); isFirstRender = true; }
+    @Override public void onEnable()  {
+        this.active = true;
+        lastRenderTime = System.currentTimeMillis();
+        isFirstRender = true;
+    }
     @Override public void onDisable() {
         this.active = false;
-        if (skiaFboId != -1) {
-            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
-            skiaFboId = -1;
-            skiaFboTexId = -1;
-        }
+        paintState = null;
     }
 
     // Null-safe config load: bỏ qua option thiếu trong config cũ (vd option "BackGround"
@@ -193,235 +242,145 @@ public class MusicHUD extends AddonModule {
     }
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (openFontUi.getValue()) {
             openFontUi.setValue(false); 
             mc.execute(() -> mc.setScreen(new FontScreen()));
         }
     }
-    private void drawOutline(DrawContext context, int x, int y, int w, int h, int color) {
-        context.fill(x - 1, y - 1, x + w + 1, y, color);
-        context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
-        context.fill(x - 1, y, x, y + h, color);
-        context.fill(x + w, y, x + w + 1, y + h, color);
-    }
-
-    private int bindSkiaFbo(MinecraftClient mc) {
-        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
-        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
-        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
-        // Frame đầu khi mới vào game, texture của MC chưa sẵn sàng (glId <= 0). Tạo FBO trỏ vào
-        // texture rỗng sẽ làm FBO incomplete và bị "kẹt" cho tới khi user tắt/bật module thủ công.
-        // Bỏ qua frame này, frame sau khi texture hợp lệ sẽ tự gắn đúng.
-        if (texId <= 0) return -1;
-        if (skiaFboId == -1) skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
-        // Re-attach MỖI frame: nếu MC tạo lại framebuffer lúc load world / đổi resolution, FBO luôn
-        // trỏ về color texture hiện hành → first-entry tự lành, không cần tắt/bật module nữa.
-        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
-            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
-            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
-            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
-        skiaFboTexId = texId;
-        return skiaFboId;
-    }
-
-    private void drawSkiaBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
-            canvas.scale(scale, scale);
-            // OUTER GLOW chỉ bám theo VIỀN (outline), không phủ glow lên cả khối nền.
-            // Vẽ một stroke RRect màu accent + MaskFilter blur OUTER → quầng sáng chỉ tỏa ra
-            // phía ngoài đường viền, không lan ra giữa background.
-            if (enableGlow && accent != null) {
-                try (Paint glowPaint = new Paint();
-                     MaskFilter glowBlur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 8f)) {
-                    glowPaint.setColor(accent.getRGB());
-                    glowPaint.setMode(PaintMode.STROKE);
-                    glowPaint.setStrokeWidth(2.5f);
-                    glowPaint.setMaskFilter(glowBlur);
-                    glowPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
-                }
-            }
-            
-            // --- 3. VIỀN STROKE TRẮNG MỎNG ---
-            try (Paint strokePaint = new Paint()) {
-                strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
-                strokePaint.setMode(PaintMode.STROKE);
-                strokePaint.setStrokeWidth(1.0f);
-                strokePaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
-            }
-            // --- 1. SKIA FROSTED GLASS (BACKDROP BLUR MƯỢT MÀ, BO GÓC HOÀN HẢO) ---
-            canvas.save();
-            // Cắt theo RRect để Blur không bao giờ bị lòi ra 4 góc
-            canvas.clipRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), ClipMode.INTERSECT, true);
-            
-            float blurVal = (float)(double) blurIntensity.getValue();
-            
-            if (blurVal > 0) {
-                try (ImageFilter backdropBlur = ImageFilter.makeBlur(blurVal, blurVal, FilterTileMode.CLAMP)) {
-                    canvas.saveLayer(new SaveLayerRec(null, null, backdropBlur));
-                    try (Paint bgPaint = new Paint()) {
-                        bgPaint.setColor(new Color(15, 15, 15, 90).getRGB());
-                        bgPaint.setAntiAlias(true);
-                        canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), bgPaint);
-                    }
-                    canvas.restore();
-                }
-            } else {
-                // Nếu kéo Blur về 0, chỉ vẽ màng đen để đỡ lag GPU
-                try (Paint bgPaint = new Paint()) {
-                    bgPaint.setColor(new Color(15, 15, 15, 90).getRGB());
-                    bgPaint.setAntiAlias(true);
-                    canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), bgPaint);
-                }
-            }
-
-            skiaContext.flushAndSubmit(false);
+    private void paintOutline(Canvas canvas, int x, int y, int w, int h, int argb) {
+        try (Paint paint = new Paint()) {
+            paint.setColor(argb);
+            canvas.drawRect(Rect.makeXYWH(x - 1, y - 1, w + 2, 1), paint);
+            canvas.drawRect(Rect.makeXYWH(x - 1, y + h, w + 2, 1), paint);
+            canvas.drawRect(Rect.makeXYWH(x - 1, y, 1, h), paint);
+            canvas.drawRect(Rect.makeXYWH(x + w, y, 1, h), paint);
         }
-        
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
 
-    private void drawBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
-        if (bgMode.getValue() == BackGroundMode.LiquidGlass)
-            drawLiquidGlassBackground(x, y, w, h, radius, accent, enableGlow);
-        else
-            drawSkiaBackground(x, y, w, h, radius, accent, enableGlow);
-    }
+    /**
+     * Paints the panel decoration (glow + stroke [+ dark fill if no GPU blur] for
+     * "Blur" mode, or tint + gradient + glint + glow + rim for "LiquidGlass" mode) on
+     * top of whatever the GPU backdrop-blur pass already wrote. Runs at end-of-frame
+     * on the persistent canvas — drawBackground() already triggered the blur pass and
+     * filled the PaintState fields this reads.
+     */
+    private void paintBackgroundPanel(Canvas canvas) {
+        PaintState p = paintState;
+        float fx = (float) p.x, fy = (float) p.y, fw = (float) p.hudW, fh = (float) p.hudH;
+        RRect panel = RRect.makeXYWH(fx, fy, fw, fh, p.radius);
 
-    private void drawLiquidGlassBackground(double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-
-        float scale = (float) mc.getWindow().getScaleFactor();
-        int fbH = mc.getFramebuffer().textureHeight;
-
-        // Capture the main FBO BEFORE running GPU passes. MC's command encoder
-        // (render passes) changes the GL FBO binding; querying after render()
-        // returns a temp texture FBO, which makes Skia draw to the wrong surface
-        // and produces the "double HUD" artifact.
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-
-        LiquidGlassHud.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, fbH);
-        // Run GPU passes (blur + refraction) now, before Skia draws on top.
-        LiquidGlassHud.INSTANCE.render();
-
-        // Restore the HUD FBO after the GPU passes — they may have left a
-        // different FBO bound (blur temp textures, etc.).
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-
-        // ── Cheap Skia decorative layers (no backdrop filter, no displacement map) ──
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            canvas.scale(scale, scale);
-            float fx = (float)x, fy = (float)y, fw = (float)w, fh = (float)h;
-
-            // (Drop shadow removed for liquid glass mode per user request.)
-
+        if (p.liquidGlass) {
             canvas.save();
-            canvas.clipRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), ClipMode.INTERSECT, true);
+            canvas.clipRRect(panel, ClipMode.INTERSECT, true);
 
-            // ── 2. GLASS BODY TINT (very light blue-white overlay) ──
             try (Paint tintPaint = new Paint()) {
                 tintPaint.setColor(new Color(150, 205, 255, 10).getRGB());
                 tintPaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), tintPaint);
+                canvas.drawRRect(panel, tintPaint);
             }
-
-            // ── 3. RADIAL DEPTH GRADIENT ──
             try (Shader radShader = Shader.makeRadialGradient(
-                     fx + fw * 0.5f, fy + fh * 0.45f,
-                     Math.max(fw, fh) * 0.85f,
-                     new int[]{ 0x0CFFFFFF, 0x04FFFFFF, 0x14000000 },
-                     new float[]{ 0f, 0.55f, 1f })) {
-                try (Paint radPaint = new Paint()) {
-                    radPaint.setShader(radShader);
-                    radPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), radPaint);
-                }
+                     fx + fw * 0.5f, fy + fh * 0.45f, Math.max(fw, fh) * 0.85f,
+                     new int[]{ 0x0CFFFFFF, 0x04FFFFFF, 0x14000000 }, new float[]{ 0f, 0.55f, 1f });
+                 Paint radPaint = new Paint()) {
+                radPaint.setShader(radShader);
+                radPaint.setAntiAlias(true);
+                canvas.drawRRect(panel, radPaint);
             }
-
-            // ── 4. SPECULAR CORNER GLINT ──
-            float gcx = fx + radius * 1.6f, gcy = fy + radius * 1.2f;
+            float gcx = fx + p.radius * 1.6f, gcy = fy + p.radius * 1.2f;
             try (Shader glint = Shader.makeRadialGradient(
-                     gcx, gcy, Math.max(8f, radius * 2.4f),
-                     new int[]{ 0x40FFFFFF, 0x00FFFFFF },
-                     new float[]{ 0f, 1f })) {
-                try (Paint gp = new Paint()) {
-                    gp.setShader(glint);
-                    gp.setAntiAlias(true);
-                    canvas.drawRect(Rect.makeXYWH(fx, fy, fw, fh), gp);
-                }
+                     gcx, gcy, Math.max(8f, p.radius * 2.4f),
+                     new int[]{ 0x40FFFFFF, 0x00FFFFFF }, new float[]{ 0f, 1f });
+                 Paint gp = new Paint()) {
+                gp.setShader(glint);
+                gp.setAntiAlias(true);
+                canvas.drawRect(Rect.makeXYWH(fx, fy, fw, fh), gp);
             }
-
             canvas.restore();
 
-            // ── 5. OUTER ACCENT GLOW ──
-            if (enableGlow && accent != null) {
-                int ac = (0x22 << 24) | (accent.getRGB() & 0x00FFFFFF);
+            if (p.enableGlow && p.accent != null) {
+                int ac = (0x22 << 24) | (p.accent.getRGB() & 0x00FFFFFF);
                 try (Paint glowPaint = new Paint();
                      ImageFilter glowFilter = ImageFilter.makeDropShadowOnly(0, 0, 16f, 16f, ac)) {
                     glowPaint.setImageFilter(glowFilter);
                     glowPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), glowPaint);
+                    canvas.drawRRect(panel, glowPaint);
                 }
             }
-
-            // ── 6. SUBTLE RIM STROKE ──
             try (Paint rim = new Paint()) {
                 rim.setColor(new Color(200, 225, 255, 36).getRGB());
                 rim.setMode(PaintMode.STROKE);
                 rim.setStrokeWidth(0.8f);
                 rim.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH(fx + 0.5f, fy + 0.5f, fw - 1f, fh - 1f, radius), rim);
+                canvas.drawRRect(RRect.makeXYWH(fx + 0.5f, fy + 0.5f, fw - 1f, fh - 1f, p.radius), rim);
             }
-
-            skiaContext.flushAndSubmit(false);
+            return;
         }
 
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+        if (p.enableGlow && p.accent != null) {
+            try (Paint glowPaint = new Paint();
+                 MaskFilter glowBlur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 8f)) {
+                glowPaint.setColor(p.accent.getRGB());
+                glowPaint.setMode(PaintMode.STROKE);
+                glowPaint.setStrokeWidth(2.5f);
+                glowPaint.setMaskFilter(glowBlur);
+                glowPaint.setAntiAlias(true);
+                canvas.drawRRect(panel, glowPaint);
+            }
+        }
+        // Only fill a dark body when there's no GPU frosted blur behind it; with the
+        // blur on, the GPU pass already provides the (darkened) panel body.
+        if (!p.gpuBlur) {
+            try (Paint bgPaint = new Paint()) {
+                bgPaint.setColor(new Color(15, 15, 15, 150).getRGB());
+                bgPaint.setAntiAlias(true);
+                canvas.drawRRect(panel, bgPaint);
+            }
+        }
+        try (Paint strokePaint = new Paint()) {
+            strokePaint.setColor(new Color(255, 255, 255, 60).getRGB());
+            strokePaint.setMode(PaintMode.STROKE);
+            strokePaint.setStrokeWidth(1.0f);
+            strokePaint.setAntiAlias(true);
+            canvas.drawRRect(panel, strokePaint);
+        }
     }
+
+    /**
+     * Triggers the GPU backdrop-blur pass (if any) and records everything paintSkia()
+     * needs to draw the panel decoration. Must run during extraction (the blur trigger
+     * calls are extraction-only APIs); the actual pixels are painted later, at
+     * end-of-frame, by paintBackgroundPanel(Canvas).
+     */
+    private void drawBackground(GuiGraphicsExtractor context, double x, double y, double w, double h, float radius, Color accent, boolean enableGlow) {
+        PaintState p = paintState;
+        p.liquidGlass = bgMode.getValue() == BackGroundMode.LiquidGlass;
+        p.radius = radius;
+        p.enableGlow = enableGlow;
+        p.accent = accent;
+
+        Minecraft mc = Minecraft.getInstance();
+        float scale = (float) mc.getWindow().getGuiScale();
+
+        if (p.liquidGlass) {
+            int fbH = mc.getMainRenderTarget().height;
+            // Mark the blur boundary: GuiRenderer only calls GameRenderer.processBlurEffect()
+            // (which our mixin intercepts to run the GPU blur+refraction pass) if something
+            // requested it via blurBeforeThisStratum() during extraction.
+            context.blurBeforeThisStratum();
+            LiquidGlassHud.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, fbH);
+            p.gpuBlur = true;
+        } else {
+            float blurVal = (float)(double) blurIntensity.getValue();
+            p.gpuBlur = blurVal > 0.5f;
+            if (p.gpuBlur) {
+                context.blurBeforeThisStratum();
+                SkijaBackdropBlur.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, blurVal, 0.35f);
+            }
+        }
+    }
+
+    
 
     private Color lerpColor(Color a, Color b, float t) {
         t = Math.max(0f, Math.min(1f, t));
@@ -435,21 +394,22 @@ public class MusicHUD extends AddonModule {
 
     private double lerp(double a, double b, double t) { return a + (b - a) * t; }
 
-    private double calcTargetWidth(MinecraftClient mc) {
+    private double calcTargetWidth(Minecraft mc) {
         if (compactMode.getValue()) return THUMB_W + 10 + 130.0;
         double maxTextW;
-        // Bắt chiều dài Font tự động co giãn theo Size của Skia
-        if (textBloomPlus.getValue() && skiaFontTitle != null && skiaFontAuthor != null) {
+        // Title/author always render via the Skija fonts now (regardless of TextBloomPlus),
+        // so width must always be measured with those, not mc.font.
+        if (skiaFontTitle != null && skiaFontAuthor != null) {
             maxTextW = Math.max(skiaFontTitle.measureTextWidth(displayTitle), skiaFontAuthor.measureTextWidth(displayAuthor));
         } else {
-            maxTextW = Math.max(mc.textRenderer.getWidth(displayTitle), mc.textRenderer.getWidth(displayAuthor));
+            maxTextW = Math.max(mc.font.width(displayTitle), mc.font.width(displayAuthor));
         }
         return Math.ceil((THUMB_W + 10 + Math.max(160, maxTextW + 60)) / 10.0) * 10.0;
     }
 
     private void handleMouse(AudioTrack track, double hudX, double hudY, double hudW, double hudH) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.currentScreen == null) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen == null) {
             isDragging = wasMouseDown = hoverPrev = hoverPlay = hoverNext = hoverProgress = false;
             isDraggingWidth = false;
             dragPreviewRatio = -1;
@@ -458,11 +418,11 @@ public class MusicHUD extends AddonModule {
 
         boolean spotifyOverride = SpotifyIntegration.isSpotifyConnected;
         boolean useUltra = disk.getValue() && ultraDisk.getValue();
-        double scale  = mc.getWindow().getScaleFactor();
-        double mouseX = mc.mouse.getX() / scale;
-        double mouseY = mc.mouse.getY() / scale;
+        double scale  = mc.getWindow().getGuiScale();
+        double mouseX = mc.mouseHandler.xpos() / scale;
+        double mouseY = mc.mouseHandler.ypos() / scale;
 
-        long win = mc.getWindow().getHandle();
+        long win = mc.getWindow().handle();
         boolean mouseDown = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         boolean justPressed  = mouseDown && !wasMouseDown;
         boolean justReleased = !mouseDown && wasMouseDown;
@@ -574,7 +534,7 @@ public class MusicHUD extends AddonModule {
     }
     
     private void initSkiaFontsIfNeeded() {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         float tSize = (float)(double) titleFontSize.getValue();
         float aSize = (float)(double) authorFontSize.getValue();
 
@@ -638,12 +598,23 @@ public class MusicHUD extends AddonModule {
             lastFontModifiedTime = currentModTime;
             lastFontPath = fontIdentifier;
         }
+
+        // Small fixed-size body font (time, "Not playing", note glyph) — deliberately
+        // the default system typeface, not the user's custom music font, so it keeps
+        // looking like Minecraft's own UI text regardless of what font is loaded above.
+        if (skiaFontBody == null) {
+            Typeface bodyFace = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
+            skiaFontBody = new Font(bodyFace, 9f);
+        }
     }
 
-    private void render(DrawContext context) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options.hudHidden && !(mc.currentScreen instanceof MusicHUD.FontScreen)) return;
+    private void render(GuiGraphicsExtractor context) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.hideGui && !(mc.screen instanceof MusicHUD.FontScreen)) { paintState = null; return; }
         initSkiaFontsIfNeeded();
+        PaintState p = new PaintState();
+        this.paintState = p;
+
         long now = System.currentTimeMillis();
         long deltaMs = now - lastRenderTime;
         if (waveProgress < 1.0f) {
@@ -652,6 +623,7 @@ public class MusicHUD extends AddonModule {
         }
         lastRenderTime = now;
         boolean useUltra = disk.getValue() && ultraDisk.getValue();
+        p.useUltra = useUltra;
 
         if (pendingThumbBytesSquare != null && pendingThumbBytesCircle != null) uploadPendingThumb(mc);
 
@@ -667,13 +639,13 @@ public class MusicHUD extends AddonModule {
                                  track.getState() != AudioTrackState.FINISHED);
 
         if (isFirstRender) {
-            if (!isTrackPlaying) { animW = WIDTH_MIN; transPhase = 1; } 
+            if (!isTrackPlaying) { animW = WIDTH_MIN; transPhase = 1; }
             else { animW = calcTargetWidth(mc); transPhase = 2; }
             if (lerpMode.getValue() == LerpMode.Off && isTrackPlaying) animW = calcTargetWidth(mc);
             isFirstRender = false;
         }
 
-        if (isTrackPlaying) isManuallyStopped = false; 
+        if (isTrackPlaying) isManuallyStopped = false;
         boolean isActuallyPlaying = spotifyOverride ? SpotifyIntegration.isSpotifyPlaying : !PlayMusic.isPlayerPaused();
         if (isTrackPlaying && isActuallyPlaying) {
             smoothDiskRotation += deltaMs * 0.045f;
@@ -681,30 +653,33 @@ public class MusicHUD extends AddonModule {
         }
 
         accentColor = lerpColor(accentColor, targetAccent, 0.015f);
+        p.accent = accentColor;
 
         double hudW = Math.max(animW, WIDTH_MIN);
         int currentThumbW = useUltra ? (int)(double)diskSize.getValue() : THUMB_W;
         int currentThumbH = useUltra ? (int)(double)diskSize.getValue() : THUMB_H;
-        double hudH = useUltra ? currentThumbH : HUD_HEIGHT; 
+        double hudH = useUltra ? currentThumbH : HUD_HEIGHT;
+        p.x = x; p.y = y; p.hudW = hudW; p.hudH = hudH;
 
         if (isManuallyStopped) {
             if (lerpMode.getValue() == LerpMode.Off) animW = WIDTH_MIN;
             else                                      animW = lerp(animW, WIDTH_MIN, LERP_CLOSE);
-            
+
             if (!useUltra) {
-                // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-                drawBackground(x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
-                context.drawText(mc.textRenderer, "Not playing", (int)x + 15, (int)y + 28, 0xFFFFFFFF, true);
+                p.hudH = HUD_HEIGHT;
+                drawBackground(context, x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
+                p.notPlaying = true;
+                registerSkiaPip(context, x, y, animW, HUD_HEIGHT, 0);
             }
             return;
         }
 
         double calculatedTarget = calcTargetWidth(mc);
         double newTarget = (manualTargetWidth != -1.0 && !compactMode.getValue()) ? manualTargetWidth : calculatedTarget;
-        
+
         double closeTarget = WIDTH_MIN;
         if (lerpMode.getValue() == LerpMode.Semi) {
-            closeTarget = newTarget / 3.0; 
+            closeTarget = newTarget / 3.0;
         }
 
         if (!isTrackPlaying) {
@@ -716,8 +691,8 @@ public class MusicHUD extends AddonModule {
                 } else {
                     if (transPhase == 0) transPhase = 1;
                     if (animW <= closeTarget + 4.0) {
-                        isManuallyStopped = true; 
-                        currentTrackId = ""; 
+                        isManuallyStopped = true;
+                        currentTrackId = "";
                         displayTitle = "Not playing";
                         displayAuthor = "";
                         thumbSquareId = null;
@@ -765,17 +740,17 @@ public class MusicHUD extends AddonModule {
             if (isDraggingWidth) animW = lerp(animW, newTarget, 0.2);
             else { animW = newTarget; transPhase = 0; }
         } else {
-            if (transPhase == 1) { 
+            if (transPhase == 1) {
                 animW = lerp(animW, closeTarget, LERP_CLOSE);
                 if (animW <= closeTarget + 4.0 && forceCloseForNewTrack) {
                     forceCloseForNewTrack = false;
                     transPhase = 2;
                 }
-            } else if (transPhase == 2) { 
+            } else if (transPhase == 2) {
                 animW = lerp(animW, newTarget, LERP_OPEN);
                 if (Math.abs(animW - newTarget) < 1.5) { animW = newTarget; transPhase = 0; }
-            } else { 
-                animW = lerp(animW, newTarget, isDraggingWidth ? 0.2 : 0.04); 
+            } else {
+                animW = lerp(animW, newTarget, isDraggingWidth ? 0.2 : 0.04);
             }
         }
 
@@ -783,88 +758,67 @@ public class MusicHUD extends AddonModule {
 
         int currentThumbX = useUltra ? (int)x : (int)x + 5;
         int currentThumbY = useUltra ? (int)y : (int)y + 7;
+        p.useDisk = disk.getValue();
+        p.thumbX = currentThumbX; p.thumbY = currentThumbY; p.thumbW = currentThumbW; p.thumbH = currentThumbH;
+        p.activeThumbId = p.useDisk ? thumbCircleId : thumbSquareId;
+        p.diskRotationDeg = smoothDiskRotation;
 
         if (!useUltra) {
-            // Đổi Tint thành trong suốt hoàn toàn, nhường cho Skia vẽ Nền đen bo góc
-            drawBackground(x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
+            drawBackground(context, x, y, hudW, HUD_HEIGHT, 8f, accentColor, true);
         } else {
-            drawSkiaCircularGlow(currentThumbX + currentThumbW / 2.0, currentThumbY + currentThumbH / 2.0, currentThumbW / 2.0f, accentColor);
+            p.radius = currentThumbW / 2.0f; // reused field to carry the ultra-disk glow radius
         }
-
-        renderThumbnail(context, track, currentThumbX, currentThumbY, currentThumbW, currentThumbH);
-
-        // XÓA 100% CÁI DẢI MÀU BÊN TRÁI DO MINECRAFT VẼ VÀ ĐÃ NHƯỜNG SKIA VẼ HOẶC XÓA HOÀN TOÀN TÙY Ý MÀY
 
         if (!useUltra) {
             if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
                 long held = System.currentTimeMillis() - hudHoverStartTime;
-                float holdProgress = Math.min(1.0f, held / 2500.0f); 
-                context.fill((int)x + 3, (int)(y + HUD_HEIGHT - 2), (int)(x + hudW * holdProgress - 3), (int)(y + HUD_HEIGHT), 0xFFFF3333); 
+                float holdProgress = Math.min(1.0f, held / 2500.0f);
+                p.showHoldProgress = true;
+                p.holdX1 = (int)x + 3; p.holdY1 = (int)(y + HUD_HEIGHT - 2);
+                p.holdX2 = (int)(x + hudW * holdProgress - 3); p.holdY2 = (int)(y + HUD_HEIGHT);
             }
 
             double contentX = x + THUMB_W + 10;
             double contentW = hudW - THUMB_W - 10 - 8;
 
             if (hudW > THUMB_W + 30) {
-                String titleClipped  = clipText(mc, displayTitle,  (int)contentW - 30);
-                String authorClipped = clipText(mc, displayAuthor, (int)contentW - 30);
-                renderBars(context, track, contentX + 75, y, contentW - 75); 
+                p.showContent = true;
+                p.contentX = contentX; p.contentW = contentW;
+                p.titleText  = skiaFontTitle  != null ? clipText(skiaFontTitle,  displayTitle,  (float)contentW - 30) : displayTitle;
+                p.authorText = skiaFontAuthor != null ? clipText(skiaFontAuthor, displayAuthor, (float)contentW - 30) : displayAuthor;
+                p.textBloomPlus = textBloomPlus.getValue();
+                p.textBloom = textBloom.getValue();
+                p.barsX = contentX + 75; p.barsY = y; p.barsW = contentW - 75;
 
-                if (!textBloomPlus.getValue()) {
-                    context.drawText(mc.textRenderer, titleClipped,  (int)contentX, (int)y + 8,  0xFFFFFFFF,        false);
-                    context.drawText(mc.textRenderer, authorClipped, (int)contentX, (int)y + 20, accentColor.getRGB(), false);
-                }
-
-
-                if (textBloomPlus.getValue()) {
-                    drawSkiaTextWithBloom(contentX, y, titleClipped, authorClipped, accentColor);
+                long s, ds;
+                if (spotifyOverride) {
+                    long elapsed = SpotifyIntegration.isSpotifyPlaying
+                        ? (System.currentTimeMillis() - SpotifyIntegration.progressFetchedAt) : 0;
+                    long pos = Math.min(SpotifyIntegration.progressMs + elapsed, SpotifyIntegration.durationMs);
+                    s = pos / 1000; ds = SpotifyIntegration.durationMs / 1000;
+                } else if (track != null) {
+                    if (!PlayMusic.isPlayerPaused()) frozenPlayMusicPositionMs = track.getPosition();
+                    long posMs = (PlayMusic.isPlayerPaused() && frozenPlayMusicPositionMs >= 0)
+                        ? frozenPlayMusicPositionMs : track.getPosition();
+                    s = posMs / 1000; ds = track.getDuration() / 1000;
+                    if (!isTrackPlaying) s = ds;
+                } else { s = 0; ds = 0; }
+                if (ds > 0) {
+                    p.timeText = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
+                    p.timeX = x + hudW - 8; p.timeY = y + 35;
                 } else {
-
-                    org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-                    org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-                    org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-
-                    if (textBloom.getValue()) {
-                        int bloomAlpha = 60; 
-                        int titleBloom = (bloomAlpha << 24) | 0xFFFFFF;
-                        int artistBloom = (bloomAlpha << 24) | (accentColor.getRGB() & 0xFFFFFF);
-                        
-                        int[][] offsets = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-                        for (int[] off : offsets) {
-                            context.drawText(mc.textRenderer, titleClipped,  (int)contentX + off[0], (int)y + 8 + off[1],  titleBloom, false);
-                            context.drawText(mc.textRenderer, authorClipped, (int)contentX + off[0], (int)y + 20 + off[1], artistBloom, false);
-                        }
-                    }
-                }
-                {
-                    long s, ds;
-                    if (spotifyOverride) {
-                        long elapsed = SpotifyIntegration.isSpotifyPlaying
-                            ? (System.currentTimeMillis() - SpotifyIntegration.progressFetchedAt) : 0;
-                        long pos = Math.min(SpotifyIntegration.progressMs + elapsed, SpotifyIntegration.durationMs);
-                        s = pos / 1000; ds = SpotifyIntegration.durationMs / 1000;
-                    } else if (track != null) {
-                        // Freeze displayed position when paused so the timer never drifts.
-                        if (!PlayMusic.isPlayerPaused()) frozenPlayMusicPositionMs = track.getPosition();
-                        long posMs = (PlayMusic.isPlayerPaused() && frozenPlayMusicPositionMs >= 0)
-                            ? frozenPlayMusicPositionMs : track.getPosition();
-                        s = posMs / 1000; ds = track.getDuration() / 1000;
-                        if (!isTrackPlaying) s = ds;
-                    } else { s = 0; ds = 0; }
-                    if (ds > 0) {
-                        String time = String.format("%02d:%02d / %02d:%02d", s/60, s%60, ds/60, ds%60);
-                        int timeW = mc.textRenderer.getWidth(time);
-                        context.drawText(mc.textRenderer, time, (int)(x + hudW - timeW - 8), (int)y + 35, 0xFFBBBBBB, false);
-                    }
+                    p.timeText = null;
                 }
 
                 int iconSz = 12;
                 int btnY = (int)y + 35;
-                double btnPrevX = contentX + 2; 
+                double btnPrevX = contentX + 2;
                 double btnPlayX = contentX + 25;
                 double btnNextX = contentX + 48;
+                p.iconSz = iconSz; p.btnY = btnY;
+                p.btnPrevX = btnPrevX; p.btnPlayX = btnPlayX; p.btnNextX = btnNextX;
+                p.hoverPrev = hoverPrev; p.hoverPlay = hoverPlay; p.hoverNext = hoverNext; p.hoverProgress = hoverProgress;
 
-                // Tính tọa độ cho Progress Bar và Núm tròn giọt nước
                 double progX = -1;
                 double progY = y + HUD_HEIGHT - 8;
                 int pBarW = (int)(contentW - 10);
@@ -890,28 +844,28 @@ public class MusicHUD extends AddonModule {
                     filledW = Math.max(3, (int)(pBarW * progress));
                     progX = contentX + filledW;
                 }
+                p.progX = progX; p.progY = progY; p.pBarX = contentX; p.pBarTop = y + HUD_HEIGHT - 10;
+                p.pBarW = pBarW; p.filledW = filledW;
+                p.waveX = waveX; p.waveY = waveY; p.waveProgress = waveProgress;
+                p.buttonEffect = buttonEffect.getValue();
 
-                // GIAO TOÀN QUYỀN VẼ SKIA Ở ĐÂY (TRUYỀN THÊM BIẾN SÓNG + KHUNG CLIP HUD VÀO)
-                drawSkiaLiquidUI(btnPrevX, btnPlayX, btnNextX, btnY, iconSz, hoverPrev, hoverPlay, hoverNext, progX, progY, contentX, y + HUD_HEIGHT - 10, pBarW, filledW, hoverProgress, accentColor, waveX, waveY, waveProgress, x, y, hudW, HUD_HEIGHT, 8f);
-                // VẼ ICON PNG LÊN TRÊN MẶT GIỌT NƯỚC
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, PREV_ICON, (int)btnPrevX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
-                Identifier currentPlayIcon = (spotifyOverride ? !SpotifyIntegration.isSpotifyPlaying : (PlayMusic.isPlayerPaused() || !isTrackPlaying)) ? PLAY_ICON : PAUSE_ICON;
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, currentPlayIcon, (int)btnPlayX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, NEXT_ICON, (int)btnNextX, btnY, 0f, 0f, iconSz, iconSz, iconSz, iconSz);
-                }
-            } else {
+                p.playPauseIcon = (spotifyOverride ? !SpotifyIntegration.isSpotifyPlaying : (PlayMusic.isPlayerPaused() || !isTrackPlaying)) ? PLAY_ICON : PAUSE_ICON;
+            }
+        } else {
             if (hudHoverStartTime > 0 && !HUDEditor.INSTANCE.active) {
                 long held = System.currentTimeMillis() - hudHoverStartTime;
-                float holdProgress = Math.min(1.0f, held / 2500.0f); 
-                context.fill((int)x, (int)(y + currentThumbH + 2), (int)(x + currentThumbW * holdProgress), (int)(y + currentThumbH + 4), 0xFFFF3333); 
+                float holdProgress = Math.min(1.0f, held / 2500.0f);
+                p.showHoldProgress = true;
+                p.holdX1 = (int)x; p.holdY1 = (int)(y + currentThumbH + 2);
+                p.holdX2 = (int)(x + currentThumbW * holdProgress); p.holdY2 = (int)(y + currentThumbH + 4);
             }
         }
 
         if (HUDEditor.INSTANCE.active) {
-            double scale = mc.getWindow().getScaleFactor();
-            double mx = mc.mouse.getX() / scale;
-            double my = mc.mouse.getY() / scale;
-            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+            double scale = mc.getWindow().getGuiScale();
+            double mx = mc.mouseHandler.xpos() / scale;
+            double my = mc.mouseHandler.ypos() / scale;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().handle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
 
             if (mouseDown && !wasMouseDownEditor) {
                 if (mx >= x && mx <= x + hudW && my >= y && my <= y + hudH) {
@@ -927,92 +881,226 @@ public class MusicHUD extends AddonModule {
 
             if (isDraggingHUD && mouseDown) {
                 x = mx - dragOffsetX; y = my - dragOffsetY;
-                int screenW = mc.getWindow().getScaledWidth();
-                int screenH = mc.getWindow().getScaledHeight();
+                int screenW = mc.getWindow().getGuiScaledWidth();
+                int screenH = mc.getWindow().getGuiScaledHeight();
                 x = Math.max(0, Math.min(x, screenW - hudW));
                 y = Math.max(0, Math.min(y, screenH - hudH));
                 posX = x; posY = y;
-                drawOutline(context, (int)x, (int)y, (int)hudW, (int)hudH, 0xFF00FF00);
+                p.showOutline = true; p.outlineX = (int)x; p.outlineY = (int)y; p.outlineW = (int)hudW; p.outlineH = (int)hudH; p.outlineColor = 0xFF00FF00;
             } else if (mx >= x && mx <= x + hudW && my >= y && my <= y + hudH) {
-                drawOutline(context, (int)x, (int)y, (int)hudW, (int)hudH, 0xFFFFFF00);
+                p.showOutline = true; p.outlineX = (int)x; p.outlineY = (int)y; p.outlineW = (int)hudW; p.outlineH = (int)hudH; p.outlineColor = 0xFFFFFF00;
             }
             wasMouseDownEditor = mouseDown;
         }
+
+        double extentW = p.useUltra ? currentThumbW : hudW;
+        double extentH = p.useUltra ? currentThumbH : hudH;
+        registerSkiaPip(context, x, y, extentW, extentH, p.useUltra ? p.radius : 0);
     }
 
-    private void drawSkiaCircularGlow(double cx, double cy, float radius, Color accent) {
-        if (accent == null) return;
-        MinecraftClient mc = MinecraftClient.getInstance();
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
-            canvas.scale(scale, scale);
+    /**
+     * Registers this frame's MusicHUD paint as a Picture-in-Picture element so it gets
+     * GPU-Skija rendering with correct Z-order (sorted alongside whatever Screen got
+     * extracted before/after it this frame) instead of always drawing on top of
+     * everything. extraGlow widens the bounds for the ultra-disk circular glow, which
+     * can bleed well past the thumbnail's own rect.
+     */
+    private void registerSkiaPip(GuiGraphicsExtractor context, double x, double y, double w, double h, float extraGlow) {
+        float margin = Math.max(60f, extraGlow * 1.5f);
+        int x0 = (int) Math.floor(x - margin), y0 = (int) Math.floor(y - margin);
+        int x1 = (int) Math.ceil(x + w + margin), y1 = (int) Math.ceil(y + h + margin);
+        ((GuiGraphicsExtractorAccessor) context).getGuiRenderState()
+            .addPicturesInPictureState(new SkiaPipState(this::paintSkia, x0, y0, x1, y1));
+    }
 
-            try (Paint glowPaint = new Paint();
-                 ImageFilter dropShadow = ImageFilter.makeDropShadow(0, 0, radius * 0.4f, radius * 0.4f, accent.getRGB())) {
-                glowPaint.setColor(accent.getRGB());
-                glowPaint.setImageFilter(dropShadow);
-                glowPaint.setAntiAlias(true);
-                canvas.drawCircle((float)cx, (float)cy, radius * 0.95f, glowPaint);
+    /**
+     * Paints the entire HUD, using the snapshot render() filled into {@link #paintState}
+     * this same frame. Called by SkiaPipRenderer from within its own offscreen-texture
+     * render pass (correct Z-order, GPU Skija, no CPU raster) — every shape below is a
+     * direct GPU draw call, none of it goes through an offscreen-raster+upload step.
+     */
+    private void paintSkia(Canvas canvas) {
+        PaintState p = paintState;
+        if (p == null) return;
+
+        if (p.notPlaying) {
+            paintBackgroundPanel(canvas);
+            if (skiaFontBody != null) {
+                try (Paint sh = new Paint(); Paint tp = new Paint()) {
+                    sh.setColor(0x80000000); tp.setColor(0xFFFFFFFF);
+                    sh.setAntiAlias(true); tp.setAntiAlias(true);
+                    float bx = (float) p.x + 15, by = (float) p.y + 28 + 7;
+                    canvas.drawString("Not playing", bx + 1, by + 1, skiaFontBody, sh);
+                    canvas.drawString("Not playing", bx, by, skiaFontBody, tp);
+                }
             }
-            skiaContext.flushAndSubmit(false);
+            return;
         }
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+
+        if (!p.useUltra) {
+            paintBackgroundPanel(canvas);
+        } else {
+            paintCircularGlow(canvas, p.thumbX + p.thumbW / 2.0, p.thumbY + p.thumbH / 2.0, p.radius, p.accent);
+        }
+
+        paintThumbnail(canvas, p.useDisk, p.activeThumbId, p.thumbX, p.thumbY, p.thumbW, p.thumbH, p.diskRotationDeg);
+
+        if (p.showHoldProgress) {
+            try (Paint hp = new Paint()) {
+                hp.setColor(0xFFFF3333);
+                canvas.drawRect(Rect.makeLTRB(p.holdX1, p.holdY1, p.holdX2, p.holdY2), hp);
+            }
+        }
+
+        if (p.showContent) {
+            paintBars(canvas, p.barsX, p.barsY, p.barsW);
+            paintTitleAuthor(canvas, p.contentX, p.y, p.titleText, p.authorText, p.accent, p.textBloomPlus, p.textBloom);
+
+            if (p.timeText != null && skiaFontBody != null) {
+                float tw = skiaFontBody.measureTextWidth(p.timeText);
+                float bx = (float) p.timeX - tw, by = (float) p.timeY + 7;
+                try (Paint tp = new Paint()) {
+                    tp.setColor(0xFFBBBBBB);
+                    tp.setAntiAlias(true);
+                    canvas.drawString(p.timeText, bx, by, skiaFontBody, tp);
+                }
+            }
+
+            paintLiquidUI(canvas, p.btnPrevX, p.btnPlayX, p.btnNextX, p.btnY, p.iconSz,
+                p.hoverPrev, p.hoverPlay, p.hoverNext, p.progX, p.progY, p.pBarX, p.pBarTop,
+                p.pBarW, p.filledW, p.hoverProgress, p.accent, p.waveX, p.waveY, p.waveProgress, p.buttonEffect,
+                p.x, p.y, p.hudW, p.hudH, 8f);
+
+            paintIcon(canvas, PREV_ICON, p.btnPrevX, p.btnY, p.iconSz);
+            paintIcon(canvas, p.playPauseIcon, p.btnPlayX, p.btnY, p.iconSz);
+            paintIcon(canvas, NEXT_ICON, p.btnNextX, p.btnY, p.iconSz);
+        }
+
+        if (p.showOutline) {
+            paintOutline(canvas, p.outlineX, p.outlineY, p.outlineW, p.outlineH, p.outlineColor);
+        }
     }
 
-    private void renderThumbnail(DrawContext context, AudioTrack track, int tx, int ty, int tw, int th) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        boolean useDisk = disk.getValue();
-        Identifier activeThumbId = useDisk ? thumbCircleId : thumbSquareId;
+    private void paintIcon(Canvas canvas, Identifier id, double x, double y, int size) {
+        SkiaPipRenderer r = SkiaPipRenderer.ACTIVE;
+        Image img = r != null ? r.borrowTexture(id) : null;
+        if (img == null) return;
+        try (Paint paint = new Paint()) {
+            paint.setAntiAlias(true);
+            canvas.drawImageRect(img, Rect.makeXYWH(0, 0, img.getWidth(), img.getHeight()),
+                Rect.makeXYWH((float) x, (float) y, size, size), SamplingMode.LINEAR, paint, true);
+        }
+    }
 
-        if (activeThumbId != null) {
+    private void paintTitleAuthor(Canvas canvas, double x, double y, String title, String author, Color accent, boolean bloomPlus, boolean bloom) {
+        if (skiaFontTitle == null || skiaFontAuthor == null) return;
+        if (bloomPlus) {
+            paintTextWithBloom(canvas, x, y, title, author, accent);
+            return;
+        }
+        float titleY = (float) y + 16f, authorY = (float) y + 29f;
+        try (Paint tp = new Paint()) {
+            tp.setAntiAlias(true);
+            tp.setColor(0xFFFFFFFF);
+            canvas.drawString(title, (float) x, titleY, skiaFontTitle, tp);
+            tp.setColor(accent.getRGB());
+            canvas.drawString(author, (float) x, authorY, skiaFontAuthor, tp);
+        }
+        if (bloom) {
+            int bloomAlpha = 60;
+            int titleBloom = (bloomAlpha << 24) | 0xFFFFFF;
+            int artistBloom = (bloomAlpha << 24) | (accent.getRGB() & 0xFFFFFF);
+            int[][] offsets = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+            try (Paint p = new Paint()) {
+                p.setAntiAlias(true);
+                for (int[] off : offsets) {
+                    p.setColor(titleBloom);
+                    canvas.drawString(title, (float) x + off[0], titleY + off[1], skiaFontTitle, p);
+                    p.setColor(artistBloom);
+                    canvas.drawString(author, (float) x + off[0], authorY + off[1], skiaFontAuthor, p);
+                }
+            }
+        }
+    }
+
+    private void paintCircularGlow(Canvas canvas, double cx, double cy, float radius, Color accent) {
+        if (accent == null) return;
+        try (Paint glowPaint = new Paint();
+             ImageFilter dropShadow = ImageFilter.makeDropShadow(0, 0, radius * 0.4f, radius * 0.4f, accent.getRGB())) {
+            glowPaint.setColor(accent.getRGB());
+            glowPaint.setImageFilter(dropShadow);
+            glowPaint.setAntiAlias(true);
+            canvas.drawCircle((float) cx, (float) cy, radius * 0.95f, glowPaint);
+        }
+    }
+
+    private void paintThumbnail(Canvas canvas, boolean useDisk, Identifier activeThumbId,
+                                int tx, int ty, int tw, int th, float diskRotationDeg) {
+        SkiaPipRenderer r = SkiaPipRenderer.ACTIVE;
+        if (activeThumbId != null && r != null) {
+            Image thumbImg = r.borrowTexture(activeThumbId);
+            if (thumbImg == null) return;
+            Rect srcFull = Rect.makeXYWH(0, 0, thumbImg.getWidth(), thumbImg.getHeight());
+
             if (useDisk) {
-                float centerX = tx + tw / 2.0f; float centerY = ty + th / 2.0f;
-                context.getMatrices().pushMatrix();
-                context.getMatrices().translate(centerX, centerY);
-                context.getMatrices().rotate((float) Math.toRadians(smoothDiskRotation)); 
-                context.getMatrices().translate(-centerX, -centerY);
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, VINYL_TEX, tx, ty, 0f, 0f, tw, th, tw, th);
-                float coreScale = 0.42f; int coreW = (int) (tw * coreScale), coreH = (int) (th * coreScale);
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, activeThumbId, tx + (tw - coreW) / 2, ty + (th - coreH) / 2, 0f, 0f, coreW, coreH, coreW, coreH);
-                context.getMatrices().popMatrix();
-                
-                int centerDot = (int)Math.max(1, tw * 0.04); int centerInner = (int)Math.max(1, tw * 0.02);
-                context.fill((int)centerX - centerDot, (int)centerY - centerDot, (int)centerX + centerDot, (int)centerY + centerDot, 0xFF000000);
-                context.fill((int)centerX - centerInner, (int)centerY - centerInner, (int)centerX + centerInner, (int)centerY + centerInner, 0xFF444444);
+                float centerX = tx + tw / 2.0f, centerY = ty + th / 2.0f;
+                Image vinylImg = r.borrowTexture(VINYL_TEX);
+
+                canvas.save();
+                canvas.translate(centerX, centerY);
+                canvas.rotate(diskRotationDeg);
+                canvas.translate(-centerX, -centerY);
+                try (Paint imgPaint = new Paint()) {
+                    imgPaint.setAntiAlias(true);
+                    if (vinylImg != null) {
+                        Rect vSrc = Rect.makeXYWH(0, 0, vinylImg.getWidth(), vinylImg.getHeight());
+                        canvas.drawImageRect(vinylImg, vSrc, Rect.makeXYWH(tx, ty, tw, th), SamplingMode.LINEAR, imgPaint, true);
+                    }
+                    float coreScale = 0.42f;
+                    int coreW = (int)(tw * coreScale), coreH = (int)(th * coreScale);
+                    Rect coreDst = Rect.makeXYWH(tx + (tw - coreW) / 2f, ty + (th - coreH) / 2f, coreW, coreH);
+                    canvas.drawImageRect(thumbImg, srcFull, coreDst, SamplingMode.LINEAR, imgPaint, true);
+                }
+                canvas.restore();
+
+                float centerDot = Math.max(1, tw * 0.04f), centerInner = Math.max(1, tw * 0.02f);
+                try (Paint dotPaint = new Paint()) {
+                    dotPaint.setColor(0xFF000000);
+                    canvas.drawRect(Rect.makeXYWH(centerX - centerDot, centerY - centerDot, centerDot * 2, centerDot * 2), dotPaint);
+                    dotPaint.setColor(0xFF444444);
+                    canvas.drawRect(Rect.makeXYWH(centerX - centerInner, centerY - centerInner, centerInner * 2, centerInner * 2), dotPaint);
+                }
             } else {
-                context.drawTexture(RenderPipelines.GUI_TEXTURED, activeThumbId, tx, ty, 0f, 0f, tw, th, tw, th);
-                int bc = new Color(255, 255, 255, 20).getRGB();
-                context.fill(tx, ty, tx + tw, ty + 1, bc); context.fill(tx, ty + th - 1, tx + tw, ty + th, bc);
-                context.fill(tx, ty, tx + 1, ty + th, bc); context.fill(tx + tw - 1, ty, tx + tw, ty + th, bc);
+                try (Paint imgPaint = new Paint()) {
+                    imgPaint.setAntiAlias(true);
+                    canvas.drawImageRect(thumbImg, srcFull, Rect.makeXYWH(tx, ty, tw, th), SamplingMode.LINEAR, imgPaint, true);
+                }
+                try (Paint border = new Paint()) {
+                    border.setColor(new Color(255, 255, 255, 20).getRGB());
+                    canvas.drawRect(Rect.makeXYWH(tx, ty, tw, 1), border);
+                    canvas.drawRect(Rect.makeXYWH(tx, ty + th - 1, tw, 1), border);
+                    canvas.drawRect(Rect.makeXYWH(tx, ty, 1, th), border);
+                    canvas.drawRect(Rect.makeXYWH(tx + tw - 1, ty, 1, th), border);
+                }
             }
         } else {
-            context.fill(tx, ty, tx + tw, ty + th, new Color(30, 30, 30, 180).getRGB());
-            String note = "♪"; int nw = mc.textRenderer.getWidth(note);
-            context.drawText(mc.textRenderer, note, tx + (tw - nw) / 2, ty + (th - 8) / 2, new Color(80, 80, 80, 200).getRGB(), false);
+            try (Paint bg = new Paint()) {
+                bg.setColor(new Color(30, 30, 30, 180).getRGB());
+                canvas.drawRect(Rect.makeXYWH(tx, ty, tw, th), bg);
+            }
+            if (skiaFontBody != null) {
+                String note = "♪";
+                float nw = skiaFontBody.measureTextWidth(note);
+                try (Paint notePaint = new Paint()) {
+                    notePaint.setColor(new Color(80, 80, 80, 200).getRGB());
+                    notePaint.setAntiAlias(true);
+                    canvas.drawString(note, tx + (tw - nw) / 2f, ty + (th + 8) / 2f, skiaFontBody, notePaint);
+                }
+            }
         }
     }
 
-    private void renderBars(DrawContext context, AudioTrack track, double contentX, double y, double contentW) {
+    private void paintBars(Canvas canvas, double contentX, double y, double contentW) {
         boolean spotifyConnected = SpotifyIntegration.isSpotifyConnected;
         float audioAmp;
         if (spotifyConnected) {
@@ -1031,20 +1119,17 @@ public class MusicHUD extends AddonModule {
         if (audioAmp > smoothedAmp) smoothedAmp += (audioAmp - smoothedAmp) * 0.9f;
         else                        smoothedAmp += (audioAmp - smoothedAmp) * 0.08f;
         long  tick     = System.currentTimeMillis();
-        
-        // Khôi phục lại độ rộng full size của thanh bars
+
         float barW     = (float)((contentW - 10) / BAR_COUNT - 1.0f);
         if (barW < 1.0f) barW = 1.0f;
-        
+
         int   alphaVal = (int) Math.max(0, Math.min(255, barAlpha.getValue()));
         int   barColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), alphaVal).getRGB();
-        
-        // Khôi phục lại chiều cao max chạm nóc
-        float maxBarH  = HUD_HEIGHT - 22f; 
-        
-        // Vẫn giữ chốt đáy để chống lỗi giật (jitter) 1-pixel
+
+        float maxBarH  = HUD_HEIGHT - 22f;
+
         int fixedBottom = (int)(y + HUD_HEIGHT - 14);
-        
+
         for (int i = 0; i < BAR_COUNT; i++) {
             double combined = Math.abs(Math.sin(tick / (60.0 + i * 5.5) + i) + Math.cos(tick / (90.0 - i * 4.0) - i * 0.5)) * 0.4 + 0.6;
             double bell    = Math.sin(Math.PI * (i / (double)(BAR_COUNT - 1)));
@@ -1052,23 +1137,30 @@ public class MusicHUD extends AddonModule {
             if (targetH > maxBarH) targetH = maxBarH;
             boolean barsPaused = spotifyConnected ? !SpotifyIntegration.isSpotifyPlaying : PlayMusic.isPlayerPaused();
             if (barsPaused) targetH = 2.0f;
-            
+
             barHeights[i] += (targetH - barHeights[i]) * 0.7f;
-            
-            int bx  = (int)(contentX + i * (barW + 1.0f)); 
-            int by  = (int)(y + HUD_HEIGHT - 14 - barHeights[i]);
-            int bx2 = (int)(bx + barW);
-            
+
+            float bx  = (float)(contentX + i * (barW + 1.0f));
+            float by  = (float)(y + HUD_HEIGHT - 14 - barHeights[i]);
+            float bh  = fixedBottom - by;
+
             if (gradientBars.getValue()) {
                 int topColor = new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), Math.max(0, alphaVal - 150)).getRGB();
-                context.fillGradient(bx, by, bx2, fixedBottom, topColor, barColor);
+                try (Shader grad = Shader.makeLinearGradient(bx, by, bx, fixedBottom, new int[]{ topColor, barColor }, null);
+                     Paint p = new Paint()) {
+                    p.setShader(grad);
+                    canvas.drawRect(Rect.makeXYWH(bx, by, barW, bh), p);
+                }
             } else {
-                context.fill(bx, by, bx2, fixedBottom, barColor);
+                try (Paint p = new Paint()) {
+                    p.setColor(barColor);
+                    canvas.drawRect(Rect.makeXYWH(bx, by, barW, bh), p);
+                }
             }
         }
     }
 
-    private void renderProgress(DrawContext context, AudioTrack track, double contentX, double y, double contentW) {
+    private void renderProgress(GuiGraphicsExtractor context, AudioTrack track, double contentX, double y, double contentW) {
         if (track == null) return;
         double progress = (dragPreviewRatio >= 0)
             ? dragPreviewRatio
@@ -1081,11 +1173,35 @@ public class MusicHUD extends AddonModule {
         context.fill((int)contentX, barTop, (int)contentX + filledW, barBot, pColor);
     }
 
-    private String clipText(MinecraftClient mc, String text, int maxWidth) {
-        if (mc.textRenderer.getWidth(text) <= maxWidth) return text;
+    /**
+     * Truncates {@code text} so it fits {@code maxWidth} when drawn with {@code font},
+     * appending an ellipsis. Must measure with the SAME font that will actually render
+     * the string — measuring with one font (e.g. mc.font) and drawing with another
+     * (e.g. a custom Skija TTF) is what caused long titles to get cut off mid-word
+     * with no visible "…" instead of being clipped correctly.
+     */
+    private String clipText(Font font, String text, float maxWidth) {
+        if (font.measureTextWidth(text) <= maxWidth) return text;
         String ellipsis = "…";
-        while (text.length() > 1 && mc.textRenderer.getWidth(text + ellipsis) > maxWidth) text = text.substring(0, text.length() - 1);
+        while (text.length() > 1 && font.measureTextWidth(text + ellipsis) > maxWidth) text = text.substring(0, text.length() - 1);
         return text + ellipsis;
+    }
+
+
+    /** mc.font-metric clip, used only by the rare FontScreen popup (plain native text, no Skia there). */
+    private String clipTextMc(Minecraft mc, String text, int maxWidth) {
+        if (mc.font.width(text) <= maxWidth) return text;
+        String ellipsis = "…";
+        while (text.length() > 1 && mc.font.width(text + ellipsis) > maxWidth) text = text.substring(0, text.length() - 1);
+        return text + ellipsis;
+    }
+
+    /** Plain native 1px outline, used only by the rare FontScreen popup. */
+    private void fillOutline(GuiGraphicsExtractor context, int x, int y, int w, int h, int color) {
+        context.fill(x - 1, y - 1, x + w + 1, y, color);
+        context.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
+        context.fill(x - 1, y, x, y + h, color);
+        context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
     private void loadThumbnailAsync(String videoId) {
@@ -1209,7 +1325,7 @@ public class MusicHUD extends AddonModule {
         });
     }
 
-    private void uploadPendingThumb(MinecraftClient mc) {
+    private void uploadPendingThumb(Minecraft mc) {
         if (pendingThumbBytesSquare == null || pendingThumbBytesCircle == null) return;
         byte[] bytesSq = pendingThumbBytesSquare; byte[] bytesCirc = pendingThumbBytesCircle;
         pendingThumbBytesSquare = null; pendingThumbBytesCircle = null;
@@ -1217,18 +1333,18 @@ public class MusicHUD extends AddonModule {
             NativeImage imgSq = NativeImage.read(new ByteArrayInputStream(bytesSq));
             NativeImage imgCirc = NativeImage.read(new ByteArrayInputStream(bytesCirc));
             if (thumbTexSquare != null) { thumbTexSquare.close(); thumbTexSquare = null; }
-            if (thumbSquareId != null) { mc.getTextureManager().destroyTexture(thumbSquareId); thumbSquareId = null; }
+            if (thumbSquareId != null) { mc.getTextureManager().release(thumbSquareId); thumbSquareId = null; }
             if (thumbTexCircle != null) { thumbTexCircle.close(); thumbTexCircle = null; }
-            if (thumbCircleId != null) { mc.getTextureManager().destroyTexture(thumbCircleId); thumbCircleId = null; }
+            if (thumbCircleId != null) { mc.getTextureManager().release(thumbCircleId); thumbCircleId = null; }
             
             thumbGen++;
-            thumbSquareId = Identifier.of("musichud", "thumb_sq_" + thumbGen);
-            thumbTexSquare = new NativeImageBackedTexture(() -> "musichud_thumb_sq_" + thumbGen, imgSq);
-            mc.getTextureManager().registerTexture(thumbSquareId, thumbTexSquare);
+            thumbSquareId = Identifier.fromNamespaceAndPath("musichud", "thumb_sq_" + thumbGen);
+            thumbTexSquare = new DynamicTexture(() -> "musichud_thumb_sq_" + thumbGen, imgSq);
+            mc.getTextureManager().register(thumbSquareId, thumbTexSquare);
             
-            thumbCircleId = Identifier.of("musichud", "thumb_circ_" + thumbGen);
-            thumbTexCircle = new NativeImageBackedTexture(() -> "musichud_thumb_circ_" + thumbGen, imgCirc);
-            mc.getTextureManager().registerTexture(thumbCircleId, thumbTexCircle);
+            thumbCircleId = Identifier.fromNamespaceAndPath("musichud", "thumb_circ_" + thumbGen);
+            thumbTexCircle = new DynamicTexture(() -> "musichud_thumb_circ_" + thumbGen, imgCirc);
+            mc.getTextureManager().register(thumbCircleId, thumbTexCircle);
         } catch (Exception e) {
             thumbSquareId = null; thumbTexSquare = null; thumbCircleId = null; thumbTexCircle = null;
         } finally { thumbLoading = false; }
@@ -1266,84 +1382,47 @@ public class MusicHUD extends AddonModule {
         if (videoId.contains("youtu.be/")) { String s = videoId.split("youtu.be/")[1].split("\\?")[0]; return s.length() >= 11 ? s.substring(0, 11) : s; }
         return videoId.length() >= 11 ? videoId.substring(0, 11) : videoId;
     }
-    private void drawSkiaLiquidUI(double prevX, double playX, double nextX, double btnY, int iconSz, 
-                                  boolean hPrev, boolean hPlay, boolean hNext, 
-                                  double progX, double progY, double pBarX, double pBarTop, 
+    private void paintLiquidUI(Canvas canvas, double prevX, double playX, double nextX, double btnY, int iconSz,
+                                  boolean hPrev, boolean hPlay, boolean hNext,
+                                  double progX, double progY, double pBarX, double pBarTop,
                                   int pBarW, int filledW, boolean hProg, Color accent,
-                                  double waveX, double waveY, float waveProg,
+                                  double waveX, double waveY, float waveProg, ButtonEffect effect,
                                   double hudClipX, double hudClipY, double hudClipW, double hudClipH, float hudClipRadius) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
-            canvas.scale(scale, scale);
-
-            if (pBarW > 0) {
-                try (Paint barBg = new Paint()) {
-                    barBg.setColor(new Color(0, 0, 0, 120).getRGB());
-                    barBg.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)pBarW, 4f, 2f), barBg);
-                }
-                try (Paint barFill = new Paint()) {
-                    barFill.setColor(hProg ? 0xFFFFFFFF : accent.getRGB());
-                    barFill.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)filledW, 4f, 2f), barFill);
-                }
+        if (pBarW > 0) {
+            try (Paint barBg = new Paint()) {
+                barBg.setColor(new Color(0, 0, 0, 120).getRGB());
+                barBg.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)pBarW, 4f, 2f), barBg);
             }
-
-            // ĐÃ THÊM LẠI IF BỊ THIẾU VÀ TÍCH HỢP ĐỦ 3 CHẾ ĐỘ
-
-                canvas.save();
-                canvas.clipRRect(RRect.makeXYWH((float)hudClipX, (float)hudClipY, (float)hudClipW, (float)hudClipH, hudClipRadius), ClipMode.INTERSECT, true);
-                float maxRadius = (float) Math.hypot(hudClipW, hudClipH);
-                
-                ButtonEffect effect = buttonEffect.getValue();
-                if (effect == ButtonEffect.Topo) {
-                    drawTopoWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
-                } else if (effect == ButtonEffect.Gradient) {
-                    drawGradientWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius, accent);
-                } else {
-                    drawSplashWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
-                }
-                canvas.restore();
-        
-
-            float rBtn = iconSz / 2f + 4f;
-            float cy = (float) btnY + (iconSz / 2f);
-            if (hPrev) drawHoverGlow(canvas, (float)prevX + (iconSz / 2f), cy, rBtn);
-            if (hPlay) drawHoverGlow(canvas, (float)playX + (iconSz / 2f), cy, rBtn);
-            if (hNext) drawHoverGlow(canvas, (float)nextX + (iconSz / 2f), cy, rBtn);
-            
-            if (progX > 0) {
-                drawProgressRefractionKnob(canvas, (float)progX, (float)progY, 5.5f, hProg);
+            try (Paint barFill = new Paint()) {
+                barFill.setColor(hProg ? 0xFFFFFFFF : accent.getRGB());
+                barFill.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH((float)pBarX, (float)pBarTop, (float)filledW, 4f, 2f), barFill);
             }
-
-            skiaContext.flushAndSubmit(false);
         }
-        
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
 
+        canvas.save();
+        canvas.clipRRect(RRect.makeXYWH((float)hudClipX, (float)hudClipY, (float)hudClipW, (float)hudClipH, hudClipRadius), ClipMode.INTERSECT, true);
+        float maxRadius = (float) Math.hypot(hudClipW, hudClipH);
+
+        if (effect == ButtonEffect.Topo) {
+            drawTopoWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
+        } else if (effect == ButtonEffect.Gradient) {
+            drawGradientWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius, accent);
+        } else {
+            drawSplashWave(canvas, (float)waveX, (float)waveY, waveProg, maxRadius);
+        }
+        canvas.restore();
+
+        float rBtn = iconSz / 2f + 4f;
+        float cy = (float) btnY + (iconSz / 2f);
+        if (hPrev) drawHoverGlow(canvas, (float)prevX + (iconSz / 2f), cy, rBtn);
+        if (hPlay) drawHoverGlow(canvas, (float)playX + (iconSz / 2f), cy, rBtn);
+        if (hNext) drawHoverGlow(canvas, (float)nextX + (iconSz / 2f), cy, rBtn);
+
+        if (progX > 0) {
+            drawProgressRefractionKnob(canvas, (float)progX, (float)progY, 5.5f, hProg);
+        }
     }
 
     private void drawTopoWave(Canvas canvas, float cx, float cy, float progress, float maxRadius) {
@@ -1518,56 +1597,27 @@ public class MusicHUD extends AddonModule {
     private float lastAuthorSize = -1f;
     private long lastFontModifiedTime = -1L;
 
-    private void drawSkiaTextWithBloom(double cx, double cy, String title, String author, Color accent) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
-            canvas.scale(scale, scale);
+    private void paintTextWithBloom(Canvas canvas, double x, double y, String title, String author, Color accent) {
+        if (skiaFontTitle == null || skiaFontAuthor == null) return;
+        try (Paint textPaint = new Paint();
+             Paint bloomPaint = new Paint();
+             ImageFilter blurTitle = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, 0xFFFFFFFF)) {
 
-            if (skiaFontTitle != null && skiaFontAuthor != null) {
-                try (Paint textPaint = new Paint();
-                     Paint bloomPaint = new Paint();
-                     ImageFilter blurTitle = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, 0xFFFFFFFF)) {
-                    
-                    textPaint.setAntiAlias(true);
-                    bloomPaint.setAntiAlias(true);
+            textPaint.setAntiAlias(true);
+            bloomPaint.setAntiAlias(true);
 
-                    bloomPaint.setImageFilter(blurTitle);
-                    canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, bloomPaint);
-                    textPaint.setColor(0xFFFFFFFF);
-                    canvas.drawString(title, (float)cx, (float)cy + 16f, skiaFontTitle, textPaint);
+            bloomPaint.setImageFilter(blurTitle);
+            canvas.drawString(title, (float) x, (float) y + 16f, skiaFontTitle, bloomPaint);
+            textPaint.setColor(0xFFFFFFFF);
+            canvas.drawString(title, (float) x, (float) y + 16f, skiaFontTitle, textPaint);
 
-                    try (ImageFilter blurAuthor = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, accent.getRGB())) {
-                        bloomPaint.setImageFilter(blurAuthor);
-                        canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, bloomPaint);
-                        textPaint.setColor(accent.getRGB());
-                        canvas.drawString(author, (float)cx, (float)cy + 29f, skiaFontAuthor, textPaint);
-                    }
-                }
+            try (ImageFilter blurAuthor = ImageFilter.makeDropShadowOnly(0, 0, 6f, 6f, accent.getRGB())) {
+                bloomPaint.setImageFilter(blurAuthor);
+                canvas.drawString(author, (float) x, (float) y + 29f, skiaFontAuthor, bloomPaint);
+                textPaint.setColor(accent.getRGB());
+                canvas.drawString(author, (float) x, (float) y + 29f, skiaFontAuthor, textPaint);
             }
-            skiaContext.flushAndSubmit(false);
         }
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
     }
     // ─── HIỆU ỨNG 3: GRADIENT 3D PAPER-CUT ───
     private void drawGradientWave(Canvas canvas, float cx, float cy, float progress, float maxRadius, Color accent) {
@@ -1611,34 +1661,40 @@ public class MusicHUD extends AddonModule {
         }
     }
     // ─── CLASS MÀN HÌNH CHỌN FONT ĐỘC LẬP (ĐÃ BYPASS LỖI MOUSECLICKED) ───
-    public class FontScreen extends net.minecraft.client.gui.screen.Screen {
+    public class FontScreen extends net.minecraft.client.gui.screens.Screen {
         private boolean previousHudHidden = false;
         private boolean wasMouseDownFont = false; // Biến ảo để bắt sự kiện click
 
         public FontScreen() {
-            super(net.minecraft.text.Text.literal("Music Fonts"));
+            super(net.minecraft.network.chat.Component.literal("Music Fonts"));
         }
 
         @Override
         protected void init() {
-            previousHudHidden = client.options.hudHidden;
-            client.options.hudHidden = true; 
+            previousHudHidden = minecraft.options.hideGui;
+            minecraft.options.hideGui = true; 
         }
 
         @Override
-        public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc.options.hudHidden && !(mc.currentScreen instanceof FontScreen)) return;
+        public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.options.hideGui && !(mc.screen instanceof FontScreen)) return;
             context.fill(0, 0, this.width, this.height, 0x66000000);
             
             int winX = (this.width - 180) / 2;
             int winY = (this.height - 280) / 2;
 
-            drawSkiaBackground(winX, winY, 180, 280, 6f, accentColor, true);
+            // Plain native fill (no Skia) — this settings popup is rare/non-perf-critical,
+            // and GPU-Skija during extraction is exactly what crashes (see SkijaBackdropBlur).
+            context.fill(winX, winY, winX + 180, winY + 280, new Color(15, 15, 15, 210).getRGB());
+            context.fill(winX, winY, winX + 180, winY + 1, 0x3CFFFFFF);
+            context.fill(winX, winY + 280, winX + 180, winY + 281, 0x3CFFFFFF);
+            context.fill(winX, winY, winX + 1, winY + 280, 0x3CFFFFFF);
+            context.fill(winX + 179, winY, winX + 180, winY + 280, 0x3CFFFFFF);
 
             String titleText = "Music Fonts";
-            int titleW = client.textRenderer.getWidth(titleText);
-            context.drawText(client.textRenderer, titleText, winX + (180 - titleW) / 2, winY + 10, 0xFFFFFFFF, true);
+            int titleW = minecraft.font.width(titleText);
+            context.text(minecraft.font, titleText, winX + (180 - titleW) / 2, winY + 10, 0xFFFFFFFF, true);
 
             context.fill(winX + 10, winY + 26, winX + 170, winY + 236, 0x55000000);
 
@@ -1661,22 +1717,22 @@ public class MusicHUD extends AddonModule {
                     context.fill(winX + 12, itemY, winX + 168, itemY + itemH - 1, 0x33FFFFFF);
                 }
 
-                String renderedName = clipText(client, name, 145);
-                context.drawText(client.textRenderer, renderedName, winX + 16, itemY + 3, isSelected ? 0xFFFFFFFF : 0xFFDDDDDD, true);
+                String renderedName = clipTextMc(minecraft, name, 145);
+                context.text(minecraft.font, renderedName, winX + 16, itemY + 3, isSelected ? 0xFFFFFFFF : 0xFFDDDDDD, true);
             }
 
             boolean hoverAdd = mouseX >= winX + 15 && mouseX <= winX + 75 && mouseY >= winY + 246 && mouseY <= winY + 266;
             context.fill(winX + 15, winY + 246, winX + 75, winY + 266, hoverAdd ? 0xFF444444 : 0xFF222222);
-            drawOutline(context, winX + 15, winY + 246, 60, 20, 0x33FFFFFF);
-            context.drawText(client.textRenderer, "Add", winX + 15 + (60 - client.textRenderer.getWidth("Add")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+            fillOutline(context, winX + 15, winY + 246, 60, 20, 0x33FFFFFF);
+            context.text(minecraft.font, "Add", winX + 15 + (60 - minecraft.font.width("Add")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
 
             boolean hoverClose = mouseX >= winX + 105 && mouseX <= winX + 165 && mouseY >= winY + 246 && mouseY <= winY + 266;
             context.fill(winX + 105, winY + 246, winX + 165, winY + 266, hoverClose ? 0xFF444444 : 0xFF222222);
-            drawOutline(context, winX + 105, winY + 246, 60, 20, 0x33FFFFFF);
-            context.drawText(client.textRenderer, "Close", winX + 105 + (60 - client.textRenderer.getWidth("Close")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
+            fillOutline(context, winX + 105, winY + 246, 60, 20, 0x33FFFFFF);
+            context.text(minecraft.font, "Close", winX + 105 + (60 - minecraft.font.width("Close")) / 2, winY + 246 + 6, 0xFFFFFFFF, true);
 
             // ─── TÍCH HỢP BẮT CLICK CHUỘT TRỰC TIẾP TRONG RENDER ───
-            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(client.getWindow().getHandle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+            boolean mouseDown = org.lwjgl.glfw.GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_LEFT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
             boolean justPressed = mouseDown && !wasMouseDownFont;
             wasMouseDownFont = mouseDown;
 
@@ -1686,11 +1742,11 @@ public class MusicHUD extends AddonModule {
                 if (hoverAdd) {
                     try {
                         if (!musicFontDir.exists()) musicFontDir.mkdirs();
-                        net.minecraft.util.Util.getOperatingSystem().open(musicFontDir);
+                        net.minecraft.util.Util.getPlatform().openFile(musicFontDir);
                     } catch (Exception ignored) {}
                 } 
                 else if (hoverClose) {
-                    this.close();
+                    this.onClose();
                 } 
                 else if (mouseX >= winX + 10 && mouseX <= winX + 170 && mouseY >= winY + 26 && mouseY <= winY + 236) {
                     int clickedIdx = (int) ((mouseY - (winY + 28)) / 15);
@@ -1708,18 +1764,18 @@ public class MusicHUD extends AddonModule {
                 }
             }
 
-            super.render(context, mouseX, mouseY, delta);
+            super.extractRenderState(context, mouseX, mouseY, delta);
         }
 
         @Override
-        public void close() {
-            client.options.hudHidden = previousHudHidden;
+        public void onClose() {
+            minecraft.options.hideGui = previousHudHidden;
             openFontUi.setValue(false);
-            super.close();
+            super.onClose();
         }
 
         @Override
-        public boolean shouldPause() {
+        public boolean isPauseScreen() {
             return false;
         }
     }

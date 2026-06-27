@@ -2,30 +2,17 @@ package com.example.addon.screens;
 
 import com.example.addon.video.VideoPlayer;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.network.chat.Component;
 
 import java.io.File;
 
-/**
- * Full-screen loading screen that plays the intro video once, then fades to
- * black and opens CustomTitleScreen. Frames are decoded off the render thread
- * via streaming VideoPlayer and uploaded via FrameTexture; everything draws
- * through DrawContext (no live-framebuffer Skija).
- *
- * Playback only starts after STREAM_BUFFER_MIN frames are queued so the clock
- * never outruns decode (prevents the "stuttering from the start" symptom).
- *
- * Video file: <game-dir>/boze/intro.mp4
- */
 public class CustomLoadingScreen extends Screen {
 
-    private static final String VIDEO_PATH    = "boze/intro.mp4";
     private static final long   FADE_DURATION_MS  = 900L;
     private static final long   SAFETY_TIMEOUT_MS = 15000L;
-    // Frames to buffer before starting playback: ~0.5 s at 60 fps.
     private static final int    STREAM_BUFFER_MIN = 30;
 
     private VideoPlayer videoPlayer;
@@ -38,27 +25,29 @@ public class CustomLoadingScreen extends Screen {
     private boolean done            = false;
 
     public CustomLoadingScreen() {
-        super(Text.empty());
+        super(Component.empty());
     }
 
     @Override
     public void init() {
         initMs = System.currentTimeMillis();
-        File videoFile = FabricLoader.getInstance().getGameDir().resolve(VIDEO_PATH).toFile();
+        
+        // GRAB DYNAMIC NAME FROM MODULE
+        String targetIntroPath = "boze/intro/" + com.example.addon.modules.LoadingScreen.INSTANCE.selectedIntroName;
+        File videoFile = FabricLoader.getInstance().getGameDir().resolve(targetIntroPath).toFile();
+        
         if (!videoFile.exists()) {
-            System.err.println("[BozeMenu] intro.mp4 not found, skipping to title");
+            System.err.println("[BozeMenu] Intro video not found, skipping to title");
             openTitleScreen();
             return;
         }
-        // Streaming at 1920×1080, 60-frame queue.
-        // play() is NOT called here — render() waits for STREAM_BUFFER_MIN frames first
-        // so the queue is never empty at the start of playback.
+
         videoPlayer = new VideoPlayer("intro", false, 1920, 1080, 60, true);
         videoPlayer.startDecoding(videoFile, null);
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         if (done) return;
 
         context.fill(0, 0, width, height, 0xFF000000);
@@ -67,7 +56,6 @@ public class CustomLoadingScreen extends Screen {
 
         if (videoPlayer != null) {
             if (!videoPlayer.isPlaying()) {
-                // ── Pre-buffering phase ──────────────────────────────────────
                 int  queued     = videoPlayer.getStreamQueueSize();
                 boolean fatal   = (videoPlayer.hasError() && queued == 0)
                                || (videoPlayer.isDecodeFinished() && queued == 0)
@@ -83,12 +71,9 @@ public class CustomLoadingScreen extends Screen {
                     videoPlayer.play();
                     lastFrameAdvMs = nowMs;
                 }
-                // Still buffering — show black screen and return;
-                // don't attempt to render the transitioning overlay yet either.
                 return;
             }
 
-            // ── Playback phase ───────────────────────────────────────────────
             long frameInterval = Math.max(15L, Math.round(1000.0 / videoPlayer.getVideoFps()));
             if (lastFrameAdvMs >= 0 && nowMs - lastFrameAdvMs >= frameInterval) {
                 NativeImage frame = videoPlayer.pollStreamFrame();
@@ -97,14 +82,12 @@ public class CustomLoadingScreen extends Screen {
                     frame.close();
                     lastFrameAdvMs = nowMs;
                 } else if (videoPlayer.isDecodeFinished() && !transitioning) {
-                    // Queue exhausted + decode finished → video ended.
                     transitioning     = true;
                     transitionStartMs = nowMs;
                 }
             }
             if (videoTex.ready()) drawLetterboxed(context);
 
-            // Safety: playing but nothing shown and timed out.
             if (!videoTex.ready() && nowMs - initMs > SAFETY_TIMEOUT_MS) {
                 System.err.println("[BozeMenu] intro timeout while playing");
                 openTitleScreen();
@@ -120,7 +103,7 @@ public class CustomLoadingScreen extends Screen {
         }
     }
 
-    private void drawLetterboxed(DrawContext context) {
+    private void drawLetterboxed(GuiGraphicsExtractor context) {
         int fw = videoTex.width(), fh = videoTex.height();
         if (fw <= 0 || fh <= 0) return;
         float scale = Math.min((float) width / fw, (float) height / fh);
@@ -133,7 +116,7 @@ public class CustomLoadingScreen extends Screen {
         if (done) return;
         done = true;
         cleanup();
-        client.execute(() -> client.setScreen(new CustomTitleScreen()));
+        minecraft.execute(() -> minecraft.setScreen(new CustomTitleScreen()));
     }
 
     private void cleanup() {
@@ -142,7 +125,7 @@ public class CustomLoadingScreen extends Screen {
         lastFrameAdvMs = -1;
     }
 
-    @Override public boolean shouldPause()      { return false; }
+    @Override public boolean isPauseScreen()     { return false; }
     @Override public boolean shouldCloseOnEsc() { return false; }
     @Override public void    removed()          { cleanup(); }
 }

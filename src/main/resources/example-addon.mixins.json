@@ -17,6 +17,9 @@
     "MixinLivingEntity",
     "MixinLivingEntityRenderer",
     "MixinEntity",
-    "MixinPlayerLikeEntity"
+    "MixinMultiPlayerGameMode",
+    "MixinPlayerLikeEntity",
+    "GuiGraphicsExtractorAccessor",
+    "MixinLocalPlayer"
   ]
 }

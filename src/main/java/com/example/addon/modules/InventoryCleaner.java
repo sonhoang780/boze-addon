@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ModeOption;
+import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.loader.api.FabricLoader;
@@ -39,8 +40,19 @@ public class InventoryCleaner extends AddonModule {
     public final ToggleOption editWhitelist = new ToggleOption(this, "EditWhitelist",
         "Open the whitelist editor screen.", false);
 
+    public final ToggleOption others = new ToggleOption(this, "Others",
+        "Drop from other GUIs like Chest, Shulker, EnderChest...", false);
+
+    public final SliderOption delay = new SliderOption(this, "Delay",
+        "Tick delay between drop passes.", 1.0, 0.0, 20.0, 1.0);
+
+    public final SliderOption actionsPerTick = new SliderOption(this, "ActionsPerTick",
+        "Max items to drop per pass.", 5.0, 1.0, 20.0, 1.0);
+
     // ── Whitelist (static so WhitelistEditorScreen can read/write directly) ──
     public static Set<String> whitelist = new HashSet<>();
+
+    private int ticks = 0;
 
     private static final Path WHITELIST_FILE =
         FabricLoader.getInstance().getConfigDir().resolve("inventory_cleaner_whitelist.json");
@@ -87,14 +99,22 @@ public class InventoryCleaner extends AddonModule {
         }
 
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+        if (mc.player.isCreative()) return;
 
-        // Skip when external container (chest, furnace, etc.) is open
-        if (mc.screen instanceof AbstractContainerScreen && !(mc.screen instanceof InventoryScreen)) return;
+        // Skip when external container is open, unless others is enabled
+        boolean externalGui = mc.screen instanceof AbstractContainerScreen
+                           && !(mc.screen instanceof InventoryScreen);
+        if (externalGui && !others.getValue()) return;
+
+        if (ticks < delay.getValue().intValue()) { ticks++; return; }
+        ticks = 0;
 
         int containerId = mc.player.containerMenu.containerId;
+        int actions = 0;
+        int maxActions = actionsPerTick.getValue().intValue();
 
         // Scan inventory slots: invSlot 0-35 (0-8 = hotbar, 9-35 = main)
-        for (int invSlot = 0; invSlot < 36; invSlot++) {
+        for (int invSlot = 0; invSlot < 36 && actions < maxActions; invSlot++) {
             if (ignoreHotbar.getValue() && invSlot <= 8) continue;
 
             ItemStack stack = mc.player.getInventory().getItem(invSlot);
@@ -102,13 +122,29 @@ public class InventoryCleaner extends AddonModule {
 
             if (shouldDrop(stack)) {
                 int handlerSlot = invToHandlerSlot(invSlot);
-                mc.gameMode.handleContainerInput(containerId, handlerSlot, 0, ContainerInput.THROW, mc.player);
+                // button=1 with THROW drops the entire stack
+                mc.gameMode.handleContainerInput(containerId, handlerSlot, 1, ContainerInput.THROW, mc.player);
+                actions++;
             }
         }
 
-        // ThrowWorse pass
-        if (throwWorse.getValue()) {
-            runThrowWorsePass(mc, containerId);
+        // ThrowWorse pass (counts against actionsPerTick budget)
+        if (throwWorse.getValue() && actions < maxActions) {
+            runThrowWorsePass(mc, containerId, maxActions - actions);
+        }
+
+        // Others: also drop from open container slots (chest / shulker / enderchest)
+        if (externalGui && others.getValue() && actions < maxActions) {
+            int totalSlots = mc.player.containerMenu.slots.size();
+            int containerSlotCount = totalSlots - 36; // last 36 are always player inv + hotbar
+            for (int slot = 0; slot < containerSlotCount && actions < maxActions; slot++) {
+                ItemStack stack = mc.player.containerMenu.slots.get(slot).getItem();
+                if (stack.isEmpty()) continue;
+                if (shouldDrop(stack)) {
+                    mc.gameMode.handleContainerInput(containerId, slot, 1, ContainerInput.THROW, mc.player);
+                    actions++;
+                }
+            }
         }
     }
 
@@ -122,13 +158,12 @@ public class InventoryCleaner extends AddonModule {
         };
     }
 
-    private void runThrowWorsePass(Minecraft mc, int containerId) {
-        // Group slots by tool type suffix (_pickaxe, _axe, _shovel, _hoe, _sword)
-        // For each group, find max durability and drop all lower-durability slots.
-        // Only drop when group has >= 2 items (never drop last of a type).
+    private void runThrowWorsePass(Minecraft mc, int containerId, int budget) {
         String[] suffixes = { "_pickaxe", "_axe", "_shovel", "_hoe", "_sword" };
+        int remaining = budget;
 
         for (String suffix : suffixes) {
+            if (remaining <= 0) break;
             java.util.List<int[]> group = new java.util.ArrayList<>(); // [invSlot, maxDamage]
             for (int invSlot = 0; invSlot < 36; invSlot++) {
                 if (ignoreHotbar.getValue() && invSlot <= 8) continue;
@@ -144,9 +179,11 @@ public class InventoryCleaner extends AddonModule {
 
             int maxDur = group.stream().mapToInt(e -> e[1]).max().orElse(0);
             for (int[] entry : group) {
+                if (remaining <= 0) break;
                 if (entry[1] < maxDur) {
                     int handlerSlot = invToHandlerSlot(entry[0]);
-                    mc.gameMode.handleContainerInput(containerId, handlerSlot, 0, ContainerInput.THROW, mc.player);
+                    mc.gameMode.handleContainerInput(containerId, handlerSlot, 1, ContainerInput.THROW, mc.player);
+                    remaining--;
                 }
             }
         }

@@ -9,18 +9,18 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.utility.ChatHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.item.BlockItem;
-import net.minecraft.block.ShulkerBoxBlock;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.Identifier;
-import net.minecraft.component.DataComponentTypes; // CHUẨN MINECRAFT 1.21
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.resources.Identifier;
+import net.minecraft.core.component.DataComponents;
 
 import java.io.File;
 import java.io.FileReader;
@@ -91,19 +91,20 @@ public class EvilRekit extends AddonModule {
     }
 
     public void saveKit(String name) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
+        if (mc.player.isCreative()) return;
         Map<Integer, KitItem> kitData = new HashMap<>();
         for (int i = 0; i < 36; i++) {
             int slot = getHandlerSlotPlayerOnly(i);
-            ItemStack stack = mc.player.playerScreenHandler.getSlot(slot).getStack();
+            ItemStack stack = mc.player.inventoryMenu.getSlot(slot).getItem();
             if (!stack.isEmpty()) {
                 KitItem k = new KitItem();
-                k.id = Registries.ITEM.getId(stack.getItem()).toString();
-                k.maxCount = stack.getMaxCount();
+                k.id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                k.maxCount = stack.getMaxStackSize();
                 
-                if (stack.contains(DataComponentTypes.CUSTOM_NAME)) {
-                    k.name = stack.getName().getString();
+                if (stack.has(DataComponents.CUSTOM_NAME)) {
+                    k.name = stack.getHoverName().getString();
                 }
                 
                 kitData.put(i, k);
@@ -183,9 +184,9 @@ public class EvilRekit extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Post event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || activeKit.isEmpty() || !(mc.currentScreen instanceof HandledScreen)) return;
-        if (mc.currentScreen instanceof InventoryScreen) return; 
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || activeKit.isEmpty() || !(mc.screen instanceof AbstractContainerScreen)) return;
+        if (mc.screen instanceof InventoryScreen) return; 
 
         if (ticks < delay.getValue()) { ticks++; return; }
         ticks = 0;
@@ -197,12 +198,12 @@ public class EvilRekit extends AddonModule {
         }
     }
 
-    private boolean pullFromContainerTick(MinecraftClient mc) {
-        ScreenHandler handler = mc.player.currentScreenHandler;
+    private boolean pullFromContainerTick(Minecraft mc) {
+        AbstractContainerMenu handler = mc.player.containerMenu;
         int containerSize = handler.slots.size() - 36;
         if (containerSize <= 0) return false;
 
-        if (!handler.getCursorStack().isEmpty()) {
+        if (!handler.getCarried().isEmpty()) {
             return false;
         }
 
@@ -211,27 +212,27 @@ public class EvilRekit extends AddonModule {
             if (kit == null) continue;
 
             int playerSlot = getPlayerHandlerSlot(containerSize, i);
-            ItemStack playerStack = handler.getSlot(playerSlot).getStack();
+            ItemStack playerStack = handler.getSlot(playerSlot).getItem();
             if (isShulkerBox(playerStack)) continue;
             if (!isCorrectItem(playerStack, kit)) {
                 int containerSlot = findBestItemInContainer(handler, containerSize, kit);
                 if (containerSlot != -1) {
-                    atomicSwap(mc, handler.syncId, containerSlot, playerSlot);
+                    atomicSwap(mc, handler.containerId, containerSlot, playerSlot);
                     return true; 
                 }
             } 
-            else if (playerStack.getCount() < playerStack.getMaxCount()) {
+            else if (playerStack.getCount() < playerStack.getMaxStackSize()) {
                 int exactSlot = findExactItemInContainer(handler, containerSize, playerStack);
                 if (exactSlot != -1) {
-                    atomicSwap(mc, handler.syncId, exactSlot, playerSlot);
+                    atomicSwap(mc, handler.containerId, exactSlot, playerSlot);
                     return true; 
                 }
                 
                 int bestSlot = findBestItemInContainer(handler, containerSize, kit);
                 if (bestSlot != -1) {
-                    ItemStack containerStack = handler.getSlot(bestSlot).getStack();
+                    ItemStack containerStack = handler.getSlot(bestSlot).getItem();
                     if (containerStack.getCount() > playerStack.getCount()) {
-                        atomicSwap(mc, handler.syncId, bestSlot, playerSlot);
+                        atomicSwap(mc, handler.containerId, bestSlot, playerSlot);
                         return true;
                     }
                 }
@@ -242,14 +243,14 @@ public class EvilRekit extends AddonModule {
             if (kit == null) continue;
 
             int playerSlot = getPlayerHandlerSlot(containerSize, i);
-            ItemStack playerStack = handler.getSlot(playerSlot).getStack();
+            ItemStack playerStack = handler.getSlot(playerSlot).getItem();
 
             if (isShulkerBox(playerStack)) {
                 if (!isItemCompensated(handler, containerSize, kit)) {
                     int containerSlot = findBestItemInContainer(handler, containerSize, kit);
                     int emptySlot = findEmptyUnassignedSlot(handler, containerSize);
                     if (containerSlot != -1 && emptySlot != -1) {
-                        atomicSwap(mc, handler.syncId, containerSlot, emptySlot);
+                        atomicSwap(mc, handler.containerId, containerSlot, emptySlot);
                         return true;
                     }
                 }
@@ -258,30 +259,30 @@ public class EvilRekit extends AddonModule {
         return false;
     }
 
-    private void atomicSwap(MinecraftClient mc, int syncId, int containerSlot, int playerSlot) {
-        click(mc, syncId, containerSlot, 0, SlotActionType.PICKUP); 
-        click(mc, syncId, playerSlot, 0, SlotActionType.PICKUP);    
-        click(mc, syncId, containerSlot, 0, SlotActionType.PICKUP); 
+    private void atomicSwap(Minecraft mc, int syncId, int containerSlot, int playerSlot) {
+        click(mc, syncId, containerSlot, 0, ContainerInput.PICKUP); 
+        click(mc, syncId, playerSlot, 0, ContainerInput.PICKUP);    
+        click(mc, syncId, containerSlot, 0, ContainerInput.PICKUP); 
     }
 
-    private void click(MinecraftClient mc, int syncId, int slotId, int button, SlotActionType type) {
-        mc.interactionManager.clickSlot(syncId, slotId, button, type, mc.player);
+    private void click(Minecraft mc, int syncId, int slotId, int button, ContainerInput type) {
+        mc.gameMode.handleContainerInput(syncId, slotId, button, type, mc.player);
     }
 
     private boolean isCorrectItem(ItemStack stack, KitItem kit) {
         if (stack.isEmpty()) return false;
-        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
-        return stack.isOf(expected); 
+        Item expected = BuiltInRegistries.ITEM.getValue(Identifier.parse(kit.id));
+        return stack.getItem() == expected; 
     }
 
-    private int findBestItemInContainer(ScreenHandler handler, int containerSize, KitItem kit) {
-        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
+    private int findBestItemInContainer(AbstractContainerMenu handler, int containerSize, KitItem kit) {
+        Item expected = BuiltInRegistries.ITEM.getValue(Identifier.parse(kit.id));
         int bestSlot = -1;
         int maxCount = -1;
         
         for (int i = 0; i < containerSize; i++) {
-            ItemStack stack = handler.getSlot(i).getStack();
-            if (!stack.isEmpty() && stack.isOf(expected)) {
+            ItemStack stack = handler.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.getItem() == expected) {
                 if (stack.getCount() > maxCount) {
                     maxCount = stack.getCount();
                     bestSlot = i;
@@ -291,17 +292,17 @@ public class EvilRekit extends AddonModule {
         return bestSlot;
     }
 
-    private int findExactItemInContainer(ScreenHandler handler, int containerSize, ItemStack targetStack) {
+    private int findExactItemInContainer(AbstractContainerMenu handler, int containerSize, ItemStack targetStack) {
         for (int i = 0; i < containerSize; i++) {
-            ItemStack stack = handler.getSlot(i).getStack();
-            if (!stack.isEmpty() && ItemStack.areItemsAndComponentsEqual(stack, targetStack)) return i;
+            ItemStack stack = handler.getSlot(i).getItem();
+            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, targetStack)) return i;
         }
         return -1;
     }
     
-    private int findEmptyContainerSlot(ScreenHandler handler, int containerSize) {
+    private int findEmptyContainerSlot(AbstractContainerMenu handler, int containerSize) {
         for (int i = 0; i < containerSize; i++) {
-            if (handler.getSlot(i).getStack().isEmpty()) return i;
+            if (handler.getSlot(i).getItem().isEmpty()) return i;
         }
         return -1;
     }
@@ -320,24 +321,24 @@ public class EvilRekit extends AddonModule {
     private boolean isShulkerBox(ItemStack stack) {
         return !stack.isEmpty() && stack.getItem() instanceof BlockItem && ((BlockItem) stack.getItem()).getBlock() instanceof ShulkerBoxBlock;
     }
-    private boolean isItemCompensated(ScreenHandler handler, int containerSize, KitItem kit) {
-        Item expected = Registries.ITEM.get(Identifier.of(kit.id));
+    private boolean isItemCompensated(AbstractContainerMenu handler, int containerSize, KitItem kit) {
+        Item expected = BuiltInRegistries.ITEM.getValue(Identifier.parse(kit.id));
         for (int i = 0; i < 36; i++) {
             // Chỉ tìm trong các slot rác KHÔNG thuộc Kit (tránh đụng chạm)
             if (activeKit.get(i) == null) {
                 int slot = getPlayerHandlerSlot(containerSize, i);
-                if (handler.getSlot(slot).getStack().isOf(expected)) return true;
+                if (handler.getSlot(slot).getItem().getItem() == expected) return true;
             }
         }
         return false;
     }
 
-    private int findEmptyUnassignedSlot(ScreenHandler handler, int containerSize) {
+    private int findEmptyUnassignedSlot(AbstractContainerMenu handler, int containerSize) {
         for (int i = 0; i < 36; i++) {
             // Chỉ chọn slot trống và KHÔNG thuộc Kit để an toàn tuyệt đối
             if (activeKit.get(i) == null) {
                 int slot = getPlayerHandlerSlot(containerSize, i);
-                if (handler.getSlot(slot).getStack().isEmpty()) return slot;
+                if (handler.getSlot(slot).getItem().isEmpty()) return slot;
             }
         }
         return -1;

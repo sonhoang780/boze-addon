@@ -4,12 +4,16 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInput;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
+import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Vanilla Ebounce — elytra bhop bằng cơ chế vanilla:
@@ -18,28 +22,53 @@ import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
  *   3. Lướt về phía đất.
  *   4. Chạm đất → nhảy ngay lập tức → quay lại bước 2.
  *
- * Event order trong 1 tick: EventTick.Pre → EventInput → physics
- * Vì vậy khi EventTick.Pre phát hiện onGround=true và chuyển phase → JUMPING,
- * EventInput cùng tick đó sẽ set jumping=true → player nhảy ngay trong tick đó.
+ * Pitch gửi qua Rot packet trong EventTick.Post (sau vanilla movement packet) →
+ * entity.xRot / xRotO không bị chạm → camera không bao giờ thấy pitch override.
  */
 public class EBounce extends AddonModule {
     public static final EBounce INSTANCE = new EBounce();
 
-    public final SliderOption glideDelay = new SliderOption(this, "Glide Delay",
-        "Ticks to wait in the air before triggering elytra glide.", 1.0, 1.0, 5.0, 1.0);
+    public final SliderOption glideDelay = new SliderOption(this, "GlideDelay",
+        "Ticks to wait in the air before triggering elytra glide.", 0.0, 0.0, 2.0, 0.1);
 
-    public final SliderOption glidePitch = new SliderOption(this, "Glide Pitch",
-        "Server-side pitch sent silently when triggering glide. Positive = looking down. ~20° maximises forward speed.", 20.0, -45.0, 45.0, 1.0);
+    public final SliderOption risePitch = new SliderOption(this, "RisePitch",
+        "Pitch while ascending with room above. Flat (≈0°) climbs highest → deepest dive → most speed. CeilingGuard cuts climb before ceiling.", 5.0, -30.0, 90.0, 1.0);
+
+    public final ToggleOption ceilingGuard = new ToggleOption(this, "CeilingGuard",
+        "Raycast upward and bail into a dive when ceiling is within CeilingMargin. Fills vertical room without smashing the roof.", true);
+
+    public final SliderOption ceilingMargin = new SliderOption(this, "CeilingMargin",
+        "Head clearance (blocks) at which rise is forced into a dive. Keep SMALL — larger than tunnel headroom and guard fires permanently (stuck stamping).", 0.5, 0.1, 4.0, 0.1);
+
+    public final ToggleOption dynamicDive = new ToggleOption(this, "DynamicDive",
+        "Vary pitch through dive: steep at apex to build |vy| fast, flatten as |vy| grows for max conversion burst at cos²θ≈1.", true);
+
+    public final SliderOption diveApexPitch = new SliderOption(this, "DiveApexPitch",
+        "Dive pitch when |vy| is small (just started falling). Steep = builds vy quickly. Dynamic dive only.", 65.0, 0.0, 90.0, 1.0);
+
+    public final SliderOption diveFastPitch = new SliderOption(this, "DiveFastPitch",
+        "Dive pitch when |vy| is large. Flat (high cos²θ) = max conversion. Dynamic dive only.", 14.0, 0.0, 90.0, 1.0);
+
+    public final SliderOption diveVyFull = new SliderOption(this, "DiveVyFull",
+        "|vy| (blocks/tick) at which dive pitch reaches DiveFastPitch. Lower = flattens sooner. Dynamic dive only.", 1.1, 0.3, 2.5, 0.1);
+
+    public final SliderOption glidePitch = new SliderOption(this, "GlidePitch",
+        "Fixed dive pitch used when DynamicDive is OFF. Empirical sweet spot ≈ 25-45°.", 30.0, 0.0, 90.0, 1.0);
 
     private enum Phase { IDLE, JUMPING, TRIGGERING, GLIDING }
 
-    private Phase phase   = Phase.IDLE;
+    // Camera-safe pitch override: setXRot in Pre so player.tick() sends it in movement packet;
+    // MixinEntity intercepts getXRot(F) to return savedCameraPitch so render/camera unaffected.
+    public static volatile boolean pitchOverrideActive = false;
+    public static volatile float   savedCameraPitch    = 0f;
+
+    private Phase phase    = Phase.IDLE;
     private int   airTicks = 0;
 
-    // Silent pitch state: set in EventTick.Pre → player.tick() sends our pitch in movement packet
-    // → restored in EventTick.Post → render() always sees real camera pitch. Never visible.
-    private float   savedPitch      = 0f;
-    private boolean pitchOverridden = false;
+    private double ceilClear  = -1;
+    private double floorClear = -1;
+
+    private static final double LAUNCH_CLEARANCE = 1.0;
 
     public EBounce() {
         super("EBounce", "Vanilla elytra bounce: auto-jump on landing and re-trigger elytra glide.");
@@ -51,111 +80,80 @@ public class EBounce extends AddonModule {
     private void reset() {
         phase    = Phase.IDLE;
         airTicks = 0;
-        restorePitch();
-    }
-
-    private void restorePitch() {
-        if (pitchOverridden) {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc.player != null) mc.player.setPitch(savedPitch);
-            pitchOverridden = false;
+        if (pitchOverrideActive) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) mc.player.setXRot(savedCameraPitch);
+            pitchOverrideActive = false;
         }
     }
-
-    // ── Set jumping=true while in JUMPING phase ───────────────────────────────
 
     @EventHandler
     private void onInput(EventInput event) {
         if (phase == Phase.JUMPING) event.jumping = true;
     }
 
-    // ── Main state machine ────────────────────────────────────────────────────
-
-    // Restore pitch after player.tick() has sent the movement packet with our override.
     @EventHandler
     private void onTickPost(EventTick.Post event) {
-        restorePitch();
+        if (pitchOverrideActive) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) mc.player.setXRot(savedCameraPitch);
+            pitchOverrideActive = false;
+        }
     }
 
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
 
-        // Elytra must be equipped.
-        if (!mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA)) {
-            reset();
-            return;
+        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
+            reset(); return;
         }
 
-        // Override pitch silently for all active phases.
-        // player.tick() fires AFTER EventTick.Pre and sends the movement packet — it will
-        // pick up our overridden pitch. EventTick.Post then restores the real camera pitch
-        // before render() is called, so the camera never visually snaps.
-        if (phase != Phase.IDLE) {
-            savedPitch = mc.player.getPitch();
-            mc.player.setPitch((float)(double) glidePitch.getValue());
-            pitchOverridden = true;
+        if (ceilingGuard.getValue()) {
+            ceilClear  = footprintClearance(mc, true);
+            floorClear = footprintClearance(mc, false);
+        } else {
+            ceilClear = floorClear = -1;
         }
 
-        boolean onGround = mc.player.isOnGround();
-        boolean gliding  = mc.player.isGliding();
+        // Set pitch override BEFORE state machine so player.tick() (runs after Pre)
+        // sends the movement packet with override pitch. MixinEntity hides the override
+        // from camera via getXRot(F) interception. Restored in Post.
+        if (phase == Phase.GLIDING || phase == Phase.TRIGGERING) {
+            savedCameraPitch = mc.player.getXRot();
+            mc.player.setXRot(computePitch(mc.player.getDeltaMovement().y));
+            pitchOverrideActive = true;
+        }
+
+        boolean onGround = mc.player.onGround();
+        boolean gliding  = mc.player.isFallFlying();
 
         switch (phase) {
-
             case IDLE -> {
-                // Wait until the player is on the ground to begin the cycle.
-                if (onGround) {
-                    phase    = Phase.JUMPING;
-                    airTicks = 0;
-                }
+                if (onGround) { phase = Phase.JUMPING; airTicks = 0; }
             }
-
             case JUMPING -> {
-                // EventInput (fires after this) will set jumping=true.
-                // Wait until the player actually leaves the ground.
                 if (!onGround) {
                     airTicks++;
                     if (airTicks >= (int)(double) glideDelay.getValue()) {
                         triggerGlide(mc);
-                        phase    = Phase.TRIGGERING;
-                        airTicks = 0;
+                        phase = Phase.TRIGGERING; airTicks = 0;
                     }
                 }
-                // If still on ground, keep setting jumping via EventInput until we lift off.
             }
-
             case TRIGGERING -> {
-                // Wait for the server to confirm the glide flag (1-2 ticks on LAN,
-                // up to ~1 RTT on multiplayer).
                 airTicks++;
-                if (gliding) {
-                    phase    = Phase.GLIDING;
-                    airTicks = 0;
-                } else if (onGround) {
-                    // START_FALL_FLYING was rejected (already landed) — jump again.
-                    phase    = Phase.JUMPING;
-                    airTicks = 0;
-                } else if (airTicks >= 4) {
-                    // Server is slow or packet lost; assume gliding and move on.
-                    phase    = Phase.GLIDING;
-                    airTicks = 0;
-                }
+                if (gliding)            { phase = Phase.GLIDING;  airTicks = 0; }
+                else if (onGround)      { phase = Phase.JUMPING;  airTicks = 0; }
+                else if (airTicks >= 4) { phase = Phase.GLIDING;  airTicks = 0; }
             }
-
             case GLIDING -> {
                 if (onGround) {
-                    // Landed — bounce immediately this tick via EventInput.
-                    phase    = Phase.JUMPING;
-                    airTicks = 0;
+                    phase = Phase.JUMPING; airTicks = 0;
                 } else if (!gliding) {
-                    // Glide ended mid-air (wall, water, damage...) — re-trigger.
                     airTicks++;
-                    if (airTicks >= 2) {
-                        triggerGlide(mc);
-                        phase    = Phase.TRIGGERING;
-                        airTicks = 0;
-                    }
+                    if (airTicks >= 2) { triggerGlide(mc); phase = Phase.TRIGGERING; airTicks = 0; }
                 } else {
                     airTicks = 0;
                 }
@@ -163,22 +161,55 @@ public class EBounce extends AddonModule {
         }
     }
 
-    /**
-     * Sends START_FALL_FLYING to the server with an optimal silent pitch.
-     *
-     * The pitch is sent via PlayerMoveC2SPacket.LookAndOnGround so the server
-     * sees the desired angle WITHOUT changing the client camera.
-     * The server only checks !isOnGround() for START_FALL_FLYING — no velocity
-     * requirement — so we must NOT override Y velocity here (doing so caused
-     * ≈30 km/h instead of ≈50 km/h and a spam loop).
-     */
-    private void triggerGlide(MinecraftClient mc) {
-        if (mc.getNetworkHandler() == null) return;
-        float yaw   = mc.player.getYaw();
-        float pitch = (float)(double) glidePitch.getValue();
-        mc.getNetworkHandler().sendPacket(
-            new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, mc.player.isOnGround(), mc.player.horizontalCollision));
-        mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(
-            mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+    private void triggerGlide(Minecraft mc) {
+        if (mc.getConnection() == null) return;
+        float pitch = computePitch(mc.player.getDeltaMovement().y);
+        mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(
+            mc.player.getYRot(), pitch, mc.player.onGround(), mc.player.horizontalCollision));
+        mc.getConnection().send(new ServerboundPlayerCommandPacket(
+            mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
+    }
+
+    private float computePitch(double vy) {
+        boolean nearFloor   = floorClear >= 0 && floorClear < LAUNCH_CLEARANCE;
+        boolean ceilingNear = ceilClear  >= 0 && ceilClear <= ceilingMargin.getValue();
+
+        if (vy >= 0) {
+            if (ceilingNear && !nearFloor) {
+                // fall through to dive branch
+            } else {
+                return (float)(double) risePitch.getValue();
+            }
+        }
+
+        if (!dynamicDive.getValue()) return (float)(double) glidePitch.getValue();
+
+        double apex = diveApexPitch.getValue();
+        double fast = diveFastPitch.getValue();
+        double full = Math.max(0.05, diveVyFull.getValue());
+        double t    = Math.min(1.0, -vy / full);
+        return (float)(apex + (fast - apex) * t);
+    }
+
+    private double footprintClearance(Minecraft mc, boolean up) {
+        var box = mc.player.getBoundingBox();
+        final double scan = 12.0;
+        double baseY = up ? box.maxY : box.minY;
+        double[][] pts = {
+            { mc.player.getX(), mc.player.getZ() },
+            { box.minX, box.minZ }, { box.minX, box.maxZ },
+            { box.maxX, box.minZ }, { box.maxX, box.maxZ },
+        };
+        double best = -1;
+        for (double[] pt : pts) {
+            Vec3 from = new Vec3(pt[0], baseY, pt[1]);
+            Vec3 to   = new Vec3(pt[0], baseY + (up ? scan : -scan), pt[1]);
+            HitResult hit = mc.level.clip(new ClipContext(
+                from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
+            if (hit.getType() == HitResult.Type.MISS) continue;
+            double c = Math.abs(hit.getLocation().y - baseY);
+            if (best < 0 || c < best) best = c;
+        }
+        return best;
     }
 }

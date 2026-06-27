@@ -7,8 +7,8 @@ import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 
 import java.io.*;
 import java.net.*;
@@ -37,9 +37,9 @@ public class SpotifyIntegration extends AddonModule {
     // Create your Spotify app at https://developer.spotify.com/dashboard
     // Add http://127.0.0.1:8888/callback as a Redirect URI in your app settings.
     // Then place your Client ID in: <minecraft_dir>/spotify_client_id.txt
-    public final ToggleOption connectBtn    = new ToggleOption(this, "Connect Spotify",    "Open browser to authenticate with your Spotify account.", false);
-    public final ToggleOption disconnectBtn = new ToggleOption(this, "Disconnect Spotify", "Remove saved Spotify credentials and stop integration.", false);
-    public final ToggleOption checkStatusBtn = new ToggleOption(this, "Check Status",      "Manual debug: call Spotify API right now and print the raw result to chat.", false);
+    public final ToggleOption connectBtn    = new ToggleOption(this, "ConnectSpotify",    "Open browser to authenticate with your Spotify account.", false);
+    public final ToggleOption disconnectBtn = new ToggleOption(this, "DisconnectSpotify", "Remove saved Spotify credentials and stop integration.", false);
+    public final ToggleOption checkStatusBtn = new ToggleOption(this, "CheckStatus",      "Manual debug: call Spotify API right now and print the raw result to chat.", false);
 
     private static final String REDIRECT_URI = "http://127.0.0.1:8888/callback";
     private static final String SCOPE        = "user-read-currently-playing user-read-playback-state user-modify-playback-state";
@@ -135,7 +135,7 @@ public class SpotifyIntegration extends AddonModule {
                     + "&code_challenge_method=S256"
                     + "&state="                 + state;
 
-                net.minecraft.util.Util.getOperatingSystem().open(new URI(authUrl));
+                net.minecraft.util.Util.getPlatform().openUri(new URI(authUrl));
                 safeInfo("Browser opened — waiting for Spotify login callback...");
 
                 String code = waitForOAuthCallback();
@@ -353,7 +353,7 @@ public class SpotifyIntegration extends AddonModule {
             lastTrackId = trackId;
             spotifyPlayCount++;
             String finalAlbumArt = albumArt;
-            MinecraftClient.getInstance().execute(() -> {
+            Minecraft.getInstance().execute(() -> {
                 MusicHUD.INSTANCE.loadThumbnailFromUrl(finalAlbumArt);
                 MusicHUD.INSTANCE.extractColorsFromUrl(finalAlbumArt);
             });
@@ -369,7 +369,7 @@ public class SpotifyIntegration extends AddonModule {
                     // Freshly connected from truly stopped state — pause PlayMusic
                     String detectedTitle  = title;
                     String detectedArtist = artist;
-                    MinecraftClient.getInstance().execute(() -> {
+                    Minecraft.getInstance().execute(() -> {
                         pausePlayMusic();
                         safeInfo("Now playing: §e" + detectedTitle + " §7— §a" + detectedArtist);
                     });
@@ -390,7 +390,7 @@ public class SpotifyIntegration extends AddonModule {
         if (!isSpotifyPlaying && !isSpotifyConnected) return;
         isSpotifyPlaying  = false;
         isSpotifyConnected = false;
-        MinecraftClient.getInstance().execute(() -> {
+        Minecraft.getInstance().execute(() -> {
             clearState();
             if (pausedPlayMusicForSpotify) resumePlayMusic();
         });
@@ -539,12 +539,12 @@ public class SpotifyIntegration extends AddonModule {
     // ── UI helpers ─────────────────────────────────────────────────────────────
 
     private void safeInfo(String msg) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player != null) mc.execute(() -> mc.player.sendMessage(Text.literal("§2[Spotify] §a" + msg), false));
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.execute(() -> mc.player.sendSystemMessage(Component.literal("§2[Spotify] §a" + msg)));
     }
 
     private void safeError(String msg) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player != null) mc.execute(() -> mc.player.sendMessage(Text.literal("§2[Spotify] §c" + msg), false));
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.execute(() -> mc.player.sendSystemMessage(Component.literal("§2[Spotify] §c" + msg)));
     }
 }

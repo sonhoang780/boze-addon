@@ -8,13 +8,14 @@ layout(std140) uniform SamplerInfo {
     vec2 InSize;
 };
 
-// Widget geometry + optics uniforms (32 bytes, std140)
+// Widget geometry + optics uniforms (48 bytes, std140)
 layout(std140) uniform WidgetUniforms {
     vec4 Rect;          // x, y, w, h in framebuffer pixels (y=0 at bottom)
     float CornerRadius;
     float RefThickness;
     float IOR;
     float RefDispersion;
+    vec4 TintColor;     // rgb = tint colour, a = tint strength (glass = light/weak, Blur = dark/strong)
 };
 
 out vec4 fragColor;
@@ -77,8 +78,8 @@ void main() {
     dispPixel.b = texture(Sampler0, uv + refrOffset * (1.0 - (NB - 1.0) * d)).b;
     dispPixel.a = 1.0;
 
-    // ── Minimal glass tint (nearly clear, like ReGlass tintAlpha≈0) ──
-    vec4 outColor = mix(dispPixel, vec4(0.59, 0.80, 1.0, 1.0), 0.03);
+    // ── Tint: light glass (LiquidGlass) or dark frost (Blur mode), driven by uniform ──
+    vec4 outColor = mix(dispPixel, vec4(TintColor.rgb, 1.0), TintColor.a);
 
     // ── Fresnel edge highlight (same formula as ReGlass) ──
     float fresnelFactor = clamp(

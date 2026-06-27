@@ -10,16 +10,16 @@ import dev.boze.api.utility.interaction.PlaceHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import dev.boze.api.utility.interaction.InteractionMode;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -77,12 +77,12 @@ public class AutoPortal extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Post event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
 
         // ── PHASE 1: KHỞI TẠO ──
         if (frameBlocks.isEmpty()) {
-            if (mc.world.getRegistryKey() == World.END) {
+            if (mc.level.dimension() == Level.END) {
                 info("Can't create nether portal at the end");
                 this.setState(false); 
                 return;
@@ -106,23 +106,23 @@ public class AutoPortal extends AddonModule {
                 return;
             }
 
-            Direction forward = mc.player.getHorizontalFacing();
-            Direction right = forward.rotateYClockwise();
+            Direction forward = mc.player.getDirection();
+            Direction right = forward.getClockWise();
             Direction left = right.getOpposite();
 
-            basePos = mc.player.getBlockPos().offset(forward, 2);
+            basePos = mc.player.blockPosition().relative(forward, 2);
 
             // Cấu trúc khung cổng
             frameBlocks.add(basePos);
-            frameBlocks.add(basePos.offset(right));
-            frameBlocks.add(basePos.offset(left).up(1));
-            frameBlocks.add(basePos.offset(left).up(2));
-            frameBlocks.add(basePos.offset(left).up(3));
-            frameBlocks.add(basePos.offset(right, 2).up(1));
-            frameBlocks.add(basePos.offset(right, 2).up(2));
-            frameBlocks.add(basePos.offset(right, 2).up(3));
-            frameBlocks.add(basePos.up(4));
-            frameBlocks.add(basePos.offset(right).up(4));
+            frameBlocks.add(basePos.relative(right));
+            frameBlocks.add(basePos.relative(left).above(1));
+            frameBlocks.add(basePos.relative(left).above(2));
+            frameBlocks.add(basePos.relative(left).above(3));
+            frameBlocks.add(basePos.relative(right, 2).above(1));
+            frameBlocks.add(basePos.relative(right, 2).above(2));
+            frameBlocks.add(basePos.relative(right, 2).above(3));
+            frameBlocks.add(basePos.above(4));
+            frameBlocks.add(basePos.relative(right).above(4));
         }
 
         if (ticks < delay.getValue()) {
@@ -135,7 +135,7 @@ public class AutoPortal extends AddonModule {
         if (buildIndex < frameBlocks.size()) {
             BlockPos target = frameBlocks.get(buildIndex);
             
-            if (mc.world.getBlockState(target).isReplaceable()) {
+            if (mc.level.getBlockState(target).canBeReplaced()) {
                 int obbySlot = findItem(Items.OBSIDIAN);
                 if (obbySlot == -1) {
                     info("Obsidians not found");
@@ -145,8 +145,8 @@ public class AutoPortal extends AddonModule {
                 
                 // Tráo đồ bằng đúng Type mày đã chọn trong ClickGUI
                 InvHelper.swapToSlot(obbySlot, getBozeSwapType());
-                BlockHitResult hitResult = new BlockHitResult(new Vec3d(target.getX() + 0.5, target.getY(), target.getZ() + 0.5), Direction.UP, target, false);
-                PlaceHelper.place(InteractionMode.NCP, hitResult, Hand.MAIN_HAND);
+                BlockHitResult hitResult = new BlockHitResult(new Vec3(target.getX() + 0.5, target.getY(), target.getZ() + 0.5), Direction.UP, target, false);
+                PlaceHelper.place(InteractionMode.NCP, hitResult, InteractionHand.MAIN_HAND);
                 InvHelper.swapBack();
             }
             buildIndex++;
@@ -161,11 +161,11 @@ public class AutoPortal extends AddonModule {
             return;
         }
 
-        BlockPos firePos = basePos.up(1);
+        BlockPos firePos = basePos.above(1);
 
         InvHelper.swapToSlot(flintSlot, getBozeSwapType());
-        BlockHitResult hitResult = new BlockHitResult(new Vec3d(firePos.getX() + 0.5, firePos.getY(), firePos.getZ() + 0.5), Direction.UP, firePos, false);
-        PlaceHelper.place(InteractionMode.NCP, hitResult, Hand.MAIN_HAND);
+        BlockHitResult hitResult = new BlockHitResult(new Vec3(firePos.getX() + 0.5, firePos.getY(), firePos.getZ() + 0.5), Direction.UP, firePos, false);
+        PlaceHelper.place(InteractionMode.NCP, hitResult, InteractionHand.MAIN_HAND);
         InvHelper.swapBack();
         
         info("Portal Created!");
@@ -173,11 +173,11 @@ public class AutoPortal extends AddonModule {
     }
 
     private int countItem(Item item) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         int count = 0;
         for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            if (stack.isOf(item)) count += stack.getCount();
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (stack.getItem() == item) count += stack.getCount();
         }
         return count;
     }

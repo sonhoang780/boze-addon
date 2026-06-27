@@ -2,24 +2,25 @@ package com.example.addon.modules;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
+import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.DepthTestFunction;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.GpuSampler;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.TextureFormat;
+import com.mojang.blaze3d.shaders.UniformType;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.gl.GpuSampler;
-import net.minecraft.client.gl.UniformType;
-import net.minecraft.client.render.VertexFormats;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.resources.Identifier;
 
 /**
  * Performs the MusicHUD liquid-glass render pass using MC 1.21's GPU API —
@@ -38,8 +39,14 @@ public final class LiquidGlassHud {
 
     // Widget rect in FBO pixels (y = 0 at bottom).  Set by MusicHUD each frame.
     private float wx, wy, ww, wh, wcr;
+    // Composite optics. setWidget() = LiquidGlass look (refraction + light glass tint);
+    // setBlurWidget() = plain frosted backdrop blur (no refraction + dark tint) for Blur mode.
+    private float optIor = 1.4f, optRefThickness = 20.0f, optRefDispersion = 7.0f;
+    private float tintR = 0.59f, tintG = 0.80f, tintB = 1.0f, tintA = 0.03f;
+    private int blurRadius = BLUR_RADIUS;
     private volatile boolean active = false;
     private boolean resourcesFailed = false;
+    private static int liquidDebugLogCount = 0; // TEMP DEBUG
 
     // Blur radius (pixels).  Matches a "light frosted" look; 0 = pure refraction.
     private static final int BLUR_RADIUS = 6;
@@ -69,12 +76,8 @@ public final class LiquidGlassHud {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /**
-     * Called from MusicHUD.drawBackground() before the Skia decorative layers.
-     * guiX/Y/W/H are in GUI (logical) pixels; scaleFactor converts to FBO pixels.
-     */
-    public void setWidget(float guiX, float guiY, float guiW, float guiH,
-                          float cornerRadius, float scaleFactor, int fbH) {
+    /** Converts a GUI-pixel rect to the FBO-pixel rect the shader expects (y flipped). */
+    private void setRect(float guiX, float guiY, float guiW, float guiH, float cornerRadius, float scaleFactor, int fbH) {
         float fbW   = guiW * scaleFactor;
         float fbHpx = guiH * scaleFactor;
         float fbX   = guiX * scaleFactor;
@@ -88,6 +91,36 @@ public final class LiquidGlassHud {
         this.active = true;
     }
 
+    /**
+     * LiquidGlass mode: refraction + chromatic dispersion + light glass tint.
+     * Called from MusicHUD.drawLiquidGlassBackground() before the Skia decor layers.
+     * guiX/Y/W/H are in GUI (logical) pixels; scaleFactor converts to FBO pixels.
+     */
+    public void setWidget(float guiX, float guiY, float guiW, float guiH,
+                          float cornerRadius, float scaleFactor, int fbH) {
+        setRect(guiX, guiY, guiW, guiH, cornerRadius, scaleFactor, fbH);
+        this.optIor = 1.4f; this.optRefThickness = 20.0f; this.optRefDispersion = 7.0f;
+        this.tintR = 0.59f; this.tintG = 0.80f; this.tintB = 1.0f; this.tintA = 0.03f;
+        this.blurRadius = BLUR_RADIUS;
+    }
+
+    /**
+     * Blur mode: plain frosted backdrop blur — no refraction (IOR=1), dark tint.
+     * This is the 26.1.2-correct replacement for the old Skia saveLayer+backdrop-blur
+     * (which required drawing onto the live framebuffer and now crashes). blurRadiusPx
+     * is the Gaussian radius (Blur Intensity slider); darkness is the dark-tint alpha.
+     */
+    public void setBlurWidget(float guiX, float guiY, float guiW, float guiH,
+                              float cornerRadius, float scaleFactor, int fbH,
+                              int blurRadiusPx, float darkness) {
+        setRect(guiX, guiY, guiW, guiH, cornerRadius, scaleFactor, fbH);
+        this.optIor = 1.0f;            // IOR=1 → edgeFactor 0 → no refraction (straight blur)
+        this.optRefThickness = 20.0f;
+        this.optRefDispersion = 0.0f;
+        this.tintR = 0.059f; this.tintG = 0.059f; this.tintB = 0.059f; this.tintA = darkness;
+        this.blurRadius = Math.max(1, Math.min(blurRadiusPx, MAX_BLUR_TAPS));
+    }
+
     public boolean isActive() { return active && !resourcesFailed; }
 
     /** Called from the GameRenderer mixin; executes the GPU passes. */
@@ -95,23 +128,26 @@ public final class LiquidGlassHud {
         if (!active || resourcesFailed) return;
         active = false;
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        Framebuffer mainFb = mc.getFramebuffer();
-        int w = mainFb.textureWidth;
-        int h = mainFb.textureHeight;
+        Minecraft mc = Minecraft.getInstance();
+        RenderTarget mainFb = mc.getMainRenderTarget();
+        int w = mainFb.width;
+        int h = mainFb.height;
+
+        boolean debugThisCall = liquidDebugLogCount < 5;
+        if (debugThisCall) System.err.println("[LiquidGlassHud][SkiaDebug] render() start w=" + w + " h=" + h);
 
         try {
             ensureResources(w, h);
             uploadSamplerInfo(w, h);
             uploadWidgetUniforms();
 
-            GpuSampler linearSampler = RenderSystem.getSamplerCache().get(
+            GpuSampler linearSampler = RenderSystem.getSamplerCache().getClampToEdge(
                     com.mojang.blaze3d.textures.FilterMode.LINEAR);
 
             var ce      = RenderSystem.getDevice().createCommandEncoder();
-            var idxInfo = RenderSystem.getSequentialBuffer(VertexFormat.DrawMode.QUADS);
-            var ib      = idxInfo.getIndexBuffer(4);
-            var it      = idxInfo.getIndexType();
+            var idxInfo = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
+            var ib      = idxInfo.getBuffer(4);
+            var it      = idxInfo.type();
 
             // ── Pass 1: Horizontal Gaussian blur (mainFb → blurTempTex) ──
             uploadBlurConfig(blurConfigUboX, 1f, 0f);
@@ -121,10 +157,14 @@ public final class LiquidGlassHud {
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("SamplerInfo", samplerInfoUbo);
                 pass.setUniform("Config",      blurConfigUboX);
-                pass.bindTexture("DiffuseSampler", mainFb.getColorAttachmentView(), linearSampler);
+                pass.bindTexture("DiffuseSampler", mainFb.getColorTextureView(), linearSampler);
                 pass.setVertexBuffer(0, quadVB);
                 pass.setIndexBuffer(ib, it);
                 pass.drawIndexed(0, 0, 6, 1);
+            }
+            if (debugThisCall) {
+                int err = org.lwjgl.opengl.GL11C.glGetError();
+                System.err.println("[LiquidGlassHud][SkiaDebug] after blur-X glErr=0x" + Integer.toHexString(err));
             }
 
             // ── Pass 2: Vertical Gaussian blur (blurTempTex → blurredTex) ──
@@ -140,13 +180,17 @@ public final class LiquidGlassHud {
                 pass.setIndexBuffer(ib, it);
                 pass.drawIndexed(0, 0, 6, 1);
             }
+            if (debugThisCall) {
+                int err = org.lwjgl.opengl.GL11C.glGetError();
+                System.err.println("[LiquidGlassHud][SkiaDebug] after blur-Y glErr=0x" + Integer.toHexString(err));
+            }
 
             // ── Pass 3: Liquid-glass refraction (blurredTex → mainFb, interior only) ──
             try (RenderPass pass = ce.createRenderPass(
                     () -> "musichud liquid-glass",
-                    mainFb.getColorAttachmentView(),
+                    mainFb.getColorTextureView(),
                     OptionalInt.empty(),
-                    mainFb.useDepthAttachment ? mainFb.getDepthAttachmentView() : null,
+                    mainFb.useDepth ? mainFb.getDepthTextureView() : null,
                     OptionalDouble.empty())) {
                 pass.setPipeline(glassPipeline);
                 RenderSystem.bindDefaultUniforms(pass);
@@ -157,7 +201,13 @@ public final class LiquidGlassHud {
                 pass.setIndexBuffer(ib, it);
                 pass.drawIndexed(0, 0, 6, 1);
             }
+            if (debugThisCall) {
+                int err = org.lwjgl.opengl.GL11C.glGetError();
+                System.err.println("[LiquidGlassHud][SkiaDebug] after liquid-glass pass glErr=0x" + Integer.toHexString(err));
+                liquidDebugLogCount++;
+            }
         } catch (Throwable t) {
+            System.err.println("[LiquidGlassHud][SkiaDebug] EXCEPTION in render(): " + t);
             t.printStackTrace();
             resourcesFailed = true;
         }
@@ -168,31 +218,29 @@ public final class LiquidGlassHud {
     private void ensureResources(int w, int h) {
         if (glassPipeline == null) {
             glassPipeline = RenderPipeline.builder()
-                    .withLocation(Identifier.of("musichud", "pipeline/liquid_glass_hud"))
-                    .withVertexShader(Identifier.of("musichud", "core/blit_fullscreen"))
-                    .withFragmentShader(Identifier.of("musichud", "program/liquid_glass_hud"))
+                    .withLocation(Identifier.fromNamespaceAndPath("musichud", "pipeline/liquid_glass_hud"))
+                    .withVertexShader(Identifier.fromNamespaceAndPath("musichud", "core/blit_fullscreen"))
+                    .withFragmentShader(Identifier.fromNamespaceAndPath("musichud", "program/liquid_glass_hud"))
                     .withUniform("Projection",     UniformType.UNIFORM_BUFFER)
                     .withUniform("SamplerInfo",    UniformType.UNIFORM_BUFFER)
                     .withUniform("WidgetUniforms", UniformType.UNIFORM_BUFFER)
                     .withSampler("Sampler0")
-                    .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
-                    .withDepthWrite(false)
-                    .withVertexFormat(VertexFormats.POSITION, VertexFormat.DrawMode.QUADS)
+                    .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+                    .withVertexFormat(DefaultVertexFormat.POSITION, VertexFormat.Mode.QUADS)
                     .build();
             RenderSystem.getDevice().precompilePipeline(glassPipeline);
         }
         if (blurPipeline == null) {
             blurPipeline = RenderPipeline.builder()
-                    .withLocation(Identifier.of("musichud", "pipeline/blur"))
-                    .withVertexShader(Identifier.of("musichud", "core/blit_fullscreen"))
-                    .withFragmentShader(Identifier.of("musichud", "program/blur"))
+                    .withLocation(Identifier.fromNamespaceAndPath("musichud", "pipeline/blur"))
+                    .withVertexShader(Identifier.fromNamespaceAndPath("musichud", "core/blit_fullscreen"))
+                    .withFragmentShader(Identifier.fromNamespaceAndPath("musichud", "program/blur"))
                     .withUniform("Projection",  UniformType.UNIFORM_BUFFER)
                     .withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
                     .withUniform("Config",      UniformType.UNIFORM_BUFFER)
                     .withSampler("DiffuseSampler")
-                    .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
-                    .withDepthWrite(false)
-                    .withVertexFormat(VertexFormats.POSITION, VertexFormat.DrawMode.QUADS)
+                    .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+                    .withVertexFormat(DefaultVertexFormat.POSITION, VertexFormat.Mode.QUADS)
                     .build();
             RenderSystem.getDevice().precompilePipeline(blurPipeline);
         }
@@ -215,7 +263,7 @@ public final class LiquidGlassHud {
                     () -> "musichud SamplerInfo", UBO_USAGE, 16L);
         if (widgetUniformsUbo == null)
             widgetUniformsUbo = RenderSystem.getDevice().createBuffer(
-                    () -> "musichud WidgetUniforms", UBO_USAGE, 32L);
+                    () -> "musichud WidgetUniforms", UBO_USAGE, 48L);
         // BlurConfig: vec4 Params (16 bytes) + 65 floats each padded to 16 = 16 + 65*16 = 1056
         long blurCfgSize = 16L + (MAX_BLUR_TAPS + 1) * 16L;
         if (blurConfigUboX == null)
@@ -250,11 +298,12 @@ public final class LiquidGlassHud {
         try (var map = RenderSystem.getDevice().createCommandEncoder()
                 .mapBuffer(widgetUniformsUbo, false, true)) {
             Std140Builder b = Std140Builder.intoBuffer(map.data());
-            b.putVec4(wx, wy, ww, wh); // Rect
-            b.putFloat(wcr);           // CornerRadius
-            b.putFloat(20.0f);         // RefThickness (ReGlass default)
-            b.putFloat(1.4f);          // IOR          (ReGlass default)
-            b.putFloat(7.0f);          // RefDispersion (ReGlass default)
+            b.putVec4(wx, wy, ww, wh);  // Rect
+            b.putFloat(wcr);            // CornerRadius
+            b.putFloat(optRefThickness);
+            b.putFloat(optIor);
+            b.putFloat(optRefDispersion);
+            b.putVec4(tintR, tintG, tintB, tintA); // TintColor (rgb + tint strength)
         }
     }
 
@@ -273,13 +322,14 @@ public final class LiquidGlassHud {
     }
 
     private void uploadBlurConfig(GpuBuffer ubo, float dx, float dy) {
-        float[] weights = gaussianWeights(BLUR_RADIUS);
+        int r = this.blurRadius;
+        float[] weights = gaussianWeights(r);
         try (var map = RenderSystem.getDevice().createCommandEncoder()
                 .mapBuffer(ubo, false, true)) {
             Std140Builder b = Std140Builder.intoBuffer(map.data());
-            b.putVec4(dx, dy, (float) BLUR_RADIUS, 0f);
+            b.putVec4(dx, dy, (float) r, 0f);
             for (int i = 0; i <= MAX_BLUR_TAPS; i++) {
-                float w = (i <= BLUR_RADIUS) ? weights[i] : 0f;
+                float w = (i <= r) ? weights[i] : 0f;
                 b.putFloat(w);
                 b.align(16);
             }

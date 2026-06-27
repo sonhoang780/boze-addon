@@ -22,8 +22,20 @@ Quy tắc thực dụng:
 ### Build & verify
 - `gradle build` (`.\gradlew build`) là nguồn sự thật cuối cùng cho lỗi biên dịch — không tin tuyệt đối vào diagnostics LSP (có thể stale sau edit).
 
-### Minecraft API version — BẮT BUỘC dùng đúng 1.21.11
-- Project chạy **Minecraft 1.21.11** với **Yarn mappings `1.21.11+build.4`** (xem `gradle.properties`). KHÔNG phải 1.21.1.
-- Khi cần tra API Minecraft (tên class/method/field, signature constructor, enum...), **CHỈ tra cho 1.21.11**. API giữa các bản 1.21.x **đổi tên/đổi signature** thường xuyên → kiến thức từ bản khác (1.21.1, 1.21.4...) dễ sai.
-- Nguồn chuẩn để tra: **decompiled/named sources do loom sinh ra** (jar `*-sources.jar` / `minecraft-*-named` trong loom cache, hoặc class đã remap trong dependencies của project). Tra trực tiếp signature ở đó thay vì đoán theo trí nhớ.
-- Sau khi viết code dùng API MC, luôn `\.\gradlew build` để xác nhận signature đúng cho 1.21.11.
+### Minecraft & Boze API version — BẮT BUỘC tra đúng phiên bản
+
+**Minecraft:** Project chạy **Minecraft 26.1.2** (snapshot/tên nội bộ Boze, tương đương build mới nhất). KHÔNG dùng kiến thức từ 1.21.1, 1.21.4, 1.21.11 — API đổi thường xuyên.
+
+**Boze API:** Phiên bản **3.2.2** (`boze_api_version` trong `gradle.properties`). Khi cần biết method/class nào available trong Boze API — **BẮT BUỘC tra trực tiếp** file sources jar tại:
+```
+.gradle/loom-cache/remapped_mods/remapped/dev/boze/boze-api-4b5d3c0a/3.2.2+1.21.11/boze-api-4b5d3c0a-3.2.2+1.21.11-sources.jar
+```
+Cách tra: dùng `PowerShell` + `System.IO.Compression.ZipFile` để đọc entry trong jar, KHÔNG đoán từ trí nhớ. KHÔNG dùng jar `3.2.1+1.21.10` — sai version.
+
+**Minecraft API:** Nguồn chuẩn là decompiled sources trong loom cache (`minecraft-merged-*-sources.jar` hoặc sources jar của remapped mods). Tra trực tiếp, không đoán.
+
+- Sau khi viết code dùng API MC hoặc Boze, luôn `.\gradlew build` để xác nhận signature đúng.
+
+### Caveman mode — BẮT BUỘC dùng full mode
+- Mọi response trong project này phải dùng **caveman full mode**: drop articles, fragments OK, không filler/hedging/pleasantries.
+- Tương đương `/caveman full` — áp dụng ngay cả khi không có lệnh explicit từ user.

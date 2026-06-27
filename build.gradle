@@ -1,7 +1,7 @@
 import net.fabricmc.loom.task.prod.ClientProductionRunTask
 
 plugins {
-    id 'fabric-loom' version "${loom_version}"
+    id 'net.fabricmc.fabric-loom'
 }
 
 // ─── TỰ ĐỘNG XỬ LÝ PHIÊN BẢN (HIỂN THỊ TRONG GAME) ────────────────────────
@@ -47,23 +47,26 @@ repositories {
     maven { url = "https://packages.jetbrains.team/maven/p/ui/dev" }
 }
 
+configurations {
+    bozeLoader
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modCompileOnly "com.github.cabaletta:baritone:1.2.14"
-    
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    compileOnly "com.github.cabaletta:baritone:1.2.14"
+
     // Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
     // Boze Dependencies
-    modCompileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"
-    modRuntimeOnly "dev.boze:boze-loader-beta:${project.boze_loader_version}"
+    compileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"
+    bozeLoader "dev.boze:boze-loader-beta:${project.boze_loader_version}"
     implementation "meteordevelopment:orbit:${project.orbit_version}"
 
     def lavaplayerVersion = "2.2.6"
     def jacksonVersion = "2.15.2"
-    def ytSourceVersion = "fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT"
+    def ytSourceVersion = "9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT"
     def rhinoVersion = "1.7.14"
     
     // ─── SKIJA DEPENDENCIES (BẢN MỚI NHẤT) ────────────────────────
@@ -153,16 +156,21 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = 25
+    it.options.compilerArgs += ['-Xmaxerrs', '10000']
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 jar {
-    // Ép cố định tên file jar gốc trước khi remap
+    // Ép cố định tên file mod chính thức xuất ra
     archiveFileName = "boze-addon.jar"
     archiveVersion = ""
     inputs.property "archivesName", project.base.archivesName
@@ -171,12 +179,6 @@ jar {
     }
 }
 
-remapJar {
-    // Ép cố định tên file mod chính thức xuất ra (Dùng cho Fabric Loom)
-    archiveFileName = "boze-addon.jar"
-    archiveVersion = ""
-}
-
 tasks.register("runBoze", ClientProductionRunTask) {
-    mods.from configurations.modRuntimeOnly
+    mods.from configurations.bozeLoader
 }

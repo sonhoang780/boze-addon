@@ -4,24 +4,25 @@ import com.example.addon.ExampleAddon;
 import com.example.addon.modules.ElytraFix;
 import com.example.addon.modules.LoadingScreen;
 import com.example.addon.screens.CustomLoadingScreen;
+import com.example.addon.screens.SkiaHud;
 import dev.boze.api.BozeInstance;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.RunArgs;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.main.GameConfig;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(MinecraftClient.class)
+@Mixin(Minecraft.class)
 public class MixinMinecraftClient {
 
     // Accumulator for fractional tick timing (timer hack support for ElytraFix hover).
     private float timerAccumulator = 0f;
 
-    @Inject(method = "<init>", at = @At(value = "FIELD", target = "Lnet/minecraft/client/MinecraftClient;instance:Lnet/minecraft/client/MinecraftClient;"))
-    private void onInit$setInstance(RunArgs args, CallbackInfo ci) {
+    @Inject(method = "<init>", at = @At(value = "FIELD", target = "Lnet/minecraft/client/Minecraft;instance:Lnet/minecraft/client/Minecraft;"))
+    private void onInit$setInstance(GameConfig args, CallbackInfo ci) {
         BozeInstance.INSTANCE.registerAddon(new ExampleAddon());
     }
 
@@ -34,6 +35,18 @@ public class MixinMinecraftClient {
      * method that processes one game tick (called from the render loop), and replace
      * "tick" below with that method's Mojang-mapped name.
      */
+    /**
+     * End-of-frame hook for the persistent GPU-Skija HUD layer (SkiaHud), injected
+     * right before the buffer swap so Skija draws on top of the final frame — the
+     * Skimi technique. Drawing here (not during GUI extraction) is what makes
+     * GPU-Skija safe and gives no-CPU-raster performance.
+     */
+    @Inject(method = "renderFrame", at = @At(value = "INVOKE",
+        target = "Lcom/mojang/blaze3d/systems/RenderSystem;flipFrame(Lcom/mojang/blaze3d/TracyFrameCapture;)V"))
+    private void skiahud$onEndFrame(boolean tick, CallbackInfo ci) {
+        SkiaHud.onEndFrame();
+    }
+
     @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
     private void throttleGameTick(CallbackInfo ci) {
         float speed = ElytraFix.hoverTimerSpeed;
@@ -66,9 +79,9 @@ public class MixinMinecraftClient {
             System.err.println("[BozeMenu] Intercepted TitleScreen (introPlayed=" + LoadingScreen.INSTANCE.introPlayed + ")");
             if (!LoadingScreen.INSTANCE.introPlayed) {
                 LoadingScreen.INSTANCE.introPlayed = true;
-                ((MinecraftClient)(Object)this).setScreen(new CustomLoadingScreen());
+                ((Minecraft)(Object)this).setScreen(new CustomLoadingScreen());
             } else {
-                ((MinecraftClient)(Object)this).setScreen(
+                ((Minecraft)(Object)this).setScreen(
                     new com.example.addon.screens.CustomTitleScreen());
             }
             ci.cancel();

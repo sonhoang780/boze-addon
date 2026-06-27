@@ -24,12 +24,16 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.event.EventTick;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.ChatScreen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -73,11 +77,11 @@ public class PlayMusic extends AddonModule {
     public final ToggleOption chatSearch  = new ToggleOption(this, "🔍 Chat Search", "Enable searching music and showing live suggestions via chat.", true);
     public final SliderOption volume      = new SliderOption(this, "Volume", "Adjust the media playback volume.", 50.0, 0.0, 100.0, 1.0);
     public final ToggleOption previousBtn = new ToggleOption(this, "Previous", "Play the previous track from history.", false);
-    public final ToggleOption togglePause = new ToggleOption(this, "Play / Pause", "Pause or resume current track playback.", false);
+    public final ToggleOption togglePause = new ToggleOption(this, "PlayPause", "Pause or resume current track playback.", false);
     public final ToggleOption nextBtn     = new ToggleOption(this, "Next", "Skip the current track.", false);
     public final ToggleOption loopCurrent = new ToggleOption(this, "Loop", "Loop the currently playing track infinitely.", false);
-    public final ToggleOption autoPlay    = new ToggleOption(this, "Auto Play Next", "Automatically queue related tracks when empty.", true);
-    public final ToggleOption logoutBtn   = new ToggleOption(this, "Logout YouTube", "Log out of your YouTube account from the client.", false);
+    public final ToggleOption autoPlay    = new ToggleOption(this, "AutoPlayNext", "Automatically queue related tracks when empty.", true);
+    public final ToggleOption logoutBtn   = new ToggleOption(this, "LogoutYT", "Log out of your YouTube account from the client.", false);
 
     private static AudioPlayerManager playerManager;
     private static AudioPlayer player;
@@ -133,7 +137,7 @@ public class PlayMusic extends AddonModule {
                         if (ytSourceManager != null) {
                             ytSourceManager.useOauth2(null, true);
                         }
-                        net.minecraft.util.Util.getOperatingSystem().open(new java.net.URI("https://www.google.com/device"));
+                        net.minecraft.util.Util.getPlatform().openUri(new java.net.URI("https://www.google.com/device"));
                     } catch (Exception e) {
                         safeError("Failed to open browser.");
                     }
@@ -158,11 +162,11 @@ public class PlayMusic extends AddonModule {
             return true;
         });
 
-         HudRenderCallback.EVENT.register((context, tickDelta) -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (!this.active || !chatSearch.getValue() || mc.currentScreen == null) return;
-            
-            if (mc.currentScreen instanceof ChatScreen) {
+         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "playmusic-suggestions"), (context, tracker) -> {
+            Minecraft mc = Minecraft.getInstance();
+            if (!this.active || !chatSearch.getValue() || mc.screen == null) return;
+
+            if (mc.screen instanceof ChatScreen) {
                 int hudX = (int)(double) MusicHUD.INSTANCE.posX;
                 int hudY = (int)(double) MusicHUD.INSTANCE.posY + 72; // 70 là chiều cao HUD + 2 đệm
                 int boxW = 320;
@@ -176,9 +180,9 @@ public class PlayMusic extends AddonModule {
                     context.fill(hudX, hudY, hudX + boxW, hudY + (int)animSuggestHeight, 0xEE111111);
                     context.enableScissor(hudX, hudY, hudX + boxW, hudY + (int)animSuggestHeight);
 
-                    double scale = mc.getWindow().getScaleFactor();
-                    double mx = mc.mouse.getX() / scale;
-                    double my = mc.mouse.getY() / scale;
+                    double scale = mc.getWindow().getGuiScale();
+                    double mx = mc.mouseHandler.xpos() / scale;
+                    double my = mc.mouseHandler.ypos() / scale;
 
                     for (int i = 0; i < currentSuggestions.size(); i++) {
                         int itemY = hudY + 2 + (i * itemH);
@@ -186,7 +190,7 @@ public class PlayMusic extends AddonModule {
                         if (isHovering) {
                             context.fill(hudX, itemY, hudX + boxW, itemY + itemH, 0xFF333333);
                         }
-                        context.drawText(mc.textRenderer, "» " + currentSuggestions.get(i), hudX + 6, itemY + 3, 0xFF00FFBB, true);
+                        context.text(mc.font, "» " + currentSuggestions.get(i), hudX + 6, itemY + 3, 0xFF00FFBB, true);
                     }
                     context.disableScissor();
                 }
@@ -212,7 +216,7 @@ public class PlayMusic extends AddonModule {
                         Matcher m = Pattern.compile("code\\s+([A-Z0-9-]+)").matcher(line);
                         if (m.find()) {
                             String code = m.group(1);
-                            MinecraftClient mc = MinecraftClient.getInstance();
+                            Minecraft mc = Minecraft.getInstance();
                             if (mc.player != null) {
                                 mc.execute(() -> {
                                     safeInfo("§e========================================");
@@ -225,7 +229,7 @@ public class PlayMusic extends AddonModule {
                         }
                     }
                     if (line.toLowerCase().contains("refresh token has been successfully") || line.toLowerCase().contains("successfully updated")) {
-                        MinecraftClient mc = MinecraftClient.getInstance();
+                        Minecraft mc = Minecraft.getInstance();
                         if (mc.player != null) {
                             mc.execute(() -> safeInfo("§a[YouTube Auth] §fLogin successful! You can now play any track."));
                         }
@@ -279,7 +283,7 @@ public class PlayMusic extends AddonModule {
                 // ── HƯỚNG DẪN CHO NGƯỜI MỚI DÙNG LẦN ĐẦU ──
                 CompletableFuture.runAsync(() -> {
                     try { Thread.sleep(3000); } catch (Exception ignored) {}
-                    MinecraftClient mc = MinecraftClient.getInstance();
+                    Minecraft mc = Minecraft.getInstance();
                     if (mc.player != null) {
                         mc.execute(() -> {
                             safeInfo("§e========================================");
@@ -353,9 +357,9 @@ public class PlayMusic extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
 
-        long win = mc.getWindow().getHandle();
+        long win = mc.getWindow().handle();
         boolean mouseDown = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         boolean tabDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
         
@@ -365,33 +369,33 @@ public class PlayMusic extends AddonModule {
         wasMouseDown = mouseDown;
         wasTabDown = tabDown;
 
-        if (this.active && chatSearch.getValue() && mc.currentScreen instanceof ChatScreen) {
-            TextFieldWidget chatField = null;
-            
-            for (net.minecraft.client.gui.Element e : mc.currentScreen.children()) {
-                if (e instanceof TextFieldWidget tf) {
+        if (this.active && chatSearch.getValue() && mc.screen instanceof ChatScreen) {
+            EditBox chatField = null;
+
+            for (GuiEventListener e : mc.screen.children()) {
+                if (e instanceof EditBox tf) {
                     chatField = tf;
                     break;
                 }
             }
 
             if (chatField != null) {
-                String text = chatField.getText();
+                String text = chatField.getValue();
                 
                 if (text.startsWith(CHAT_PREFIX)) {
                     String query = text.substring(CHAT_PREFIX.length()).trim();
 
                     if (justTabbed && !currentSuggestions.isEmpty()) {
-                        chatField.setText(CHAT_PREFIX + currentSuggestions.get(0) + " ");
+                        chatField.setValue(CHAT_PREFIX + currentSuggestions.get(0) + " ");
                         currentSuggestions.clear();
-                        lastQuery = chatField.getText();
+                        lastQuery = chatField.getValue();
                         pendingQuery = "";
                         suggestionCooldown = 0;
-                    } 
+                    }
                     else if (justClicked && !currentSuggestions.isEmpty()) {
-                        double scale = mc.getWindow().getScaleFactor();
-                        double mx = mc.mouse.getX() / scale;
-                        double my = mc.mouse.getY() / scale;
+                        double scale = mc.getWindow().getGuiScale();
+                        double mx = mc.mouseHandler.xpos() / scale;
+                        double my = mc.mouseHandler.ypos() / scale;
 
                         int hudX = (int)(double) MusicHUD.INSTANCE.posX;
                         int hudY = (int)(double) MusicHUD.INSTANCE.posY + 72;
@@ -540,8 +544,8 @@ public class PlayMusic extends AddonModule {
 
     private String readToken() { try { File f = new File(FabricLoader.getInstance().getGameDir().toFile(), "kingthon_token.txt"); if (f.exists()) return new String(Files.readAllBytes(f.toPath())).trim(); } catch (Exception e) {} return ""; }
     private void saveToken(String token) { try { File f = new File(FabricLoader.getInstance().getGameDir().toFile(), "kingthon_token.txt"); Files.write(f.toPath(), token.getBytes()); } catch (Exception e) {} }
-    public void safeInfo(String msg) { MinecraftClient mc = MinecraftClient.getInstance(); if (mc.player != null) mc.execute(() -> mc.player.sendMessage(Text.literal("§d[Music] §a" + msg), false)); }
-    public void safeError(String msg) { MinecraftClient mc = MinecraftClient.getInstance(); if (mc.player != null) mc.execute(() -> mc.player.sendMessage(Text.literal("§d[Music] §c" + msg), false)); }
+    public void safeInfo(String msg) { Minecraft mc = Minecraft.getInstance(); if (mc.player != null) mc.execute(() -> mc.player.sendSystemMessage(Component.literal("§d[Music] §a" + msg))); }
+    public void safeError(String msg) { Minecraft mc = Minecraft.getInstance(); if (mc.player != null) mc.execute(() -> mc.player.sendSystemMessage(Component.literal("§d[Music] §c" + msg))); }
 
     private class TrackScheduler extends AudioEventAdapter {
         public final List<AudioTrack> queue = new ArrayList<>();

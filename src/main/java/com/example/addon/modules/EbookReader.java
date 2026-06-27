@@ -17,9 +17,9 @@ import org.lwjgl.glfw.GLFW;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.option.ToggleOption;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.example.addon.screens.CachedSkiaTexture;
 import io.github.humbleui.skija.*;
 import io.github.humbleui.types.*;
 
@@ -27,7 +27,7 @@ public class EbookReader extends AddonModule {
     public static final EbookReader INSTANCE = new EbookReader();
     public boolean active = false;
 
-    public final ToggleOption showTitle = new ToggleOption(this, "Show Title", "", true);
+    public final ToggleOption showTitle = new ToggleOption(this, "ShowTitle", "", true);
 
     private final List<File> availableBooks = new ArrayList<>();
     private long lastScanTime = -1L;
@@ -40,9 +40,8 @@ public class EbookReader extends AddonModule {
     private int pageFlipDir = 1;
     private long lastFrameTime = 0L;
 
-    private DirectContext skiaContext;
-    private int skiaFboId = -1;
-    private int skiaFboTexId = -1;
+    private CachedSkiaTexture panelTex;
+    private CachedSkiaTexture pageContentTex;
     
     // BỘ FONT ĐA DẠNG ĐỂ HIỂN THỊ RICH TEXT
     private Font fontReg, fontBold, fontItalic, fontBoldItalic;
@@ -84,7 +83,7 @@ public class EbookReader extends AddonModule {
     public void onEnable() {
         this.active = true;
         scanBooksIfNeeded(true);
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         mc.execute(() -> mc.setScreen(new LibraryScreen()));
     }
 
@@ -92,11 +91,8 @@ public class EbookReader extends AddonModule {
     public void onDisable() {
         this.active = false;
         closeCurrentBook();
-        if (skiaFboId != -1) {
-            org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
-            skiaFboId = -1;
-            skiaFboTexId = -1;
-        }
+        if (panelTex != null) { panelTex.dispose(); panelTex = null; }
+        if (pageContentTex != null) { pageContentTex.dispose(); pageContentTex = null; }
     }
 
     private void closeCurrentBook() {
@@ -359,7 +355,7 @@ public class EbookReader extends AddonModule {
 
         for (RichToken tk : globalTokens) {
             if (tk instanceof RichBreak) {
-                if (curX > 0 || curY > 0) { curX = 0; curY += normalLineH; }
+                if (curX > 0 || !curPage.cmds.isEmpty()) { curX = 0; curY += normalLineH; }
                 continue;
             }
             if (tk instanceof RichImage) {
@@ -399,103 +395,76 @@ public class EbookReader extends AddonModule {
         if (currentPageIndex >= currentPages.size()) currentPageIndex = Math.max(0, currentPages.size() - 1);
     }
 
-    private int bindSkiaFbo(MinecraftClient mc) {
-        com.mojang.blaze3d.textures.GpuTexture ca = mc.getFramebuffer().getColorAttachment();
-        if (ca == null || !(ca instanceof net.minecraft.client.texture.GlTexture)) return -1;
-        int texId = ((net.minecraft.client.texture.GlTexture) ca).getGlId();
-        if (skiaFboId != -1 && skiaFboTexId == texId) {
-            org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
-            return skiaFboId;
-        }
-        if (skiaFboId != -1) org.lwjgl.opengl.GL30C.glDeleteFramebuffers(skiaFboId);
-        skiaFboId = org.lwjgl.opengl.GL30C.glGenFramebuffers();
-        skiaFboTexId = texId;
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, skiaFboId);
-        org.lwjgl.opengl.GL30C.glFramebufferTexture2D(
-            org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER,
-            org.lwjgl.opengl.GL30C.GL_COLOR_ATTACHMENT0,
-            org.lwjgl.opengl.GL11C.GL_TEXTURE_2D, texId, 0);
-        return skiaFboId;
-    }
+    /**
+     * Renders the panel chrome (glow + dark fill + stroke) GPU-side into a persistent
+     * texture and composites it via the normal GuiGraphicsExtractor.blit path — fast
+     * (no CPU raster/readback) and immune to the GUI submission phase overwriting it.
+     * True backdrop blur-of-the-world-behind-the-panel is handled separately by the
+     * screen calling Screen.extractBlurredBackground(...) before this runs; this
+     * method only draws the panel's own opaque-ish fill on top.
+     */
+    private void drawSkiaPanel(GuiGraphicsExtractor context, double x, double y, double w, double h, float radius, boolean enableGlow) {
+        Minecraft mc = Minecraft.getInstance();
+        float scale = (float) mc.getWindow().getGuiScale();
+        float margin = enableGlow ? 20f : 4f;
+        int pw = Math.round((float)(w + margin * 2) * scale);
+        int ph = Math.round((float)(h + margin * 2) * scale);
+        if (pw <= 0 || ph <= 0) return;
 
-    private void drawSkiaPanel(double x, double y, double w, double h, float radius, boolean enableGlow) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-        org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
-        if (skiaContext == null) skiaContext = DirectContext.makeGL();
-        skiaContext.resetAll();
-
-        int savedFbo = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-        int mainFboId = bindSkiaFbo(mc);
-        if (mainFboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo); return; }
-        try (BackendRenderTarget rt = BackendRenderTarget.makeGL(
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                0, 0, mainFboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-             Surface surface = Surface.wrapBackendRenderTarget(
-                skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-
-            Canvas canvas = surface.getCanvas();
-            float scale = (float) mc.getWindow().getScaleFactor();
+        if (panelTex == null) panelTex = new CachedSkiaTexture("ebookreader_panel");
+        String panelKey = pw + "x" + ph + "|" + radius + "|" + enableGlow;
+        panelTex.render(pw, ph, panelKey, canvas -> {
             canvas.scale(scale, scale);
+            float fx = margin, fy = margin, fw = (float)w, fh = (float)h;
 
             if (enableGlow) {
                 try (Paint glowPaint = new Paint(); MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 14f)) {
                     glowPaint.setColor(new Color(255, 255, 255, 200).getRGB());
                     glowPaint.setMaskFilter(blur); glowPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), glowPaint);
-                    
+                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), glowPaint);
                 }
+            }
+
+            try (Paint bgPaint = new Paint()) {
+                bgPaint.setColor(new Color(18, 18, 22, 225).getRGB()); bgPaint.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), bgPaint);
             }
 
             try (Paint strokePaint = new Paint()) {
                 strokePaint.setColor(new Color(255, 255, 255, 70).getRGB());
                 strokePaint.setMode(PaintMode.STROKE); strokePaint.setStrokeWidth(1.2f); strokePaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), strokePaint);
+                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), strokePaint);
             }
-
-            canvas.save();
-            canvas.clipRRect(RRect.makeXYWH((float)x, (float)y, (float)w, (float)h, radius), ClipMode.INTERSECT, true);
-            try (ImageFilter backdropBlur = ImageFilter.makeBlur(18f, 18f, FilterTileMode.CLAMP)) {
-                canvas.saveLayer(new SaveLayerRec(null, null, backdropBlur));
-                try (Paint bgPaint = new Paint()) {
-                    bgPaint.setColor(new Color(18, 18, 22, 215).getRGB()); bgPaint.setAntiAlias(true);
-                    canvas.drawRect(Rect.makeXYWH((float)x, (float)y, (float)w, (float)h), bgPaint);
-                }
-                canvas.restore();
-            }
-            canvas.restore();
-            skiaContext.flushAndSubmit(false);
-        }
-        org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFbo);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-        org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-        org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+        });
+        panelTex.blit(context, (int)Math.round(x - margin), (int)Math.round(y - margin),
+            (int)Math.round(w + margin * 2), (int)Math.round(h + margin * 2));
     }
 
-    public class LibraryScreen extends net.minecraft.client.gui.screen.Screen {
+    public class LibraryScreen extends net.minecraft.client.gui.screens.Screen {
         private boolean previousHudHidden = false;
         private boolean wasMouseDownLib = false;
         private File selectedBook = null;
         private long lastClickTime = 0L;
         private File lastClickedFile = null;
 
-        public LibraryScreen() { super(net.minecraft.text.Text.literal("Ebook Library")); }
+        public LibraryScreen() { super(net.minecraft.network.chat.Component.literal("Ebook Library")); }
 
-        @Override protected void init() { previousHudHidden = client.options.hudHidden; client.options.hudHidden = true; scanBooksIfNeeded(false); }
+        @Override protected void init() { previousHudHidden = minecraft.options.hideGui; minecraft.options.hideGui = true; scanBooksIfNeeded(false); }
 
-        @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        @Override public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
             context.fill(0, 0, this.width, this.height, 0x66000000);
             int winX = (this.width - 220) / 2; int winY = (this.height - 300) / 2;
-            drawSkiaPanel(winX, winY, 220, 300, 8f, true);
+            context.fill(winX, winY, winX + 220, winY + 300, new Color(15, 15, 15, 210).getRGB());
+            context.fill(winX, winY,       winX + 220, winY + 1,   0x3CFFFFFF);
+            context.fill(winX, winY + 299, winX + 220, winY + 300, 0x3CFFFFFF);
+            context.fill(winX, winY,       winX + 1,   winY + 300, 0x3CFFFFFF);
+            context.fill(winX + 219, winY, winX + 220, winY + 300, 0x3CFFFFFF);
 
-            context.drawText(client.textRenderer, "Ebook Library", winX + (220 - client.textRenderer.getWidth("Ebook Library")) / 2, winY + 10, 0xFFFFFFFF, true);
+            context.text(minecraft.font, "Ebook Library", winX + (220 - minecraft.font.width("Ebook Library")) / 2, winY + 10, 0xFFFFFFFF, true);
             context.fill(winX + 10, winY + 26, winX + 210, winY + 256, 0x44000000);
 
             int itemH = 16; int startY = winY + 28;
+            context.enableScissor(winX + 10, winY + 26, winX + 210, winY + 256);
             for (int i = 0; i < availableBooks.size() && i < 14; i++) {
                 File f = availableBooks.get(i); int itemY = startY + i * itemH;
                 String name = f.getName().substring(0, f.getName().lastIndexOf('.') > 0 ? f.getName().lastIndexOf('.') : f.getName().length());
@@ -506,28 +475,37 @@ public class EbookReader extends AddonModule {
                 else if (isHovered) context.fill(winX + 12, itemY, winX + 208, itemY + itemH - 1, 0x33FFFFFF);
 
                 String ext = f.getName().toLowerCase().endsWith(".epub") ? "[EPUB] " : "[TXT] ";
-                context.drawText(client.textRenderer, ext + name, winX + 16, itemY + 4, isSelected ? 0xFFFFFFFF : 0xFFCCCCCC, true);
+                context.text(minecraft.font, ext + name, winX + 16, itemY + 4, isSelected ? 0xFFFFFFFF : 0xFFCCCCCC, true);
             }
+            context.disableScissor();
 
             boolean hoverRead = mouseX >= winX + 15 && mouseX <= winX + 95 && mouseY >= winY + 266 && mouseY <= winY + 286;
             context.fill(winX + 15, winY + 266, winX + 95, winY + 286, selectedBook == null ? 0xFF1A1A1A : (hoverRead ? 0xFF444444 : 0xFF222222));
-            context.drawText(client.textRenderer, "Read", winX + 15 + (80 - client.textRenderer.getWidth("Read")) / 2, winY + 266 + 6, selectedBook != null ? 0xFFFFFFFF : 0xFF666666, true);
+            context.fill(winX + 15, winY + 266, winX + 95, winY + 267, 0x3CFFFFFF);
+            context.fill(winX + 15, winY + 285, winX + 95, winY + 286, 0x3CFFFFFF);
+            context.fill(winX + 15, winY + 266, winX + 16, winY + 286, 0x3CFFFFFF);
+            context.fill(winX + 94, winY + 266, winX + 95, winY + 286, 0x3CFFFFFF);
+            context.text(minecraft.font, "Read", winX + 15 + (80 - minecraft.font.width("Read")) / 2, winY + 266 + 6, selectedBook != null ? 0xFFFFFFFF : 0xFF666666, true);
 
             boolean hoverClose = mouseX >= winX + 125 && mouseX <= winX + 205 && mouseY >= winY + 266 && mouseY <= winY + 286;
             context.fill(winX + 125, winY + 266, winX + 205, winY + 286, hoverClose ? 0xFF444444 : 0xFF222222);
-            context.drawText(client.textRenderer, "Close", winX + 125 + (80 - client.textRenderer.getWidth("Close")) / 2, winY + 266 + 6, 0xFFFFFFFF, true);
+            context.fill(winX + 125, winY + 266, winX + 205, winY + 267, 0x3CFFFFFF);
+            context.fill(winX + 125, winY + 285, winX + 205, winY + 286, 0x3CFFFFFF);
+            context.fill(winX + 125, winY + 266, winX + 126, winY + 286, 0x3CFFFFFF);
+            context.fill(winX + 204, winY + 266, winX + 205, winY + 286, 0x3CFFFFFF);
+            context.text(minecraft.font, "Close", winX + 125 + (80 - minecraft.font.width("Close")) / 2, winY + 266 + 6, 0xFFFFFFFF, true);
 
-            boolean mouseDown = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            boolean mouseDown = GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
             if (mouseDown && !wasMouseDownLib) {
-                if (hoverRead && selectedBook != null) { loadBook(selectedBook); client.setScreen(new ReaderScreen()); } 
-                else if (hoverClose) this.close();
+                if (hoverRead && selectedBook != null) { loadBook(selectedBook); minecraft.setScreen(new ReaderScreen()); } 
+                else if (hoverClose) this.onClose();
                 else if (mouseX >= winX + 10 && mouseX <= winX + 210 && mouseY >= winY + 26 && mouseY <= winY + 256) {
                     int clickedIdx = (mouseY - startY) / itemH;
                     if (clickedIdx >= 0 && clickedIdx < availableBooks.size() && clickedIdx < 14) {
                         File clicked = availableBooks.get(clickedIdx);
                         long now = System.currentTimeMillis();
                         if (clicked.equals(lastClickedFile) && (now - lastClickTime) < 400) {
-                            loadBook(clicked); client.setScreen(new ReaderScreen());
+                            loadBook(clicked); minecraft.setScreen(new ReaderScreen());
                         } else {
                             selectedBook = clicked; lastClickedFile = clicked; lastClickTime = now;
                         }
@@ -535,42 +513,47 @@ public class EbookReader extends AddonModule {
                 }
             }
             wasMouseDownLib = mouseDown;
-            super.render(context, mouseX, mouseY, delta);
+            super.extractRenderState(context, mouseX, mouseY, delta);
         }
 
-        @Override public void close() { client.options.hudHidden = previousHudHidden; EbookReader.this.setState(false); super.close(); }
-        @Override public boolean shouldPause() { return false; }
+        @Override public void onClose() { minecraft.options.hideGui = previousHudHidden; EbookReader.this.setState(false); super.onClose(); }
+        @Override public boolean isPauseScreen() { return false; }
     }
 
-    public class ReaderScreen extends net.minecraft.client.gui.screen.Screen {
+    public class ReaderScreen extends net.minecraft.client.gui.screens.Screen {
         private boolean previousHudHidden = false;
         private boolean wasMouseDownReader = false;
         private float zoomScale = 1.0f;
         
         // --- TEXTFIELD ĐỂ NHẬP TRANG ---
-        private net.minecraft.client.gui.widget.TextFieldWidget pageInputWidget;
+        private net.minecraft.client.gui.components.EditBox pageInputWidget;
         private boolean isEditingPage = false;
 
-        public ReaderScreen() { super(net.minecraft.text.Text.literal("Ebook Reader")); }
+        public ReaderScreen() { super(net.minecraft.network.chat.Component.literal("Ebook Reader")); }
 
         @Override protected void init() { 
-            previousHudHidden = client.options.hudHidden; 
-            client.options.hudHidden = true; 
+            previousHudHidden = minecraft.options.hideGui; 
+            minecraft.options.hideGui = true; 
             
             // Khởi tạo ô nhập số trang xịn xò của Minecraft
-            pageInputWidget = new net.minecraft.client.gui.widget.TextFieldWidget(client.textRenderer, 0, 0, 40, 12, net.minecraft.text.Text.literal(""));
+            pageInputWidget = new net.minecraft.client.gui.components.EditBox(minecraft.font, 0, 0, 40, 12, net.minecraft.network.chat.Component.literal(""));
             pageInputWidget.setMaxLength(5); // Sách 99999 trang là max
             pageInputWidget.setVisible(false);
-            pageInputWidget.setDrawsBackground(true);
+            pageInputWidget.setBordered(true);
             // BIỂU THỨC CHÍNH QUY (REGEX): Cấm tuyệt đối số âm, số thực, chữ cái. Chỉ cho gõ số (0-9)
-            pageInputWidget.setTextPredicate(text -> text.isEmpty() || text.matches("^[0-9]+$"));
-            this.addDrawableChild(pageInputWidget);
+            pageInputWidget.setResponder(text -> {
+                if (!text.isEmpty() && !text.matches("^[0-9]+$")) {
+                    pageInputWidget.setValue(text.replaceAll("[^0-9]", ""));
+                }
+            });
+            this.addRenderableWidget(pageInputWidget);
         }
 
-        @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        @Override public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
             long now = System.currentTimeMillis(); float deltaMs = lastFrameTime == 0 ? 16f : (now - lastFrameTime); lastFrameTime = now;
             if (pageFlipProgress < 1.0f) { pageFlipProgress += deltaMs / 280.0f; if (pageFlipProgress > 1.0f) pageFlipProgress = 1.0f; }
 
+            this.extractBlurredBackground(context);
             context.fill(0, 0, this.width, this.height, 0x77000000);
 
             float baseW = 400, baseH = 480;
@@ -580,11 +563,11 @@ public class EbookReader extends AddonModule {
             float slideOffset = 0f;
             if (pageFlipProgress < 1.0f) slideOffset = (1f - (1f - (float)Math.pow(1f - pageFlipProgress, 3))) * 40f * pageFlipDir;
 
-            drawSkiaPanel(winX + slideOffset, winY, panelW, panelH, 10f, true);
+            drawSkiaPanel(context, winX + slideOffset, winY, panelW, panelH, 10f, true);
 
             int contentTop = (int) winY + 14;
             if (showTitle.getValue()) {
-                context.drawText(client.textRenderer, currentBookTitle, (int)(winX + slideOffset + (panelW - client.textRenderer.getWidth(currentBookTitle)) / 2f), contentTop, 0xFFFFFFFF, true);
+                context.text(minecraft.font, currentBookTitle, (int)(winX + slideOffset + (panelW - minecraft.font.width(currentBookTitle)) / 2f), contentTop, 0xFFFFFFFF, true);
                 contentTop += 16;
             }
 
@@ -593,12 +576,14 @@ public class EbookReader extends AddonModule {
 
             int textAlpha = (int)(255 * Math.min(1f, pageFlipProgress * 1.6f));
             if (!currentPages.isEmpty()) {
-                drawRichPage(currentPages.get(currentPageIndex), winX + slideOffset + 18, contentTop, textAlpha);
+                drawRichPage(context, currentPages.get(currentPageIndex), winX + slideOffset + 18, contentTop, textAlpha);
             }
+
+
 
             // ── LOGIC HIỂN THỊ VÀ CLICK CHỌN TRANG ──
             String pageInfo = (currentPageIndex + 1) + " / " + Math.max(1, currentPages.size());
-            int pageInfoW = client.textRenderer.getWidth(pageInfo);
+            int pageInfoW = minecraft.font.width(pageInfo);
             int pageInfoX = (int)(winX + slideOffset + (panelW - pageInfoW) / 2f);
             int pageInfoY = (int)(winY + panelH - 16);
             
@@ -610,7 +595,7 @@ public class EbookReader extends AddonModule {
                 pageInputWidget.setX(pageInfoX + pageInfoW / 2 - 20);
                 pageInputWidget.setY(pageInfoY - 2);
             } else {
-                context.drawText(client.textRenderer, pageInfo, pageInfoX, pageInfoY, hoverPage ? 0xFFFFFFFF : 0xFFAAAAAA, false);
+                context.text(minecraft.font, pageInfo, pageInfoX, pageInfoY, hoverPage ? 0xFFFFFFFF : 0xFFAAAAAA, false);
             }
 
             int btnY = (int)(winY + panelH - 30);
@@ -620,9 +605,9 @@ public class EbookReader extends AddonModule {
             boolean hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 12 && mouseY >= btnY && mouseY <= btnY + 12;
             
             context.fill(btnPrevX, btnY, btnPrevX + 12, btnY + 12, hoverPrev ? 0x55FFFFFF : 0x22FFFFFF);
-            context.drawText(client.textRenderer, "<", btnPrevX + 3, btnY + 2, 0xFFFFFFFF, true);
+            context.text(minecraft.font, "<", btnPrevX + 3, btnY + 2, 0xFFFFFFFF, true);
             context.fill(btnNextX, btnY, btnNextX + 12, btnY + 12, hoverNext ? 0x55FFFFFF : 0x22FFFFFF);
-            context.drawText(client.textRenderer, ">", btnNextX + 3, btnY + 2, 0xFFFFFFFF, true);
+            context.text(minecraft.font, ">", btnNextX + 3, btnY + 2, 0xFFFFFFFF, true);
 
             int zoomBtnY = (int) winY + 8;
             int zOutX = (int)(winX + slideOffset + panelW - 48), zInX = (int)(winX + slideOffset + panelW - 24);
@@ -630,13 +615,13 @@ public class EbookReader extends AddonModule {
             boolean hZIn  = mouseX >= zInX  && mouseX <= zInX + 16  && mouseY >= zoomBtnY && mouseY <= zoomBtnY + 16;
             context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 16, hZOut ? 0x66FFFFFF : 0x33FFFFFF);
             context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 16, hZIn ? 0x66FFFFFF : 0x33FFFFFF);
-            context.drawText(client.textRenderer, "-", zOutX + 6, zoomBtnY + 4, 0xFFFFFFFF, true);
-            context.drawText(client.textRenderer, "+", zInX + 5, zoomBtnY + 4, 0xFFFFFFFF, true);
+            context.text(minecraft.font, "-", zOutX + 6, zoomBtnY + 4, 0xFFFFFFFF, true);
+            context.text(minecraft.font, "+", zInX + 5, zoomBtnY + 4, 0xFFFFFFFF, true);
 
             // ── BẮT TẤT CẢ CÁC LOẠI CLICK CHUỘT (TRÁI/PHẢI/GIỮA) ──
-            boolean leftClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-            boolean rightClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
-            boolean midClick = GLFW.glfwGetMouseButton(client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_MIDDLE) == GLFW.GLFW_PRESS;
+            boolean leftClick = GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            boolean rightClick = GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
+            boolean midClick = GLFW.glfwGetMouseButton(minecraft.getWindow().handle(), GLFW.GLFW_MOUSE_BUTTON_MIDDLE) == GLFW.GLFW_PRESS;
             boolean anyClick = leftClick || rightClick || midClick;
 
             if (anyClick && !wasMouseDownReader) {
@@ -649,7 +634,7 @@ public class EbookReader extends AddonModule {
                     if (hoverPage) {
                         // Kích hoạt ô gõ chữ
                         isEditingPage = true;
-                        pageInputWidget.setText(String.valueOf(currentPageIndex + 1));
+                        pageInputWidget.setValue(String.valueOf(currentPageIndex + 1));
                         pageInputWidget.setVisible(true);
                         this.setFocused(pageInputWidget);
                         pageInputWidget.setFocused(true);
@@ -664,12 +649,12 @@ public class EbookReader extends AddonModule {
             wasMouseDownReader = anyClick;
 
             // Chốt hạ: Vẽ các component tĩnh gốc của Screen (bao gồm cả pageInputWidget)
-            super.render(context, mouseX, mouseY, delta);
+            super.extractRenderState(context, mouseX, mouseY, delta);
         }
 
         private void submitPageInput() {
             try {
-                int targetPage = Integer.parseInt(pageInputWidget.getText().trim());
+                int targetPage = Integer.parseInt(pageInputWidget.getValue().trim());
                 int totalPages = Math.max(1, currentPages.size());
                 // ÉP KHUNG GIỚI HẠN: Nếu gõ lố > max hoặc gõ số 0, tự động ép về giới hạn
                 targetPage = Math.max(1, Math.min(targetPage, totalPages));
@@ -686,26 +671,23 @@ public class EbookReader extends AddonModule {
             pageInputWidget.setVisible(false);
         }
 
-        private void drawRichPage(Page page, float startX, float startY, int alpha) {
-            org.lwjgl.opengl.GL15C.glBindBuffer(org.lwjgl.opengl.GL21C.GL_PIXEL_UNPACK_BUFFER, 0);
-            org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ROW_LENGTH, 0);
-            org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_PIXELS, 0);
-            org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_SKIP_ROWS, 0);
-            org.lwjgl.opengl.GL11C.glPixelStorei(org.lwjgl.opengl.GL11C.GL_UNPACK_ALIGNMENT, 4);
+        /**
+         * Renders the page's text + images GPU-side into a persistent texture and
+         * composites via the normal blit path. Local command coordinates (t.x/t.y,
+         * imgCmd.x/y) are relative to (startX, startY), so they map 1:1 onto the
+         * texture's own origin — no coordinate shifting needed beyond the final blit position.
+         */
+        private void drawRichPage(GuiGraphicsExtractor context, Page page, float startX, float startY, int alpha) {
+            float scale = (float) minecraft.getWindow().getGuiScale();
+            int pw = Math.max(1, Math.round(currentLayoutW * scale));
+            int ph = Math.max(1, Math.round(currentLayoutH * scale));
 
-            if (skiaContext == null) skiaContext = DirectContext.makeGL();
-            skiaContext.resetAll();
-
-            int savedFboR = org.lwjgl.opengl.GL11C.glGetInteger(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER_BINDING);
-            int fboId = bindSkiaFbo(client);
-            if (fboId == -1) { org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFboR); return; }
-
-            try (BackendRenderTarget rt = BackendRenderTarget.makeGL(client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0, 0, fboId, org.lwjgl.opengl.GL30C.GL_RGBA8);
-                 Surface surface = Surface.wrapBackendRenderTarget(skiaContext, rt, SurfaceOrigin.BOTTOM_LEFT, io.github.humbleui.skija.ColorType.RGBA_8888, ColorSpace.getSRGB(), null)) {
-                Canvas canvas = surface.getCanvas();
-                float scale = (float) client.getWindow().getScaleFactor();
+            if (pageContentTex == null) pageContentTex = new CachedSkiaTexture("ebookreader_page");
+            // Re-rasters on page turn (new Page instance) and during the fade (alpha
+            // changes); once the page is shown steadily it caches and just blits.
+            String pageKey = System.identityHashCode(page) + "|" + pw + "x" + ph + "|" + alpha;
+            pageContentTex.render(pw, ph, pageKey, canvas -> {
                 canvas.scale(scale, scale);
-
                 try (Paint paint = new Paint()) {
                     paint.setAntiAlias(true);
                     paint.setColor(new Color(235, 235, 235, Math.max(0, Math.min(255, alpha))).getRGB());
@@ -717,37 +699,31 @@ public class EbookReader extends AddonModule {
 
                             if (t.heading) {
                                 try (Font hf = new Font(f.getTypeface(), fontReg.getSize() * 1.5f)) {
-                                    canvas.drawString(t.text, startX + t.x, startY + t.y + hf.getSize(), hf, paint);
+                                    canvas.drawString(t.text, t.x, t.y + hf.getSize(), hf, paint);
                                 }
                             } else {
-                                canvas.drawString(t.text, startX + t.x, startY + t.y + f.getSize(), f, paint);
+                                canvas.drawString(t.text, t.x, t.y + f.getSize(), f, paint);
                             }
                         } else if (cmd instanceof ImageCmd) {
                             ImageCmd imgCmd = (ImageCmd) cmd;
                             if (imgCmd.img != null && !imgCmd.img.isClosed()) {
                                 try (Paint imgPaint = new Paint()) {
                                     imgPaint.setAlphaf(alpha / 255f);
-                                    canvas.drawImageRect(imgCmd.img, Rect.makeXYWH(0, 0, imgCmd.img.getWidth(), imgCmd.img.getHeight()), Rect.makeXYWH(startX + imgCmd.x, startY + imgCmd.y, imgCmd.w, imgCmd.h), imgPaint);
+                                    canvas.drawImageRect(imgCmd.img, Rect.makeXYWH(0, 0, imgCmd.img.getWidth(), imgCmd.img.getHeight()), Rect.makeXYWH(imgCmd.x, imgCmd.y, imgCmd.w, imgCmd.h), imgPaint);
                                 }
                             }
                         }
                     }
                 }
-                skiaContext.flushAndSubmit(false);
-            }
-
-            org.lwjgl.opengl.GL30C.glBindFramebuffer(org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER, savedFboR);
-            org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_BLEND);
-            org.lwjgl.opengl.GL11C.glBlendFunc(org.lwjgl.opengl.GL11C.GL_SRC_ALPHA, org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA);
-            org.lwjgl.opengl.GL11C.glEnable(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST);
-            org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_SCISSOR_TEST);
-            org.lwjgl.opengl.GL11C.glDisable(org.lwjgl.opengl.GL11C.GL_STENCIL_TEST);
+            });
+            pageContentTex.blit(context, Math.round(startX), Math.round(startY),
+                Math.round(currentLayoutW), Math.round(currentLayoutH));
         }
 
         // ĐÃ SỬA LẠI ĐÚNG CHUẨN KEYPRESSED CỦA MINECRAFT 1.21 ĐỂ BÀN PHÍM HOẠT ĐỘNG HOÀN HẢO
         // ĐÃ TRẢ VỀ ĐÚNG CHUẨN KEYINPUT CỦA BOZE API
         @Override 
-        public boolean keyPressed(net.minecraft.client.input.KeyInput input) {
+        public boolean keyPressed(net.minecraft.client.input.KeyEvent input) {
             int keyCode = input.key(); // Lấy mã phím từ Object KeyInput
             
             if (isEditingPage) {
@@ -765,14 +741,14 @@ public class EbookReader extends AddonModule {
                 return super.keyPressed(input);
             }
 
-            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { this.close(); return true; }
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { this.onClose(); return true; }
             if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; return true; }
             if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; return true; }
             
             return super.keyPressed(input);
         }
 
-        @Override public void close() { client.options.hudHidden = previousHudHidden; client.setScreen(new LibraryScreen()); }
-        @Override public boolean shouldPause() { return false; }
+        @Override public void onClose() { minecraft.options.hideGui = previousHudHidden; minecraft.setScreen(new LibraryScreen()); }
+        @Override public boolean isPauseScreen() { return false; }
     }
 }

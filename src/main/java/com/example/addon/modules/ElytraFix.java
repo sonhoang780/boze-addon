@@ -12,17 +12,17 @@ import dev.boze.api.utility.ChatHelper;
 import dev.boze.api.utility.interaction.InvHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.Hand;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.InteractionHand;
 
 public class ElytraFix extends AddonModule {
     public static final ElytraFix INSTANCE = new ElytraFix();
@@ -30,10 +30,10 @@ public class ElytraFix extends AddonModule {
     public enum SwapMode { Normal, Alt, Silent }
 
 
-    public final SliderOption durability = new SliderOption(this, "Durability %", "Start repairing when below this %.", 50.0, 1.0, 99.0, 1.0);
+    public final SliderOption durability = new SliderOption(this, "DurabilityPct", "Start repairing when below this %.", 50.0, 1.0, 99.0, 1.0);
     public final ModeOption<SwapMode> swapMode = new ModeOption<>(this, "Swap Mode", "Mode to swap to EXP bottles.", SwapMode.Alt);
-    public final ToggleOption fastExp = new ToggleOption(this, "Fast Exp", "Ném exp dồn dập hơn (chờ hấp thụ ngắn hơn). Vẫn không ném phí nhờ cơ chế chờ hấp thụ.", false);
-    public final ToggleOption hoverWhileRepair = new ToggleOption(this, "Hover While Repairing", "Đứng yên giữa không trung lúc sửa để chai exp rơi trúng người.", true);
+    public final ToggleOption fastExp = new ToggleOption(this, "FastExp", "", false);
+    public final ToggleOption hoverWhileRepair = new ToggleOption(this, "Hover", "Stay on Air when repairing", true);
 
 
     // Tên module trong Boze core (đổi nếu Boze đặt tên khác).
@@ -75,7 +75,7 @@ public class ElytraFix extends AddonModule {
     // ── F5 HEAD PITCH VISUAL ──
     // Set to throw pitch (degrees) in throwExp() so MixinLivingEntityRenderer can inject it
     // into LivingEntityRenderState.pitch when capturing the local player's render state.
-    // The camera reads mc.player.getPitch() DIRECTLY (bypasses render state) so it stays at
+    // The camera reads mc.player.getXRot() DIRECTLY (bypasses render state) so it stays at
     // the real pitch. Only the entity model in F5 sees the throw pitch — head nods without
     // any camera snap in first-person. Cleared at start of the next EventTick.Pre.
     public static float headPitchOverrideDeg = Float.NaN;
@@ -135,7 +135,7 @@ public class ElytraFix extends AddonModule {
 
     // Boze ElytraFly đang bật? Đây chính là "trạng thái khác" (không phải vanilla
     // gliding) cho phép đổi elytra giữa không trung mà KHÔNG rớt, vì ElytraFly giữ
-    // người chơi bằng velocity chứ không phụ thuộc cờ isGliding.
+    // người chơi bằng velocity chứ không phụ thuộc cờ isFallFlying.
     private boolean isElytraFlyOn() {
         try {
             return ModuleManager.getState(MODULE_ELYTRA_FLY);
@@ -146,8 +146,8 @@ public class ElytraFix extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
 
         // Clear the F5 head-pitch override from the previous throw so it doesn't persist
         // beyond one tick. The mixin only injects it into the render state, so the camera
@@ -156,8 +156,8 @@ public class ElytraFix extends AddonModule {
 
         // Chỉ bỏ khi đang mở màn hình container khác (rương, lò, ...) — slot index thay đổi.
         // Pause menu, chat, và Boze GUI không ảnh hưởng đến screenHandler → vẫn chạy bình thường.
-        if (mc.currentScreen instanceof HandledScreen
-                && !(mc.currentScreen instanceof InventoryScreen)) return;
+        if (mc.screen instanceof AbstractContainerScreen
+                && !(mc.screen instanceof InventoryScreen)) return;
 
         boolean elytraFlyOn = isElytraFlyOn();
 
@@ -165,7 +165,7 @@ public class ElytraFix extends AddonModule {
         //    Cho phép khi ĐỨNG ĐẤT, HOẶC khi ElytraFly đang bật (bay được mà không
         //    rớt — đây là phần còn thiếu mà bạn nói tới). KHÔNG đổi khi đang vanilla
         //    gliding mà không có ElytraFly (sẽ rớt).
-        boolean canSwap = mc.player.isOnGround() || elytraFlyOn || mc.player.isGliding();
+        boolean canSwap = mc.player.onGround() || elytraFlyOn || mc.player.isFallFlying();
         if (!isSwappingElytra && !isRepairing && canSwap) {
             tryEquipWornElytraForRepair(mc);
         }
@@ -176,15 +176,15 @@ public class ElytraFix extends AddonModule {
         }
 
         // 1. ELYTRA ĐANG MẶC?
-        ItemStack chest = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-        if (!chest.isOf(Items.ELYTRA)) {
+        ItemStack chest = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+        if (chest.getItem() != Items.ELYTRA) {
             if (isRepairing) stopRepairing();
             return;
         }
 
         // 2. ĐỘ BỀN
         int maxDamage = chest.getMaxDamage();
-        int damage = chest.getDamage();
+        int damage = chest.getDamageValue();
         float pct = ((float) (maxDamage - damage) / maxDamage) * 100f;
 
         if (pct <= durability.getValue() && !isRepairing) {
@@ -193,13 +193,13 @@ public class ElytraFix extends AddonModule {
             absorbWaitStartMs = 0L;
             if (hoverWhileRepair.getValue()) {
                 // If mid-air and ElytraFly is off (Baritone flying), enable it so we can hover.
-                if (!elytraFlyOn && !mc.player.isOnGround()) {
+                if (!elytraFlyOn && !mc.player.onGround()) {
                     try { ModuleManager.setState(MODULE_ELYTRA_FLY, true); } catch (Exception ignored) {}
                     enabledElytraFlyForRepair = true;
                     elytraFlyOn = true; // update local var so elytraFlyHovering is correct this tick
                 }
                 saveAndReduceSpeed();
-                if (elytraFlyOn && !mc.player.isOnGround()) {
+                if (elytraFlyOn && !mc.player.onGround()) {
                     saveAndSwitchFlyMode();
                     enableTimerForRepair();
                 }
@@ -212,7 +212,7 @@ public class ElytraFix extends AddonModule {
 
         if (pct >= 100f && isRepairing) {
             stopRepairing();
-            if (!mc.player.isOnGround() && mc.getNetworkHandler() != null) {
+            if (!mc.player.onGround() && mc.getConnection() != null) {
                 if (elytraFlyOn) {
                     // ElytraFly resumes on the very next tick — behaves identically to
                     // disabling the module mid-repair (which never falls). Don't kick or
@@ -220,11 +220,11 @@ public class ElytraFix extends AddonModule {
                 } else {
                     // Vanilla gliding: server may have deactivated gliding due to inventory
                     // changes during repair; kick forward and re-trigger.
-                    float yaw = mc.player.getYaw();
+                    float yaw = mc.player.getYRot();
                     double rad = Math.toRadians(yaw);
-                    mc.player.setVelocity(-Math.sin(rad) * 0.6, -0.1, Math.cos(rad) * 0.6);
-                    mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(
-                        mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                    mc.player.setDeltaMovement(-Math.sin(rad) * 0.6, -0.1, Math.cos(rad) * 0.6);
+                    mc.getConnection().send(new ServerboundPlayerCommandPacket(
+                        mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
                 }
             }
             return;
@@ -251,17 +251,17 @@ public class ElytraFix extends AddonModule {
 
         // ─────────────── ĐANG SỬA ───────────────
 
-        // "FLYING" = đang thực sự bay. FIX điều kiện: KHÔNG dùng !isOnGround() nữa
+        // "FLYING" = đang thực sự bay. FIX điều kiện: KHÔNG dùng !onGround() nữa
         // (nhảy lên cũng thỏa → vô lý). Dùng: vanilla gliding HOẶC ElytraFly đang bay.
-        boolean flying = mc.player.isGliding() || (elytraFlyOn && !mc.player.isOnGround());
+        boolean flying = mc.player.isFallFlying() || (elytraFlyOn && !mc.player.onGround());
         // True when ElytraFly holds the player airborne (vs vanilla gliding or on-ground).
-        boolean elytraFlyHovering = hoverWhileRepair.getValue() && elytraFlyOn && !mc.player.isOnGround();
+        boolean elytraFlyHovering = hoverWhileRepair.getValue() && elytraFlyOn && !mc.player.onGround();
 
         hoverTimerSpeed = 1.0f;
         pendingThrow = false;
 
         // 3. PHÁO HOA / BOOST: vận tốc còn lớn thì khoan ném.
-        if (mc.player.getVelocity().length() > 1.5) return;
+        if (mc.player.getDeltaMovement().length() > 1.5) return;
 
         // 4. CỔNG TIẾT KIỆM EXP: nếu đang chờ chai trước được hấp thụ thì KHÔNG ném thêm.
         if (damageAtLastThrow >= 0) {
@@ -290,7 +290,7 @@ public class ElytraFix extends AddonModule {
         //    anchor=true khi bay+hover: ghim vị trí server để chai không kế thừa vận tốc.
         float pitch = flying ? -90f : 90f;
         boolean anchor = flying && hoverWhileRepair.getValue();
-        throwExp(mc, expSlot, mc.player.getYaw(), pitch, anchor);
+        throwExp(mc, expSlot, mc.player.getYRot(), pitch, anchor);
 
         // Ghi nhận để chờ hấp thụ trước khi ném chai tiếp theo.
         damageAtLastThrow = damage;
@@ -300,42 +300,42 @@ public class ElytraFix extends AddonModule {
     /**
      * Throws an exp bottle at the given server-side yaw/pitch, silently.
      *
-     * In MC 1.21+, PlayerInteractItemC2SPacket embeds player.getYaw()/getPitch() directly,
+     * PlayerInteractItemC2SPacket embeds player.getYRot()/getXRot() directly,
      * so the throw direction is determined by the CLIENT rotation at call time — not by
-     * the preceding LookAndOnGround packet. We temporarily set mc.player.setPitch() so
-     * interactItem() picks up our desired pitch, then restore it immediately so the camera
+     * the preceding ServerboundMovePlayerPacket.Rot packet. We temporarily set mc.player.setXRot() so
+     * useItem() picks up our desired pitch, then restore it immediately so the camera
      * never snaps. headPitchOverrideDeg is set so MixinLivingEntityRenderer can inject the
      * throw pitch into LivingEntityRenderState.pitch — the entity MODEL renders with the
-     * throw pitch in F5 while the camera reads mc.player.getPitch() (bypass render state)
+     * throw pitch in F5 while the camera reads mc.player.getXRot() (bypass render state)
      * and stays at the real angle throughout.
      */
-    private void throwExp(MinecraftClient mc, int slot, float yaw, float pitch, boolean anchor) {
-        if (mc.interactionManager == null || mc.getNetworkHandler() == null) return;
-        var net = mc.getNetworkHandler();
+    private void throwExp(Minecraft mc, int slot, float yaw, float pitch, boolean anchor) {
+        if (mc.gameMode == null || mc.getConnection() == null) return;
+        var net = mc.getConnection();
 
-        boolean onGround = mc.player.isOnGround();
+        boolean onGround = mc.player.onGround();
         boolean hColl = mc.player.horizontalCollision;
 
         if (anchor) {
-            // GHIM VỊ TRÍ SERVER: 2 gói Full giống nhau → delta 0 → chai không bị cộng vận tốc lướt.
+            // GHIM VỊ TRÍ SERVER: 2 gói PosRot giống nhau → delta 0 → chai không bị cộng vận tốc lướt.
             double x = mc.player.getX(), y = mc.player.getY(), z = mc.player.getZ();
-            net.sendPacket(new PlayerMoveC2SPacket.Full(x, y, z, yaw, pitch, onGround, hColl));
-            net.sendPacket(new PlayerMoveC2SPacket.Full(x, y, z, yaw, pitch, onGround, hColl));
+            net.send(new ServerboundMovePlayerPacket.PosRot(x, y, z, yaw, pitch, onGround, hColl));
+            net.send(new ServerboundMovePlayerPacket.PosRot(x, y, z, yaw, pitch, onGround, hColl));
         } else {
-            net.sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, onGround, hColl));
+            net.send(new ServerboundMovePlayerPacket.Rot(yaw, pitch, onGround, hColl));
         }
 
         // Temporarily override client pitch so PlayerInteractItemC2SPacket carries our pitch.
         // Restore immediately — no camera snap in first-person or third-person.
-        float savedPitch = mc.player.getPitch();
-        mc.player.setPitch(pitch);
+        float savedPitch = mc.player.getXRot();
+        mc.player.setXRot(pitch);
         InvHelper.swapToSlot(slot, getBozeSwapType());
-        mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
         InvHelper.swapBack();
-        mc.player.setPitch(savedPitch);
+        mc.player.setXRot(savedPitch);
 
         // Signal MixinLivingEntityRenderer to inject the throw pitch into the render state
-        // for the local player model this tick. Camera reads mc.player.getPitch() directly
+        // for the local player model this tick. Camera reads mc.player.getXRot() directly
         // (not via render state) so it stays at savedPitch. F5 head nods; first-person unchanged.
         headPitchOverrideDeg = pitch;
     }
@@ -365,12 +365,12 @@ public class ElytraFix extends AddonModule {
      * hotbar có elytra độ bền THẤP HƠN threshold (cần sửa) → ĐỔI CHỖ để mang cái
      * mòn ra mặc mà sửa. Nếu cái đang mặc cũng đã dưới threshold thì sửa nó luôn.
      */
-    private void tryEquipWornElytraForRepair(MinecraftClient mc) {
+    private void tryEquipWornElytraForRepair(Minecraft mc) {
         int slot = findLowestWornElytraInInventory(mc);
         if (slot == -1) return;
 
-        ItemStack equipped = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-        if (equipped.isOf(Items.ELYTRA)) {
+        ItemStack equipped = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+        if (equipped.getItem() == Items.ELYTRA) {
             if (durabilityPercentOf(equipped) <= durability.getValue()) return; // cái đang mặc cũng cần sửa → sửa luôn
             // ngược lại: đang mặc cái tốt, kho có cái mòn → đổi chỗ.
         }
@@ -386,8 +386,8 @@ public class ElytraFix extends AddonModule {
         pendingElytraSlot = slot;
     }
 
-    private void handleElytraSwapSequence(MinecraftClient mc) {
-        if (mc.currentScreen != null) { cancelElytraSwap(); return; }
+    private void handleElytraSwapSequence(Minecraft mc) {
+        if (mc.screen != null) { cancelElytraSwap(); return; }
 
         swapElytraTicks++;
 
@@ -398,10 +398,10 @@ public class ElytraFix extends AddonModule {
         //   Click 3: click pendingElytraSlot (now empty) → places displaced item back there
         if (swapElytraTicks == 1) {
             if (pendingElytraSlot == -1) { cancelElytraSwap(); return; }
-            int syncId = mc.player.playerScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, pendingElytraSlot, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, 6, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, pendingElytraSlot, 0, SlotActionType.PICKUP, mc.player);
+            int syncId = mc.player.inventoryMenu.containerId;
+            mc.gameMode.handleContainerInput(syncId, pendingElytraSlot, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, pendingElytraSlot, 0, ContainerInput.PICKUP, mc.player);
             return;
         }
 
@@ -417,13 +417,13 @@ public class ElytraFix extends AddonModule {
 
     /** Quét inventory + hotbar (slot 9-44), trả về ô chứa elytra ĐỘ BỀN THẤP NHẤT
      *  mà vẫn dưới threshold; -1 nếu không có. */
-    private int findLowestWornElytraInInventory(MinecraftClient mc) {
-        ScreenHandler h = mc.player.playerScreenHandler;
+    private int findLowestWornElytraInInventory(Minecraft mc) {
+        AbstractContainerMenu h = mc.player.inventoryMenu;
         int best = -1;
         float bestPct = Float.MAX_VALUE;
         for (int i = 9; i <= 44; i++) {
-            ItemStack s = h.getSlot(i).getStack();
-            if (!s.isOf(Items.ELYTRA)) continue;
+            ItemStack s = h.getSlot(i).getItem();
+            if (s.getItem() != Items.ELYTRA) continue;
             float pct = durabilityPercentOf(s);
             if (pct <= durability.getValue() && pct < bestPct) {
                 bestPct = pct;
@@ -435,26 +435,26 @@ public class ElytraFix extends AddonModule {
 
     private float durabilityPercentOf(ItemStack stack) {
         if (stack == null || stack.isEmpty() || stack.getMaxDamage() <= 0) return 0f;
-        return ((float) (stack.getMaxDamage() - stack.getDamage()) / stack.getMaxDamage()) * 100f;
+        return ((float) (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage()) * 100f;
     }
 
-    private void unequipArmor(MinecraftClient mc) {
+    private void unequipArmor(Minecraft mc) {
         int[] armorSlots = {5, 7, 8}; // Helmet, Legs, Boots (bỏ Chest=6 / elytra)
         for (int slot : armorSlots) {
-            if (!mc.player.playerScreenHandler.getSlot(slot).getStack().isEmpty()) {
+            if (!mc.player.inventoryMenu.getSlot(slot).getItem().isEmpty()) {
                 int empty = findEmptyInvSlot(mc);
                 if (empty != -1) {
-                    mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, slot, 0, SlotActionType.PICKUP, mc.player);
-                    mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, empty, 0, SlotActionType.PICKUP, mc.player);
+                    mc.gameMode.handleContainerInput(mc.player.inventoryMenu.containerId, slot, 0, ContainerInput.PICKUP, mc.player);
+                    mc.gameMode.handleContainerInput(mc.player.inventoryMenu.containerId, empty, 0, ContainerInput.PICKUP, mc.player);
                 }
             }
         }
     }
 
-    private int findEmptyInvSlot(MinecraftClient mc) {
-        ScreenHandler handler = mc.player.playerScreenHandler;
+    private int findEmptyInvSlot(Minecraft mc) {
+        AbstractContainerMenu handler = mc.player.inventoryMenu;
         for (int i = 9; i <= 44; i++) {
-            if (handler.getSlot(i).getStack().isEmpty()) return i;
+            if (handler.getSlot(i).getItem().isEmpty()) return i;
         }
         return -1;
     }

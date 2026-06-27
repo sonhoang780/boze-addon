@@ -4,7 +4,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import dev.boze.api.addon.AddonCommand;
-import net.minecraft.command.CommandSource;
+import net.minecraft.commands.SharedSuggestionProvider;
 import com.example.addon.modules.betterrekit.EvilRekit;
 
 import static com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -17,8 +17,8 @@ public class KitCommand extends AddonCommand {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<CommandSource> builder) {
-        SuggestionProvider<CommandSource> suggestKits = (ctx, b) -> {
+    public void build(LiteralArgumentBuilder<SharedSuggestionProvider> builder) {
+        SuggestionProvider<SharedSuggestionProvider> suggestKits = (ctx, b) -> {
             String input = b.getRemaining().toLowerCase();
             for (String kit : EvilRekit.INSTANCE.getKitNames()) {
                 if (kit.toLowerCase().startsWith(input)) {

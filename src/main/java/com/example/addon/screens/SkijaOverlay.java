@@ -6,7 +6,7 @@ import io.github.humbleui.skija.ColorAlphaType;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.ImageInfo;
 import io.github.humbleui.skija.Surface;
-import net.minecraft.client.texture.NativeImage;
+import com.mojang.blaze3d.platform.NativeImage;
 
 import java.util.function.Consumer;
 
@@ -37,16 +37,15 @@ public final class SkijaOverlay {
                 if (px == null) return null;
 
                 NativeImage ni = new NativeImage(NativeImage.Format.RGBA, w, h, false);
-                int p = 0;
-                for (int y = 0; y < h; y++) {
-                    for (int x = 0; x < w; x++, p += 4) {
-                        int r = px[p]     & 0xFF;
-                        int g = px[p + 1] & 0xFF;
-                        int b = px[p + 2] & 0xFF;
-                        int a = px[p + 3] & 0xFF;
-                        ni.setColorArgb(x, y, (a << 24) | (r << 16) | (g << 8) | b);
-                    }
-                }
+                // NativeImage's RGBA format stores pixels as R,G,B,A bytes in native
+                // memory (little-endian ABGR int) — exactly Skija's RGBA_8888 byte
+                // order. So we blast the whole pixel block straight into the native
+                // buffer in one bulk copy instead of looping setPixel() per pixel,
+                // which was the CPU bottleneck behind the per-frame raster cost.
+                long ptr = ni.getPointer();
+                int bytes = Math.min(px.length, w * h * 4);
+                java.nio.ByteBuffer dst = org.lwjgl.system.MemoryUtil.memByteBuffer(ptr, bytes);
+                dst.put(px, 0, bytes);
                 return ni;
             }
         } catch (Exception e) {

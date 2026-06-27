@@ -6,14 +6,14 @@ import dev.boze.api.event.EventTick;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.slot.Slot;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.network.chat.Component;
 
 public class ChestButtons extends AddonModule {
     public static final ChestButtons INSTANCE = new ChestButtons();
@@ -21,7 +21,7 @@ public class ChestButtons extends AddonModule {
     // Đã bổ sung biến active để theo dõi trạng thái module
     public boolean active = false;
 
-    public final SliderOption delay = new SliderOption(this, "Delay (Ticks)", "", 1.0, 0.0, 20.0, 1.0);
+    public final SliderOption delay = new SliderOption(this, "DelayTicks", "", 1.0, 0.0, 20.0, 1.0);
 
     private boolean isDumping = false;
     private boolean isStealing = false;
@@ -33,9 +33,9 @@ public class ChestButtons extends AddonModule {
         super("ChestButtons", "Steal/Dump");
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            if (this.active && screen instanceof HandledScreen && !(screen instanceof InventoryScreen)) {
-                HandledScreen<?> handledScreen = (HandledScreen<?>) screen;
-                ScreenHandler handler = handledScreen.getScreenHandler();
+            if (this.active && screen instanceof AbstractContainerScreen && !(screen instanceof InventoryScreen)) {
+                AbstractContainerScreen<?> handledScreen = (AbstractContainerScreen<?>) screen;
+                AbstractContainerMenu handler = handledScreen.getMenu();
                 
                 int totalSlots = handler.slots.size();
                 if (totalSlots < 36) return; 
@@ -49,21 +49,21 @@ public class ChestButtons extends AddonModule {
                 isStealing = false;
 
                 // Nút [Steal]
-                Screens.getButtons(screen).add(
-                    ButtonWidget.builder(Text.literal("Steal"), button -> {
+                Screens.getWidgets(screen).add(
+                    Button.builder(Component.literal("Steal"), button -> {
                         isStealing = true;
                         isDumping = false;
                         tickTimer = 0;
-                    }).dimensions(centerX - 52, guiTop - 22, 50, 20).build()
+                    }).bounds(centerX - 52, guiTop - 22, 50, 20).build()
                 );
 
                 // Nút [Dump]
-                Screens.getButtons(screen).add(
-                    ButtonWidget.builder(Text.literal("Dump"), button -> {
+                Screens.getWidgets(screen).add(
+                    Button.builder(Component.literal("Dump"), button -> {
                         isDumping = true;
                         isStealing = false;
                         tickTimer = 0;
-                    }).dimensions(centerX + 2, guiTop - 22, 50, 20).build()
+                    }).bounds(centerX + 2, guiTop - 22, 50, 20).build()
                 );
             }
         });
@@ -85,9 +85,9 @@ public class ChestButtons extends AddonModule {
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
 
-        if (!(mc.currentScreen instanceof HandledScreen) || mc.currentScreen instanceof InventoryScreen) {
+        if (!(mc.screen instanceof AbstractContainerScreen) || mc.screen instanceof InventoryScreen) {
             isDumping = false;
             isStealing = false;
             return;
@@ -100,8 +100,8 @@ public class ChestButtons extends AddonModule {
             return;
         }
 
-        HandledScreen<?> screen = (HandledScreen<?>) mc.currentScreen;
-        ScreenHandler handler = screen.getScreenHandler();
+        AbstractContainerScreen<?> screen = (AbstractContainerScreen<?>) mc.screen;
+        AbstractContainerMenu handler = screen.getMenu();
         int totalSlots = handler.slots.size();
         if (totalSlots < 36) return;
 
@@ -113,11 +113,11 @@ public class ChestButtons extends AddonModule {
         if (isDumping) {
             for (int i = invStart; i < invEnd; i++) {
                 Slot slot = handler.slots.get(i);
-                if (slot != null && slot.hasStack()) {
-                    antiStuckCheck(slot.id);
+                if (slot != null && slot.hasItem()) {
+                    antiStuckCheck(slot.index);
                     if (stuckTicks > 5) continue; 
 
-                    mc.interactionManager.clickSlot(handler.syncId, slot.id, 0, SlotActionType.QUICK_MOVE, mc.player);
+                    mc.gameMode.handleContainerInput(handler.containerId, slot.index, 0, ContainerInput.QUICK_MOVE, mc.player);
                     tickTimer = delay.getValue().intValue();
                     moved = true;
                     break;
@@ -127,11 +127,11 @@ public class ChestButtons extends AddonModule {
         else if (isStealing) {
             for (int i = 0; i < invStart; i++) {
                 Slot slot = handler.slots.get(i);
-                if (slot != null && slot.hasStack()) {
-                    antiStuckCheck(slot.id);
+                if (slot != null && slot.hasItem()) {
+                    antiStuckCheck(slot.index);
                     if (stuckTicks > 5) continue; 
 
-                    mc.interactionManager.clickSlot(handler.syncId, slot.id, 0, SlotActionType.QUICK_MOVE, mc.player);
+                    mc.gameMode.handleContainerInput(handler.containerId, slot.index, 0, ContainerInput.QUICK_MOVE, mc.player);
                     tickTimer = delay.getValue().intValue();
                     moved = true;
                     break;

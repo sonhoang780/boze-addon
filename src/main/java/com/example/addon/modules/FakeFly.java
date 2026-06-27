@@ -1,6 +1,7 @@
 package com.example.addon.modules;
 
 import dev.boze.api.addon.AddonModule;
+import dev.boze.api.client.ModuleManager;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
@@ -9,26 +10,26 @@ import dev.boze.api.utility.ChatHelper;
 import dev.boze.api.utility.interaction.InvHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.Hand;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.InteractionHand;
 
 /**
  * FakeFly — ControlRocket-style Grim-compatible elytra flight.
  *
  * How direction control works (critical):
- *   EventTick.Pre  → compute WASD direction → player.setYaw(targetYaw).
+ *   EventTick.Pre  → compute WASD direction → player.setYRot(targetYaw).
  *                    The player tick runs after Pre and calls sendMovementPackets()
  *                    which reads player.yaw at that moment → move packet carries
  *                    targetYaw → server updates player rotation.
- *                    We also set player.bodyYaw = targetYaw for the visual body turn.
+ *                    We also set player.setYBodyRot(targetYaw) for the visual body turn.
  *                    Camera restore is saved for Post.
  *   EventTick.Post → fire the rocket. Server already received the move packet with
  *                    targetYaw this tick → uses targetYaw for boost direction → correct.
- *                    Restore player.setYaw(cameraYaw) here, BEFORE the frame renders
+ *                    Restore player.setYRot(cameraYaw) here, BEFORE the frame renders
  *                    (render happens after Post in Minecraft's game loop) → no camera snap.
  *
  * EventRotate is NOT used — it is an internal Boze interaction-system hook, not
@@ -86,13 +87,18 @@ public class FakeFly extends AddonModule {
     // tracks gliding state to detect fresh glide start (first rocket ignores conserveDelay)
     private boolean wasGliding          = false;
 
+    // ── Sprint suppression while airborne ──────────────────────────────────────
+    private static final String MODULE_SPRINT = "Sprint";
+    private boolean sprintSaved      = false;
+    private boolean savedSprintState = false;
+
     public FakeFly() {
         super("FakeFly", "Grim-compatible ControlRocket elytra flight. WASD direction with body rotation, camera free.");
     }
 
     /**
      * True while the module has taken off — covers BOTH real elytra gliding and ChestplateMode
-     * (where {@code isGliding()} is false). Used by MixinGameRenderer to suppress the first-person
+     * (where {@code isFallFlying()} is false). Used by MixinGameRenderer to suppress the first-person
      * view-bob (left/right hand sway) in every flight state, not only while gliding.
      */
     public boolean isFlying() { return flying; }
@@ -101,7 +107,7 @@ public class FakeFly extends AddonModule {
 
     @Override
     public void onEnable() {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
         rocketCooldown = 0; elytraScreenSlot = -1; cpModeActive = false; flying = false;
@@ -110,7 +116,7 @@ public class FakeFly extends AddonModule {
         pendingFire = false; invMoveBypass = false; wasGliding = false; cameraOverrideActive = false;
         lastChestplateModeValue = chestplateMode.getValue();
 
-        boolean hasElytra = mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA);
+        boolean hasElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
 
         if (chestplateMode.getValue()) {
             if (hasElytra) { flying = true; }
@@ -133,29 +139,30 @@ public class FakeFly extends AddonModule {
     public void onDisable() {
         invMoveBypass = false;
         cameraOverrideActive = false;
-        MinecraftClient mc = MinecraftClient.getInstance();
+        restoreSprintIfSaved(); // module turning off mid-air must not leave Sprint stuck disabled
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
         // Restore camera if we left it at a target rotation
         if (pendingFire) {
-            mc.player.setYaw(savedCameraYaw);
-            mc.player.setPitch(savedCameraPitch);
+            mc.player.setYRot(savedCameraYaw);
+            mc.player.setXRot(savedCameraPitch);
         }
         pendingFire = false;
 
         if (cpModeActive) {
-            if (mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA) && elytraScreenSlot != -1) {
-                int syncId = mc.player.playerScreenHandler.syncId;
-                mc.interactionManager.clickSlot(syncId, 6,                0, SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, elytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
-                mc.interactionManager.clickSlot(syncId, 6,                0, SlotActionType.PICKUP, mc.player);
+            if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA && elytraScreenSlot != -1) {
+                int syncId = mc.player.inventoryMenu.containerId;
+                mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+                mc.gameMode.handleContainerInput(syncId, elytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
+                mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
             }
             cpModeActive = false; elytraScreenSlot = -1;
         } else if (didSwapIn && equippedFromScreenSlot != -1) {
-            int syncId = mc.player.playerScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, 6,                     0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, equippedFromScreenSlot, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, 6,                     0, SlotActionType.PICKUP, mc.player);
+            int syncId = mc.player.inventoryMenu.containerId;
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, equippedFromScreenSlot, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
         }
 
         equippedFromScreenSlot = -1; didSwapIn = false; equipPending = false; flying = false;
@@ -165,9 +172,11 @@ public class FakeFly extends AddonModule {
 
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         pendingFire = false;
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null || mc.level == null) return;
+
+        updateSprintSuppression(mc);
 
         // Late init: onEnable fired before player was ready (e.g. module pre-enabled at world load)
         if (!flying && !equipPending && !cpModeActive) {
@@ -181,7 +190,7 @@ public class FakeFly extends AddonModule {
             lastChestplateModeValue = wantCp;
             cpModeActive = false; invMoveBypass = false; rocketCooldown = 0;
             if (wantCp) {
-                boolean hasE = mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA);
+                boolean hasE = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
                 if (!hasE) {
                     int s = findElytraScreenSlot(mc);
                     if (s != -1) { elytraScreenSlot = s; cpModeActive = true; flying = true; }
@@ -190,7 +199,7 @@ public class FakeFly extends AddonModule {
                 // and equip chestplate first, then CP mode will take over
             } else {
                 elytraScreenSlot = -1;
-                flying = mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA);
+                flying = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
             }
             return;
         }
@@ -199,29 +208,61 @@ public class FakeFly extends AddonModule {
 
         if (cpModeActive) {
             doChestplateSwap(mc);
-        } else if (!mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA)) {
+        } else if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
             return;
         }
 
         if (!flying) return;
-        if (!mc.player.isGliding() && !cpModeActive) {
-            if (mc.player.isOnGround() && autoTakeoff.getValue()) mc.player.jump();
+        if (!mc.player.isFallFlying() && !cpModeActive) {
+            if (mc.player.onGround() && autoTakeoff.getValue()) mc.player.jumpFromGround();
             return;
         }
 
         // Reset cooldown when elytra gliding starts fresh so the first rocket fires immediately
-        boolean nowGliding = mc.player.isGliding();
+        boolean nowGliding = mc.player.isFallFlying();
         if (nowGliding && !wasGliding) { rocketCooldown = 0; pendingFire = true; }
         wasGliding = nowGliding;
         
         prepDirection(mc);
     }
 
+
+    // ── Sprint suppression while airborne ─────────────────────────────────────
+
+    /**
+     * Sprint causes the same kind of movement-input artifacts FakeFly already works
+     * around for the camera/hand, so it's disabled the moment FakeFly leaves the
+     * ground and restored to whatever it was the moment FakeFly lands — on (re-enabled)
+     * if it was on, left off if it was already off.
+     */
+    private void updateSprintSuppression(Minecraft mc) {
+        boolean airborne = flying && !mc.player.onGround();
+        if (airborne && !sprintSaved) {
+            try {
+                savedSprintState = ModuleManager.getState(MODULE_SPRINT);
+                if (savedSprintState) ModuleManager.setState(MODULE_SPRINT, false);
+                sprintSaved = true;
+            } catch (Exception ignored) {}
+        } else if (!airborne) {
+            restoreSprintIfSaved();
+        }
+    }
+
+    private void restoreSprintIfSaved() {
+        if (!sprintSaved) return;
+        try {
+            if (ModuleManager.getState(MODULE_SPRINT) != savedSprintState) {
+                ModuleManager.setState(MODULE_SPRINT, savedSprintState);
+            }
+        } catch (Exception ignored) {}
+        sprintSaved = false;
+    }
+
     // Mirrors onEnable() init logic; called when onEnable fired before player entity existed.
-    private void lateInit(MinecraftClient mc) {
+    private void lateInit(Minecraft mc) {
         if (mc.player == null) return;
         lastChestplateModeValue = chestplateMode.getValue();
-        boolean hasE = mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA);
+        boolean hasE = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
         if (chestplateMode.getValue()) {
             if (hasE) { flying = true; }
             else {
@@ -247,12 +288,16 @@ public class FakeFly extends AddonModule {
      */
     @EventHandler
     private void onTickPost(EventTick.Post event) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (!pendingFire || mc.player == null) return;
 
         pendingFire = false;  // consume before anything that could throw
 
         try {
+            if (mc.player.onGround()) {
+                rocketCooldown = 0;
+            }
+
             if (rocketCooldown > 0) {
                 rocketCooldown--;
                 return;
@@ -262,21 +307,22 @@ public class FakeFly extends AddonModule {
                 ? InvHelper.findInHotbar(Items.FIREWORK_ROCKET)
                 : InvHelper.find(Items.FIREWORK_ROCKET);
 
-            if (slot != -1 && mc.getNetworkHandler() != null) {
+            if (slot != -1 && mc.getConnection() != null) {
                 InvHelper.swapToSlot(slot, getSwapType());
-                mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+                mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                 InvHelper.swapBack();
-                rocketCooldown = conserveDelay.getValue().intValue();
+
+                rocketCooldown = mc.player.onGround() ? 0 : conserveDelay.getValue().intValue();
             }
         } finally {
             // Always restore camera, even if rocket failed / no fireworks
-            mc.player.setYaw(savedCameraYaw);
-            mc.player.setPitch(savedCameraPitch);
-            // lastYaw/lastPitch are set to targetYaw/targetPitch by the entity tick that ran
+            mc.player.setYRot(savedCameraYaw);
+            mc.player.setXRot(savedCameraPitch);
+            // yRotO/xRotO are set to targetYaw/targetPitch by the entity tick that ran
             // between Pre and Post. Reset them to the natural values so getPitch(tickDelta)
             // interpolates between identical values → first-person arms don't fling.
-            mc.player.lastYaw   = savedCameraYaw;
-            mc.player.lastPitch = savedCameraPitch;
+            mc.player.yRotO = savedCameraYaw;
+            mc.player.xRotO = savedCameraPitch;
             // Release the mixin override — camera is back to natural rotation.
             cameraOverrideActive = false;
         }
@@ -284,23 +330,23 @@ public class FakeFly extends AddonModule {
 
     // ── Direction setup ───────────────────────────────────────────────────────
 
-    private void prepDirection(MinecraftClient mc) {
-        savedCameraYaw   = mc.player.getYaw();
-        savedCameraPitch = mc.player.getPitch();
+    private void prepDirection(Minecraft mc) {
+        savedCameraYaw   = mc.player.getYRot();
+        savedCameraPitch = mc.player.getXRot();
 
         double yawRad = Math.toRadians(savedCameraYaw);
         double sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
 
         double dx = 0, dz = 0;
-        if (mc.options.forwardKey.isPressed())  { dx -= sinYaw; dz += cosYaw; }
-        if (mc.options.backKey.isPressed())     { dx += sinYaw; dz -= cosYaw; }
-        if (mc.options.leftKey.isPressed())     { dx += cosYaw; dz += sinYaw; }
-        if (mc.options.rightKey.isPressed())    { dx -= cosYaw; dz -= sinYaw; }
+        if (mc.options.keyUp.isDown())    { dx -= sinYaw; dz += cosYaw; }
+        if (mc.options.keyDown.isDown())  { dx += sinYaw; dz -= cosYaw; }
+        if (mc.options.keyLeft.isDown())  { dx += cosYaw; dz += sinYaw; }
+        if (mc.options.keyRight.isDown()) { dx -= cosYaw; dz -= sinYaw; }
 
         double  len   = Math.sqrt(dx * dx + dz * dz);
         boolean hasH  = len > 0.01;
-        boolean space = mc.options.jumpKey.isPressed();
-        boolean shift = mc.options.sneakKey.isPressed();
+        boolean space = mc.options.keyJump.isDown();
+        boolean shift = mc.options.keyShift.isDown();
 
         float targetYaw;
         float targetPitch;
@@ -314,14 +360,14 @@ public class FakeFly extends AddonModule {
                 // vy < 0 (falling) → negative pitch (aim up) → rocket counters descent.
                 // -7° bias at vy=0: sin(7°)*1.5 boost ≈ 0.18 m/tick > gravity 0.08 m/tick
                 // so equilibrium settles at a slight climb instead of a slow descent.
-                double vy = mc.player.getVelocity().y;
+                double vy = mc.player.getDeltaMovement().y;
                 targetPitch = (float) Math.max(-20.0, Math.min(20.0, vy * 50.0 - 7.0));
             }
         } else if (space) {
             targetYaw = savedCameraYaw; targetPitch = -90f;
         } else if (shift) {
             targetYaw = savedCameraYaw; targetPitch = 90f;
-        } else if (tryHold.getValue() == TryHoldMode.On && mc.player.getVelocity().y < -0.1 && rocketCooldown <= 0) {
+        } else if (tryHold.getValue() == TryHoldMode.On && mc.player.getDeltaMovement().y < -0.1 && rocketCooldown <= 0) {
             targetYaw = savedCameraYaw; targetPitch = -20f;
         } else {
             return;
@@ -331,13 +377,13 @@ public class FakeFly extends AddonModule {
         // player tick between Pre and Post) sends a move packet with targetYaw.
         // The server updates its player rotation → when the rocket fires in Post,
         // the server uses targetYaw for the boost direction.
-        mc.player.setYaw(targetYaw);
-        mc.player.setPitch(targetPitch);
+        mc.player.setYRot(targetYaw);
+        mc.player.setXRot(targetPitch);
 
         // Body faces the flight direction visually. NOT restored in Post so the
         // body keeps facing targetYaw until Minecraft's interpolation brings it
         // back toward camera yaw — matching ControlRocket's body-turn behaviour.
-        mc.player.bodyYaw = targetYaw;
+        mc.player.setYBodyRot(targetYaw);
 
         // Signal MixinEntity to intercept getPitch/getYaw for this player until Post
         // restores the camera. This ensures the first-person arm renderer always sees
@@ -348,15 +394,15 @@ public class FakeFly extends AddonModule {
 
     // ── ChestplateMode ────────────────────────────────────────────────────────
 
-    private void doChestplateSwap(MinecraftClient mc) {
-        if (mc.currentScreen != null || elytraScreenSlot == -1) return;
+    private void doChestplateSwap(Minecraft mc) {
+        if (mc.screen != null || elytraScreenSlot == -1) return;
 
-        if (mc.player.isOnGround()) {
-            if (autoTakeoff.getValue()) mc.player.jump();
+        if (mc.player.onGround()) {
+            if (autoTakeoff.getValue()) mc.player.jumpFromGround();
             return;
         }
 
-        if (!mc.player.playerScreenHandler.getSlot(elytraScreenSlot).getStack().isOf(Items.ELYTRA)) {
+        if (mc.player.inventoryMenu.getSlot(elytraScreenSlot).getItem().getItem() != Items.ELYTRA) {
             int newSlot = findElytraScreenSlot(mc);
             if (newSlot == -1) {
                 ChatHelper.sendMsg("FakeFly", "§cElytra lost!");
@@ -365,20 +411,20 @@ public class FakeFly extends AddonModule {
             elytraScreenSlot = newSlot;
         }
 
-        int syncId = mc.player.playerScreenHandler.syncId;
+        int syncId = mc.player.inventoryMenu.containerId;
         invMoveBypass = true;
         try {
-            mc.interactionManager.clickSlot(syncId, elytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, 6,                0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, elytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, elytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, elytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
 
-            if (mc.getNetworkHandler() != null)
-                mc.getNetworkHandler().sendPacket(
-                    new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+            if (mc.getConnection() != null)
+                mc.getConnection().send(
+                    new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
 
-            mc.interactionManager.clickSlot(syncId, 6,                0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, elytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, 6,                0, SlotActionType.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, elytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
         } finally {
             invMoveBypass = false;
         }
@@ -386,18 +432,18 @@ public class FakeFly extends AddonModule {
 
     // ── Normal-mode equip sequence ─────────────────────────────────────────────
 
-    private void handleEquipSequence(MinecraftClient mc) {
-        if (mc.currentScreen != null) return;
+    private void handleEquipSequence(Minecraft mc) {
+        if (mc.screen != null) return;
         equipTick++;
         if (equipTick == 1) {
-            int syncId = mc.player.playerScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, pendingElytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, 6,                       0, SlotActionType.PICKUP, mc.player);
-            mc.interactionManager.clickSlot(syncId, pendingElytraScreenSlot, 0, SlotActionType.PICKUP, mc.player);
+            int syncId = mc.player.inventoryMenu.containerId;
+            mc.gameMode.handleContainerInput(syncId, pendingElytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+            mc.gameMode.handleContainerInput(syncId, pendingElytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
             return;
         }
         equipPending = false;
-        if (!mc.player.getEquippedStack(EquipmentSlot.CHEST).isOf(Items.ELYTRA)) {
+        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
             ChatHelper.sendMsg("FakeFly", "§cFailed to equip elytra."); return;
         }
         equippedFromScreenSlot  = pendingElytraScreenSlot;
@@ -408,9 +454,9 @@ public class FakeFly extends AddonModule {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private int findElytraScreenSlot(MinecraftClient mc) {
+    private int findElytraScreenSlot(Minecraft mc) {
         for (int i = 9; i <= 44; i++) {
-            if (mc.player.playerScreenHandler.getSlot(i).getStack().isOf(Items.ELYTRA)) return i;
+            if (mc.player.inventoryMenu.getSlot(i).getItem().getItem() == Items.ELYTRA) return i;
         }
         return -1;
     }

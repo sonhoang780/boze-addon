@@ -9,7 +9,6 @@ import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.MaceAura;
-import com.example.addon.modules.MaceDebug;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.Dummy;
 import com.example.addon.modules.AutoPortal;
@@ -66,7 +65,6 @@ public class ExampleAddon extends Addon {
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(MaceAura.INSTANCE);
-        modules.add(MaceDebug.INSTANCE);
         modules.add(Dummy.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
         modules.add(EBounce.INSTANCE);

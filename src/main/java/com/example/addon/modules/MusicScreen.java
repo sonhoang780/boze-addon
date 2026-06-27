@@ -1,20 +1,20 @@
 package com.example.addon.modules;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 import java.awt.Color;
 
 public class MusicScreen extends Screen {
-    private TextFieldWidget searchBox;
+    private EditBox searchBox;
 
     public MusicScreen() {
-        super(Text.literal("KingThon Music Player"));
+        super(Component.literal("KingThon Music Player"));
     }
 
     @Override
@@ -23,32 +23,32 @@ public class MusicScreen extends Screen {
         int centerY = this.height / 2;
 
         // 1. Tạo ô nhập văn bản (TextBox)
-        searchBox = new TextFieldWidget(this.textRenderer, centerX - 100, centerY - 20, 200, 20, Text.literal("Search..."));
+        searchBox = new EditBox(this.font, centerX - 100, centerY - 20, 200, 20, Component.literal("Search..."));
         searchBox.setMaxLength(100);
         this.setInitialFocus(searchBox);
-        this.addDrawableChild(searchBox);
+        this.addRenderableWidget(searchBox);
 
         // 2. Tạo nút [Play]
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("▶ Search & Play"), button -> {
+        this.addRenderableWidget(Button.builder(Component.literal("▶ Search & Play"), button -> {
             playMusicAndClose();
-        }).dimensions(centerX - 100, centerY + 10, 95, 20).build());
+        }).bounds(centerX - 100, centerY + 10, 95, 20).build());
 
         // 3. Tạo nút [Close]
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("Close"), button -> {
-            this.close();
-        }).dimensions(centerX + 5, centerY + 10, 95, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Close"), button -> {
+            this.onClose();
+        }).bounds(centerX + 5, centerY + 10, 95, 20).build());
     }
 
     private void playMusicAndClose() {
-        String query = searchBox.getText().trim();
+        String query = searchBox.getValue().trim();
         if (!query.isEmpty()) {
             PlayMusic.INSTANCE.searchAndPlayFromGUI(query);
-            this.close();
+            this.onClose();
         }
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         // Làm tối mờ background phía sau (Kính mờ đen)
         context.fill(0, 0, this.width, this.height, new Color(10, 10, 10, 180).getRGB());
         
@@ -71,12 +71,12 @@ public class MusicScreen extends Screen {
         context.fill(x0 + w - 1, y0 + 1, x0 + w, y0 + h - 1, borderColor); // Cạnh phải
 
         // Tiêu đề
-        context.drawCenteredTextWithShadow(this.textRenderer, "KINGTHON MUSIC PLAYER", centerX, centerY - 40, 0xFFFFFF);
+        context.centeredText(this.font, "KINGTHON MUSIC PLAYER", centerX, centerY - 40, 0xFFFFFF);
 
-        super.render(context, mouseX, mouseY, delta);
+        super.extractRenderState(context, mouseX, mouseY, delta);
 
         // [FIX LỖI KeyInput]: Kiểm tra phím Enter bằng lệnh GLFW trực tiếp tại luồng Render
-        long windowHandle = MinecraftClient.getInstance().getWindow().getHandle();
+        long windowHandle = Minecraft.getInstance().getWindow().handle();
         if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS || 
             GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_KP_ENTER) == GLFW.GLFW_PRESS) {
             playMusicAndClose();
