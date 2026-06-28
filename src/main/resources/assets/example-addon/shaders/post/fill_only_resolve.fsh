@@ -39,7 +39,7 @@ void main() {
         }
     } else {
         if (outlineOpacity > 0.0) {
-            vec2 oneTexel = 1.0 / InSize;
+            vec2 oneTexel = 1.0 / OutSize;
             float alphaSum = 
                 texture(InSampler, texCoord + vec2(oneTexel.x, 0.0)).a +
                 texture(InSampler, texCoord - vec2(oneTexel.x, 0.0)).a +
