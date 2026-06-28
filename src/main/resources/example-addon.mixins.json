@@ -27,6 +27,7 @@
     "MixinItemStackRenderState",
     "LevelRendererAccessor",
     "MixinLevelRenderer",
-    "MixinShaderManager"
+    "MixinShaderManager",
+    "MixinOutlineBufferSource"
   ]
 }

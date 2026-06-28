@@ -29,8 +29,10 @@ public class ChamsCustomShader {
     private static final String VERTEX_SHADER = 
         "#version 330\n" +
         "layout(location = 0) in vec3 Position;\n" +
+        "out vec2 texCoord;\n" +
         "void main() {\n" +
         "    gl_Position = vec4(Position, 1.0);\n" +
+        "    texCoord = Position.xy * 0.5 + 0.5;\n" +
         "}\n";
 
     private static final String FRAG_HEADER = 
@@ -58,7 +60,7 @@ public class ChamsCustomShader {
             String userCode = new String(Files.readAllBytes(path));
             
             // Detect shader type
-            boolean hasMain     = userCode.contains("void main()");
+            boolean hasMain     = userCode.matches("(?s).*\\bvoid\\s+main\\s*\\(.*");
             boolean isShadertoy = userCode.contains("void mainImage");
             
             String fullFrag;
@@ -73,12 +75,12 @@ public class ChamsCustomShader {
                 java.util.regex.Matcher m = outPattern.matcher(userCode);
                 while (m.find()) {
                     String varName = m.group(1);
+                    userCode = userCode.replace(m.group(0), ""); // Always remove the declaration!
                     if (!varName.equals("fragColor")) {
-                        userCode = userCode.replace(m.group(0), ""); // remove declaration
                         userCode = userCode.replaceAll("(?<![\\w.])\\b" + java.util.regex.Pattern.quote(varName) + "\\b", "fragColor");
-                        // restart search after replacement
-                        m = outPattern.matcher(userCode);
                     }
+                    // restart search after replacement
+                    m = outPattern.matcher(userCode);
                 }
                 
                 // Use minimal header only — the shader provides its own uniforms
