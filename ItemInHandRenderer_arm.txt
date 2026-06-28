@@ -1,0 +1,36 @@
+﻿
+>   private void renderPlayerArm(com.mojang.blaze3d.vertex.PoseStack, 
+net.minecraft.client.renderer.SubmitNodeCollector, int, float, float, net.minecraft.world.entity.HumanoidArm);
+      Code:
+           0: aload         6
+           2: getstatic     #406                // Field 
+net/minecraft/world/entity/HumanoidArm.LEFT:Lnet/minecraft/world/entity/HumanoidArm;
+           5: if_acmpeq     12
+           8: iconst_1
+           9: goto          13
+          12: iconst_0
+          13: istore        7
+          15: iload         7
+          17: ifeq          24
+          20: fconst_1
+          21: goto          26
+          24: ldc           #98                 // float -1.0f
+          26: fstore        8
+          28: fload         5
+          30: invokestatic  #382                // Method net/minecraft/util/Mth.sqrt:(F)F
+          33: fstore        9
+          35: ldc           #82                 // float -0.3f
+          37: fload         9
+          39: ldc_w         #260                // float 3.1415927f
+          42: fmul
+          43: f2d
+          44: invokestatic  #385                // Method net/minecraft/util/Mth.sin:(D)F
+          47: fmul
+          48: fstore        10
+          50: ldc           #84                 // float 0.4f
+          52: fload         9
+          54: ldc_w         #386                // float 6.2831855f
+          57: fmul
+          58: f2d
+
+

@@ -20,6 +20,13 @@
     "MixinMultiPlayerGameMode",
     "MixinPlayerLikeEntity",
     "GuiGraphicsExtractorAccessor",
-    "MixinLocalPlayer"
+    "MixinLocalPlayer",
+    "MixinEndCrystalRenderer",
+    "MixinAvatarRenderer",
+    "MixinItemInHandRenderer",
+    "MixinItemStackRenderState",
+    "LevelRendererAccessor",
+    "MixinLevelRenderer",
+    "MixinShaderManager"
   ]
 }

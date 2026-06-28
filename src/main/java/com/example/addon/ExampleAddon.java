@@ -14,6 +14,7 @@ import com.example.addon.modules.Dummy;
 import com.example.addon.modules.AutoPortal;
 import com.example.addon.modules.betterrekit.EvilRekit;
 import com.example.addon.modules.ChestButtons;
+import com.example.addon.modules.BetterChams;
 import com.example.addon.modules.EbookReader;
 import com.example.addon.modules.EBounce;
 import com.example.addon.modules.VanillaEBounce;
@@ -48,6 +49,7 @@ public class ExampleAddon extends Addon {
 
     @Override
     public boolean initialize() {
+        AddonConfig.load();
         ConfigMigrator.migrate(ID, Map.of(
             "FakeFly", Map.of(
                 "Speed",           "UpSpeed",
@@ -72,6 +74,8 @@ public class ExampleAddon extends Addon {
         modules.add(EBouncePlus.INSTANCE);
         modules.add(AutoPortal.INSTANCE);
         modules.add(ChestButtons.INSTANCE);
+        BetterChams.registerTextures();
+        modules.add(BetterChams.INSTANCE);
         modules.add(EbookReader.INSTANCE);
         modules.add(ElytraFix.INSTANCE);
         modules.add(FakeFly.INSTANCE);

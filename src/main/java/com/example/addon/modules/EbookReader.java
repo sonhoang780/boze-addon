@@ -395,50 +395,6 @@ public class EbookReader extends AddonModule {
         if (currentPageIndex >= currentPages.size()) currentPageIndex = Math.max(0, currentPages.size() - 1);
     }
 
-    /**
-     * Renders the panel chrome (glow + dark fill + stroke) GPU-side into a persistent
-     * texture and composites it via the normal GuiGraphicsExtractor.blit path — fast
-     * (no CPU raster/readback) and immune to the GUI submission phase overwriting it.
-     * True backdrop blur-of-the-world-behind-the-panel is handled separately by the
-     * screen calling Screen.extractBlurredBackground(...) before this runs; this
-     * method only draws the panel's own opaque-ish fill on top.
-     */
-    private void drawSkiaPanel(GuiGraphicsExtractor context, double x, double y, double w, double h, float radius, boolean enableGlow) {
-        Minecraft mc = Minecraft.getInstance();
-        float scale = (float) mc.getWindow().getGuiScale();
-        float margin = enableGlow ? 20f : 4f;
-        int pw = Math.round((float)(w + margin * 2) * scale);
-        int ph = Math.round((float)(h + margin * 2) * scale);
-        if (pw <= 0 || ph <= 0) return;
-
-        if (panelTex == null) panelTex = new CachedSkiaTexture("ebookreader_panel");
-        String panelKey = pw + "x" + ph + "|" + radius + "|" + enableGlow;
-        panelTex.render(pw, ph, panelKey, canvas -> {
-            canvas.scale(scale, scale);
-            float fx = margin, fy = margin, fw = (float)w, fh = (float)h;
-
-            if (enableGlow) {
-                try (Paint glowPaint = new Paint(); MaskFilter blur = MaskFilter.makeBlur(FilterBlurMode.OUTER, 14f)) {
-                    glowPaint.setColor(new Color(255, 255, 255, 200).getRGB());
-                    glowPaint.setMaskFilter(blur); glowPaint.setAntiAlias(true);
-                    canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), glowPaint);
-                }
-            }
-
-            try (Paint bgPaint = new Paint()) {
-                bgPaint.setColor(new Color(18, 18, 22, 225).getRGB()); bgPaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), bgPaint);
-            }
-
-            try (Paint strokePaint = new Paint()) {
-                strokePaint.setColor(new Color(255, 255, 255, 70).getRGB());
-                strokePaint.setMode(PaintMode.STROKE); strokePaint.setStrokeWidth(1.2f); strokePaint.setAntiAlias(true);
-                canvas.drawRRect(RRect.makeXYWH(fx, fy, fw, fh, radius), strokePaint);
-            }
-        });
-        panelTex.blit(context, (int)Math.round(x - margin), (int)Math.round(y - margin),
-            (int)Math.round(w + margin * 2), (int)Math.round(h + margin * 2));
-    }
 
     public class LibraryScreen extends net.minecraft.client.gui.screens.Screen {
         private boolean previousHudHidden = false;
@@ -553,8 +509,7 @@ public class EbookReader extends AddonModule {
             long now = System.currentTimeMillis(); float deltaMs = lastFrameTime == 0 ? 16f : (now - lastFrameTime); lastFrameTime = now;
             if (pageFlipProgress < 1.0f) { pageFlipProgress += deltaMs / 280.0f; if (pageFlipProgress > 1.0f) pageFlipProgress = 1.0f; }
 
-            this.extractBlurredBackground(context);
-            context.fill(0, 0, this.width, this.height, 0x77000000);
+            context.fill(0, 0, this.width, this.height, 0x66000000);
 
             float baseW = 400, baseH = 480;
             float panelW = baseW * zoomScale, panelH = baseH * zoomScale;
@@ -563,7 +518,16 @@ public class EbookReader extends AddonModule {
             float slideOffset = 0f;
             if (pageFlipProgress < 1.0f) slideOffset = (1f - (1f - (float)Math.pow(1f - pageFlipProgress, 3))) * 40f * pageFlipDir;
 
-            drawSkiaPanel(context, winX + slideOffset, winY, panelW, panelH, 10f, true);
+            int drawX = (int) (winX + slideOffset);
+            int drawY = (int) winY;
+            int drawW = (int) panelW;
+            int drawH = (int) panelH;
+            
+            context.fill(drawX, drawY, drawX + drawW, drawY + drawH, new Color(15, 15, 15, 210).getRGB());
+            context.fill(drawX, drawY,       drawX + drawW, drawY + 1,   0x3CFFFFFF);
+            context.fill(drawX, drawY + drawH - 1, drawX + drawW, drawY + drawH, 0x3CFFFFFF);
+            context.fill(drawX, drawY,       drawX + 1,   drawY + drawH, 0x3CFFFFFF);
+            context.fill(drawX + drawW - 1, drawY, drawX + drawW, drawY + drawH, 0x3CFFFFFF);
 
             int contentTop = (int) winY + 14;
             if (showTitle.getValue()) {
@@ -599,23 +563,46 @@ public class EbookReader extends AddonModule {
             }
 
             int btnY = (int)(winY + panelH - 30);
-            int btnPrevX = (int)(winX + slideOffset + panelW / 2f - 24);
-            int btnNextX = (int)(winX + slideOffset + panelW / 2f + 12);
-            boolean hoverPrev = mouseX >= btnPrevX && mouseX <= btnPrevX + 12 && mouseY >= btnY && mouseY <= btnY + 12;
-            boolean hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 12 && mouseY >= btnY && mouseY <= btnY + 12;
+            int btnPrevX = (int)(winX + slideOffset + panelW / 2f - 26);
+            int btnNextX = (int)(winX + slideOffset + panelW / 2f + 14);
+            boolean hoverPrev = mouseX >= btnPrevX && mouseX <= btnPrevX + 16 && mouseY >= btnY && mouseY <= btnY + 16;
+            boolean hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 16 && mouseY >= btnY && mouseY <= btnY + 16;
             
-            context.fill(btnPrevX, btnY, btnPrevX + 12, btnY + 12, hoverPrev ? 0x55FFFFFF : 0x22FFFFFF);
-            context.text(minecraft.font, "<", btnPrevX + 3, btnY + 2, 0xFFFFFFFF, true);
-            context.fill(btnNextX, btnY, btnNextX + 12, btnY + 12, hoverNext ? 0x55FFFFFF : 0x22FFFFFF);
-            context.text(minecraft.font, ">", btnNextX + 3, btnY + 2, 0xFFFFFFFF, true);
+            // Prev Button
+            context.fill(btnPrevX, btnY, btnPrevX + 16, btnY + 16, hoverPrev ? 0xFF444444 : 0xFF222222);
+            context.fill(btnPrevX, btnY, btnPrevX + 16, btnY + 1, 0x3CFFFFFF);
+            context.fill(btnPrevX, btnY + 15, btnPrevX + 16, btnY + 16, 0x3CFFFFFF);
+            context.fill(btnPrevX, btnY, btnPrevX + 1, btnY + 16, 0x3CFFFFFF);
+            context.fill(btnPrevX + 15, btnY, btnPrevX + 16, btnY + 16, 0x3CFFFFFF);
+            context.text(minecraft.font, "<", btnPrevX + 4, btnY + 4, 0xFFFFFFFF, true);
+            
+            // Next Button
+            context.fill(btnNextX, btnY, btnNextX + 16, btnY + 16, hoverNext ? 0xFF444444 : 0xFF222222);
+            context.fill(btnNextX, btnY, btnNextX + 16, btnY + 1, 0x3CFFFFFF);
+            context.fill(btnNextX, btnY + 15, btnNextX + 16, btnY + 16, 0x3CFFFFFF);
+            context.fill(btnNextX, btnY, btnNextX + 1, btnY + 16, 0x3CFFFFFF);
+            context.fill(btnNextX + 15, btnY, btnNextX + 16, btnY + 16, 0x3CFFFFFF);
+            context.text(minecraft.font, ">", btnNextX + 5, btnY + 4, 0xFFFFFFFF, true);
 
             int zoomBtnY = (int) winY + 8;
             int zOutX = (int)(winX + slideOffset + panelW - 48), zInX = (int)(winX + slideOffset + panelW - 24);
             boolean hZOut = mouseX >= zOutX && mouseX <= zOutX + 16 && mouseY >= zoomBtnY && mouseY <= zoomBtnY + 16;
             boolean hZIn  = mouseX >= zInX  && mouseX <= zInX + 16  && mouseY >= zoomBtnY && mouseY <= zoomBtnY + 16;
-            context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 16, hZOut ? 0x66FFFFFF : 0x33FFFFFF);
-            context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 16, hZIn ? 0x66FFFFFF : 0x33FFFFFF);
+            
+            // Zoom Out Button
+            context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 16, hZOut ? 0xFF444444 : 0xFF222222);
+            context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 1, 0x3CFFFFFF);
+            context.fill(zOutX, zoomBtnY + 15, zOutX + 16, zoomBtnY + 16, 0x3CFFFFFF);
+            context.fill(zOutX, zoomBtnY, zOutX + 1, zoomBtnY + 16, 0x3CFFFFFF);
+            context.fill(zOutX + 15, zoomBtnY, zOutX + 16, zoomBtnY + 16, 0x3CFFFFFF);
             context.text(minecraft.font, "-", zOutX + 6, zoomBtnY + 4, 0xFFFFFFFF, true);
+            
+            // Zoom In Button
+            context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 16, hZIn ? 0xFF444444 : 0xFF222222);
+            context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 1, 0x3CFFFFFF);
+            context.fill(zInX, zoomBtnY + 15, zInX + 16, zoomBtnY + 16, 0x3CFFFFFF);
+            context.fill(zInX, zoomBtnY, zInX + 1, zoomBtnY + 16, 0x3CFFFFFF);
+            context.fill(zInX + 15, zoomBtnY, zInX + 16, zoomBtnY + 16, 0x3CFFFFFF);
             context.text(minecraft.font, "+", zInX + 5, zoomBtnY + 4, 0xFFFFFFFF, true);
 
             // ── BẮT TẤT CẢ CÁC LOẠI CLICK CHUỘT (TRÁI/PHẢI/GIỮA) ──

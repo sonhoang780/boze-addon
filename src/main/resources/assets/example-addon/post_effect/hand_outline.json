@@ -1,0 +1,144 @@
+{
+    "targets":  {
+                    "jfa_b":  { "bilinear": false },
+                    "swap":  { },
+                    "jfa_a":  { "bilinear": false }
+                },
+    "passes":  [
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_init",
+                       "inputs":  [
+                                      {
+                                          "target":  "minecraft:main",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_a"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_32",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_a",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_b"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_16",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_b",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_a"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_8",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_a",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_b"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_4",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_b",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_a"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_2",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_a",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_b"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_flood_1",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_b",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "jfa_a"
+                   },
+                   {
+                       "fragment_shader":  "example-addon:post/jfa_resolve",
+                       "inputs":  [
+                                      {
+                                          "target":  "jfa_a",
+                                          "sampler_name":  "In"
+                                      },
+                                      {
+                                          "target":  "minecraft:main",
+                                          "sampler_name":  "Original"
+                                      },
+                                      {
+                                          "width":  1,
+                                          "sampler_name":  "Image",
+                                          "location":  "example-addon:betterchamsfill",
+                                          "height":  1
+                                      },
+                                      {
+                                          "width":  4,
+                                          "sampler_name":  "Params",
+                                          "location":  "example-addon:betterchamsparam",
+                                          "height":  1
+                                      },
+                                      {
+                                          "width":  1,
+                                          "sampler_name":  "OutlineImage",
+                                          "location":  "example-addon:betterchamsoutline",
+                                          "height":  1
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "output":  "swap"
+                   },
+                   {
+                       "fragment_shader":  "minecraft:post/blit",
+                       "inputs":  [
+                                      {
+                                          "target":  "swap",
+                                          "sampler_name":  "In"
+                                      }
+                                  ],
+                       "vertex_shader":  "minecraft:core/screenquad",
+                       "uniforms":  {
+                                        "BlitConfig":  [
+                                                           {
+                                                               "name":  "ColorModulate",
+                                                               "value":  [
+                                                                             1,
+                                                                             1,
+                                                                             1,
+                                                                             1
+                                                                         ],
+                                                               "type":  "vec4"
+                                                           }
+                                                       ]
+                                    },
+                       "output":  "minecraft:main"
+                   }
+               ]
+}

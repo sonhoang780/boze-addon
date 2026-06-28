@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "boze-api",
+  "version": "${version}",
+  "name": "Boze API",
+  "description": "Addon API for the Boze Utility Mod",
+  "authors": [
+    "boze.dev"
+  ],
+  "environment": "*",
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "${minecraft_version}"
+  }
+}

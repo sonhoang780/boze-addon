@@ -28,8 +28,8 @@ public final class SkijaOverlay {
             canvas.clear(0); // transparent
             drawer.accept(canvas);
 
-            // Read back as straight (unpremultiplied) RGBA bytes — byte order R,G,B,A.
-            ImageInfo info = new ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL);
+            // Read back as PREMUL RGBA bytes – byte order R,G,B,A.
+            ImageInfo info = new ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.PREMUL);
             try (Bitmap bmp = new Bitmap()) {
                 bmp.allocPixels(info);
                 if (!surface.readPixels(bmp, 0, 0)) return null;

@@ -1,844 +1,1384 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry kind="output" path="bin/default"/>
-	<classpathentry output="bin/main" kind="src" path="src/main/java">
+	<classpathentry kind="src" output="build/resources/test" path="src/test/resources">
 		<attributes>
-			<attribute name="gradle_scope" value="main"/>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry output="bin/main" kind="src" path="src/main/resources">
-		<attributes>
-			<attribute name="gradle_scope" value="main"/>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry output="bin/test" kind="src" path="src/test/java">
-		<attributes>
-			<attribute name="gradle_scope" value="test"/>
-			<attribute name="gradle_used_by_scope" value="test"/>
 			<attribute name="test" value="true"/>
+			<attribute name="optional" value="true"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="resource" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-21/"/>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/26.0.2/bfa27b5e683363963c8d5e2fec39d755295cbb82/annotations-26.0.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/26.0.2/c7ce3cdeda3d18909368dfe5977332dfad326c6d/annotations-26.0.2.jar">
+	<classpathentry kind="src" output="build/classes/java/test" path="src/test/java">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value=""/>
+			<attribute name="test" value="true"/>
+			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/meteordevelopment/orbit/0.2.5/2d8f50f669e89aedb229ee3233cd2fa89583b633/orbit-0.2.5.jar">
+	<classpathentry kind="src" output="build/resources/main" path="src/main/resources">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="optional" value="true"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="resource" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-windows-x64/0.119.5/de96fb254e697e3c4d968a1f260d1c2e6e859255/skija-windows-x64-0.119.5-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-windows-x64/0.119.5/1f7d3299a39c253089770e19769ee31ac91ac008/skija-windows-x64-0.119.5.jar">
+	<classpathentry kind="src" output="build/classes/java/main" path="src/main/java">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-shared/0.119.5/2296df0907f505493377b1cb910b854817f9bfa0/skija-shared-0.119.5-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-shared/0.119.5/3e356729d4483d9a2b36f598d7cd8ccaaa70a498/skija-shared-0.119.5.jar">
+	<classpathentry kind="src" output="build/classes/java/test" path="build/generated/sources/annotationProcessor/java/test">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="test" value="true"/>
+			<attribute name="optional" value="true"/>
+			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/types/0.2.0/5c95220a71f0d840a5512ffa3c91bd78ad11ad1d/types-0.2.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/types/0.2.0/98e13503212afcdfd44b1fd6c6f1f4b98931a834/types-0.2.0.jar">
+	<classpathentry kind="src" output="build/classes/java/main" path="build/generated/sources/annotationProcessor/java/main">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="optional" value="true"/>
+			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer/2.2.6/83d5dc5d7e02a63f16f6741ad80861b1ec041581/lavaplayer-2.2.6-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer/2.2.6/94c02c98687a65215e5c5c2da7fad392d9eacb4c/lavaplayer-2.2.6.jar">
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-25">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpclient/4.5.14/14321a360aa0e037c56d4c820747a84954d9196e/httpclient-4.5.14-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpclient/4.5.14/1194890e6f56ec29177673f2f12d0b8e627dec98/httpclient-4.5.14.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-core/2.15.2/a6fe1836469a69b3ff66037c324d75fc66ef137c/jackson-core-2.15.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-core/2.15.2/4d3e4ff17d2cda69f8fd692694c304ff38a75823/jackson-core-2.15.2-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.fasterxml.jackson.core"/>
+			<attribute name="artifactId" value="jackson-core"/>
+			<attribute name="version" value="2.15.2"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-logging/commons-logging/1.3.0/c6791b54d7d9b6dcae4c3d0af646fb0143c96592/commons-logging-1.3.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-logging/commons-logging/1.3.0/f5e064b541f5c5fbc5e4fb49c4e8cd4eabb3afd6/commons-logging-1.3.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-entity-events-v1/5.0.2+e2bdee784c/3f15c7b85c55f03b5d5fa89a48a0eb1dc6461465/fabric-entity-events-v1-5.0.2+e2bdee784c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-entity-events-v1/5.0.2+e2bdee784c/cda565c3df409163b4b8ba9101c567e8e4f3f016/fabric-entity-events-v1-5.0.2+e2bdee784c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-entity-events-v1"/>
+			<attribute name="version" value="5.0.2+e2bdee784c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lava-common/2.2.6/4551f3b0d812b35cbb6861e26fd829e7e59f85cc/lava-common-2.2.6-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lava-common/2.2.6/349046451f66c071caaf44ae5fc8edeb95ee513d/lava-common-2.2.6.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-http/4.2.7.Final/b734c108854099c421fd94d92d9f865e4d4da853/netty-codec-http-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-http/4.2.7.Final/d5ea1a1789e7449741137638b4212855e7b81681/netty-codec-http-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-codec-http"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer-natives/2.2.6/29ea2e804d3292011a961cc5842e6562eac7b34a/lavaplayer-natives-2.2.6-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer-natives/2.2.6/bb54a4e6aa45ae5a00fac2f1eec8cb513bc09c8f/lavaplayer-natives-2.2.6.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-loader-v0/3.3.17+4fc5413f4c/c2e496d77853c7fd1f2b3bd00b44e355dc6ba576/fabric-resource-loader-v0-3.3.17+4fc5413f4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-loader-v0/3.3.17+4fc5413f4c/290a8dcbf3e2936e3ddfd3f4c0720cb433ad836/fabric-resource-loader-v0-3.3.17+4fc5413f4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-resource-loader-v0"/>
+			<attribute name="version" value="3.3.17+4fc5413f4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.lavalink.youtube/common/fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT/6dd998c52ca735bf0b6e93321455c7a82d73de8d/common-fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.lavalink.youtube/common/fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT/f0e37240d9518adf9f6c3c3d5a0a75300e7935bc/common-fb0eca58dde51169e9c1f4f44831386c4e175dbe-SNAPSHOT.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-menu-api-v1/2.0.14+d871b99e4c/d4d7af65a38dcbec8c391e0123f8895eff314cb7/fabric-menu-api-v1-2.0.14+d871b99e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-menu-api-v1/2.0.14+d871b99e4c/ed40f9e7faa212abd91d7d14ba92d39cba910791/fabric-menu-api-v1-2.0.14+d871b99e4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-menu-api-v1"/>
+			<attribute name="version" value="2.0.14+d871b99e4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpcore/4.4.16/229e4c0eae80465381ae02adf61bca5558360777/httpcore-4.4.16-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpcore/4.4.16/51cf043c87253c9f58b539c9f7e44c8894223850/httpcore-4.4.16.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-gametest-api-v1/4.0.17+867b87624c/a210e8152e62d54483fb021d7d144f94bdfd9065/fabric-gametest-api-v1-4.0.17+867b87624c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-gametest-api-v1/4.0.17+867b87624c/7f1d67097c84936e612a9658ffe723efac13d66e/fabric-gametest-api-v1-4.0.17+867b87624c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-gametest-api-v1"/>
+			<attribute name="version" value="4.0.17+867b87624c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-io/commons-io/2.20.0/71533071559ab4d6b295cd711dcdb2203b103dcd/commons-io-2.20.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-io/commons-io/2.20.0/36f3474daec2849c149e877614e7f979b2082cd2/commons-io-2.20.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.10.1/4229e4c55fd8e01c23f9fe9884075cc628aacc50/asm-commons-9.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.10.1/3925366ce827acc4c6bca218f380a3636e1a0bc2/asm-commons-9.10.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.ow2.asm"/>
+			<attribute name="artifactId" value="asm-commons"/>
+			<attribute name="version" value="9.10.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-annotations/2.15.2/7458734de3b894cff3f3744ab11ff79b635c80e2/jackson-annotations-2.15.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-annotations/2.15.2/4724a65ac8e8d156a24898d50fd5dbd3642870b8/jackson-annotations-2.15.2.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.code.gson/gson/2.13.2/48b8230771e573b54ce6e867a9001e75977fe78e/gson-2.13.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.code.gson/gson/2.13.2/e28a0b248e9435c6b6863275b2e5c1569dfac888/gson-2.13.2-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.google.code.gson"/>
+			<attribute name="artifactId" value="gson"/>
+			<attribute name="version" value="2.13.2"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-databind/2.15.2/32d4d520f3e46e7b2c2d4d863d8f2f381af4fa6/jackson-databind-2.15.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-databind/2.15.2/9353b021f10c307c00328f52090de2bdb4b6ff9c/jackson-databind-2.15.2.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.15/7bd21acc82129fa4a9d229250c74d238710b53ca/rhino-engine-1.7.15.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.15/969f48bef04f63a140a371dbb0c965904a06e34c/rhino-engine-1.7.15-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.mozilla"/>
+			<attribute name="artifactId" value="rhino-engine"/>
+			<attribute name="version" value="1.7.15"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-core/2.15.2/4d3e4ff17d2cda69f8fd692694c304ff38a75823/jackson-core-2.15.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-core/2.15.2/a6fe1836469a69b3ff66037c324d75fc66ef137c/jackson-core-2.15.2.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/196101d96d9b2aa73264a96ae1dc8944a1446cee/lwjgl-glfw-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/947ab4411813fdad5d541ddcd78df9e58858dc84/lwjgl-glfw-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-glfw"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.grack/nanojson/1.8/cad00695db8f2fa66eb5063022a1536fc3a97895/nanojson-1.8-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.grack/nanojson/1.8/b1754283ea682b74024a8a6addf51e073fb782bb/nanojson-1.8.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/cfd47352b758a0c9f7046de467b103182ec77eb1/lwjgl-opengl-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/b268a69846a185c0f7dad39d90655315a5e22d7c/lwjgl-opengl-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-opengl"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.14/c2671a840d9d92f99492d562ff830870c0d886b7/rhino-engine-1.7.14-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.14/7f5c9501e9756ecd33464b82607843040294cdda/rhino-engine-1.7.14.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/failureaccess/1.0.3/aeaffd00d57023a2c947393ed251f0354f0985fc/failureaccess-1.0.3.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/failureaccess/1.0.3/18ed910a9966320b5ccfdfc3dbabbd1afd3d40e0/failureaccess-1.0.3-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value=""/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.google.guava"/>
+			<attribute name="artifactId" value="failureaccess"/>
+			<attribute name="version" value="1.0.3"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.14/138a43e999f235d84b7768235d2cffb00b1b8f7b/rhino-1.7.14-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.14/24d091b80d513846293c00350f46d85f71797aff/rhino-1.7.14.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.14/24d091b80d513846293c00350f46d85f71797aff/rhino-1.7.14.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.14/138a43e999f235d84b7768235d2cffb00b1b8f7b/rhino-1.7.14-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value=""/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.mozilla"/>
+			<attribute name="artifactId" value="rhino"/>
+			<attribute name="version" value="1.7.14"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.9/5aa89c77317a704e2e34d117b72756ff1c1530bb/asm-9.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.9/c29635c8a7afa03d74b33c1884df8abb2b3f3dcc/asm-9.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-networking-api-v1/6.3.1+554860db4c/38ac77944d5e0fc623a163cde9b3eca04f791296/fabric-networking-api-v1-6.3.1+554860db4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-networking-api-v1/6.3.1+554860db4c/6aa892365a392d7bd08ef4b46d96bd7de327971/fabric-networking-api-v1-6.3.1+554860db4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-networking-api-v1"/>
+			<attribute name="version" value="6.3.1+554860db4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.9/3ce67cca2a5bf3d1d271fb13e0011714df6c68e6/asm-analysis-9.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.9/bf4fa6e66638851c1cd22c2caea0c3ee5d5f437/asm-analysis-9.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.10.1/ada2141c0cc52ee8f5c48cd5fa4ce0e794f22236/asm-9.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.10.1/9f9a96aa17fd1113b218fa2dd6c4dc075192aa2e/asm-9.10.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.ow2.asm"/>
+			<attribute name="artifactId" value="asm"/>
+			<attribute name="version" value="9.10.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.9/a51d8b4b55baa109a6c4ac1e897820ad638f63d2/asm-commons-9.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-commons/9.9/db9165a3bf908ded6b08612d583a15d1d0c7bda0/asm-commons-9.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/blocklist/1.0.10/5c685c5ffa94c4cd39496c7184c1d122e515ecef/blocklist-1.0.10.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/blocklist/1.0.10/ef44852fa1707a833bfa8e8518659ab18f368d25/blocklist-1.0.10-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="blocklist"/>
+			<attribute name="version" value="1.0.10"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.9/60b736062debb8f627d06fa42b962744b1e1a43a/asm-tree-9.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.9/f8de6eead6d24dd0f45bd065bbe112b2cda6ea21/asm-tree-9.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/7f4c39b3d56c7bae4900ee6e59d8f75432bdb18f/lwjgl-stb-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/6ba89a25de97bb73ac1dfb59d042482866bb929c/lwjgl-stb-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-stb"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.9/4e8aceea08c648727bb173f03e6fd31fbdb86289/asm-util-9.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.9/42fdfc0508b43807c8078d6e82ecff2ce2112ae8/asm-util-9.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/a782b1ddd175c9107bf300fd92920579ea65e2a4/lwjgl-glfw-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/947ab4411813fdad5d541ddcd78df9e58858dc84/lwjgl-glfw-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-glfw"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.0+mixin.0.8.7/d3ea80c8aa7974ecfcde80e7be1b3eb796fb2022/sponge-mixin-0.17.0+mixin.0.8.7-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.0+mixin.0.8.7/cf31463202f72d03b0ef1e1e38e8ee71b7faaab6/sponge-mixin-0.17.0+mixin.0.8.7.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-tag-api-v1/2.1.1+371cf5db4c/f409197a792d47b79650bc993948cb5d4b0300c1/fabric-tag-api-v1-2.1.1+371cf5db4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-tag-api-v1/2.1.1+371cf5db4c/2689649a0bf0853fef6eebd442b104b1d20be3e2/fabric-tag-api-v1-2.1.1+371cf5db4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-tag-api-v1"/>
+			<attribute name="version" value="2.1.1+371cf5db4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.0/763194e452da1311d6e93091d431854f4a4b4c5d/mixinextras-fabric-0.5.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.0/91a83dfb7abd320f6236bd1fcf5c0ff143d59a13/mixinextras-fabric-0.5.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-buffer/4.2.7.Final/5555ff561643bf2f8430fb57c24403c0efe15994/netty-buffer-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-buffer/4.2.7.Final/50436608c4a1cf11ff7c5d94e8228e98af436c0a/netty-buffer-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-buffer"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/at.yawk.lz4/lz4-java/1.8.1/e67448aca8092b3eb88155afecb755c03cd43b2/lz4-java-1.8.1-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/at.yawk.lz4/lz4-java/1.8.1/1f30a180ee04ccd53339a716aec13cae60a013b5/lz4-java-1.8.1.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-serialization-api-v1/2.0.3+11a26f314c/55fc25d96a2a848b93a02f48220dff0181ec3056/fabric-serialization-api-v1-2.0.3+11a26f314c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-serialization-api-v1/2.0.3+11a26f314c/77f506108a420b6d03cbed88d7e4d85d56a78caf/fabric-serialization-api-v1-2.0.3+11a26f314c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-serialization-api-v1"/>
+			<attribute name="version" value="2.0.3+11a26f314c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.azure/azure-json/1.4.0/1aa682f6aad24c331dddf779ec3e40aa7d4ca556/azure-json-1.4.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.azure/azure-json/1.4.0/fcc1d354dbc3e0300e5276b1bf124d0247799cd8/azure-json-1.4.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-item-api-v1/14.2.0+a2a3a8914c/bce1dbf7ea0d846cc6c93adf681cca16f7f3df92/fabric-item-api-v1-14.2.0+a2a3a8914c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-item-api-v1/14.2.0+a2a3a8914c/bfc31ebeb90732170d8c7a1395df71f07b4d9382/fabric-item-api-v1-14.2.0+a2a3a8914c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-item-api-v1"/>
+			<attribute name="version" value="14.2.0+a2a3a8914c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.oshi/oshi-core/6.9.0/4827976de844bcfe0c5c6d760b7d1a2dccd85af1/oshi-core-6.9.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.oshi/oshi-core/6.9.0/3224870731860cfcd7744581a05b559e94291e7/oshi-core-6.9.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/617f37ef4e2ffb727bd5e74333e8073ef43ca1ec/lwjgl-opengl-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/b268a69846a185c0f7dad39d90655315a5e22d7c/lwjgl-opengl-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-opengl"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.code.gson/gson/2.13.2/e28a0b248e9435c6b6863275b2e5c1569dfac888/gson-2.13.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.code.gson/gson/2.13.2/48b8230771e573b54ce6e867a9001e75977fe78e/gson-2.13.2.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-lang3/3.19.0/d6524b169a6574cd253760c472d419b47bfd37e6/commons-lang3-3.19.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-lang3/3.19.0/5d534eb3f0fb4d6febb7643d8736f3c2b754df2b/commons-lang3-3.19.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.commons"/>
+			<attribute name="artifactId" value="commons-lang3"/>
+			<attribute name="version" value="3.19.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/failureaccess/1.0.3/18ed910a9966320b5ccfdfc3dbabbd1afd3d40e0/failureaccess-1.0.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/failureaccess/1.0.3/aeaffd00d57023a2c947393ed251f0354f0985fc/failureaccess-1.0.3.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-common/4.2.7.Final/11aa30df26af4fca3239ac1917f303a280f301e1/netty-common-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-common/4.2.7.Final/ca57754b709612b8a2a9a270129d2ed1c2cd351/netty-common-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-common"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.5.0-jre/d4a99a57361d167bb70cffcc86e3302add771bba/guava-33.5.0-jre-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.5.0-jre/8699de25f2f979108d6c1b804a7ba38cda1116bc/guava-33.5.0-jre.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/ffmpeg/7.1-1.5.11/9704bf6e3ba57d8984fea5eaa0221cf049ec90d4/ffmpeg-7.1-1.5.11.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/ffmpeg/7.1-1.5.11/3ccb2de7a0d667c8ccebf54f387ebabb993e2936/ffmpeg-7.1-1.5.11-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.bytedeco"/>
+			<attribute name="artifactId" value="ffmpeg"/>
+			<attribute name="version" value="7.1-1.5.11"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/77.1/3816e175e91475575e91393835140f34a739dbc7/icu4j-77.1-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/77.1/38693cf0b1d7362a8b726af74dc06026a7c23809/icu4j-77.1.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/6105690714874b995aa7812e4f7732a21109276c/lwjgl-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/424efe3b0b8045fbb68fb888e65726d5e917b23c/lwjgl-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.microsoft.azure/msal4j/1.23.1/c41fa09a8d8df4be11db84f34acb9bf6241a1f24/msal4j-1.23.1-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.microsoft.azure/msal4j/1.23.1/6c722b514873b24a4e1ce9c22dca36ea3c22bdbe/msal4j-1.23.1.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/2eb4aa895ea190ba8cf4356f8cea24d3ebb40ea1/lwjgl-glfw-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/947ab4411813fdad5d541ddcd78df9e58858dc84/lwjgl-glfw-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-glfw"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/authlib/7.0.61/eaff02b628c5ce49e96ef5fe8661d9198be74b20/authlib-7.0.61-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/authlib/7.0.61/efee1e6b54e863108576eb3b3ae71144626aaefc/authlib-7.0.61.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/562697d40dbd2ed0424bf24dcf65d51170f81adf/lwjgl-tinyfd-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/419e8f5d842330b762c6900ba42a5fa0ef52589e/lwjgl-tinyfd-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-tinyfd"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/blocklist/1.0.10/ef44852fa1707a833bfa8e8518659ab18f368d25/blocklist-1.0.10-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/blocklist/1.0.10/5c685c5ffa94c4cd39496c7184c1d122e515ecef/blocklist-1.0.10.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/f077c3dafc31924fbe8acb0b913f08977ba27f8e/lwjgl-stb-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/6ba89a25de97bb73ac1dfb59d042482866bb929c/lwjgl-stb-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-stb"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/brigadier/1.3.10/d4b579a2b795ff6bfe5eb02760a2748d29addd2e/brigadier-1.3.10-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/brigadier/1.3.10/d15b53a14cf20fdcaa98f731af5dda654452c010/brigadier-1.3.10.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jspecify/jspecify/1.0.0/7425a601c1c7ec76645a78d22b8c6a627edee507/jspecify-1.0.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jspecify/jspecify/1.0.0/f1a67bbcf2f9f282baf3821046563983f16ca9b2/jspecify-1.0.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.jspecify"/>
+			<attribute name="artifactId" value="jspecify"/>
+			<attribute name="version" value="1.0.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/datafixerupper/9.0.19/fa2c43eb1669ecf52148b3dca681491cf0173cbc/datafixerupper-9.0.19-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/datafixerupper/9.0.19/4e91f9712fa1e83231d1501625381b0210a977da/datafixerupper-9.0.19.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/e091cd3b25ab7db88f0e34a0d2797dc396a528fa/lwjgl-stb-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/6ba89a25de97bb73ac1dfb59d042482866bb929c/lwjgl-stb-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-stb"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/bb5ded9cac574ef76b0c5339bbb848c9c9c3ea1/jtracy-1.0.37-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/a3fb649b2e2b2288d2978f0b0bc3d83f62809d1e/jtracy-1.0.37.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.slf4j/slf4j-api/2.0.17/d9e58ac9c7779ba3bf8142aff6c830617a7fe60f/slf4j-api-2.0.17.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.slf4j/slf4j-api/2.0.17/d7da5e7fecb3544b1e32f86dc0ef5d5ecf9f381b/slf4j-api-2.0.17-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.slf4j"/>
+			<attribute name="artifactId" value="slf4j-api"/>
+			<attribute name="version" value="2.0.17"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/logging/1.6.11/7178506b181105f055eeffdac958cfcd89bca7d/logging-1.6.11-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/logging/1.6.11/fd147240733010c158249d986323f9ef98977fe/logging-1.6.11.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-sound-api-v1/2.0.4+11a26f314c/b63ce87810bc5aa495cb39be7efd2b07e6772822/fabric-sound-api-v1-2.0.4+11a26f314c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-sound-api-v1/2.0.4+11a26f314c/18d1d65e0ddcaa7e431c0f7478a0aa921bbc4abe/fabric-sound-api-v1-2.0.4+11a26f314c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-sound-api-v1"/>
+			<attribute name="version" value="2.0.4+11a26f314c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/patchy/2.2.10/da05971b07cbb379d002cf7eaec6a2048211fefc/patchy-2.2.10.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/brigadier/1.3.10/d15b53a14cf20fdcaa98f731af5dda654452c010/brigadier-1.3.10.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/brigadier/1.3.10/d4b579a2b795ff6bfe5eb02760a2748d29addd2e/brigadier-1.3.10-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="brigadier"/>
+			<attribute name="version" value="1.3.10"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/text2speech/1.18.11/7d5fb57405ae67117b5471c243067c0efe0f6b58/text2speech-1.18.11-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/text2speech/1.18.11/e853a12cdd6ba4f4836e8f4bf3b37844a13482b6/text2speech-1.18.11.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-recipe-api-v1/9.0.16+be4b75ae4c/f8f7b68a0a20eb3792aba66a34af8eb7cfd48bdc/fabric-recipe-api-v1-9.0.16+be4b75ae4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-recipe-api-v1/9.0.16+be4b75ae4c/be8f9935834beb78cbee7fbb9ba4b288fc1d042f/fabric-recipe-api-v1-9.0.16+be4b75ae4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-recipe-api-v1"/>
+			<attribute name="version" value="9.0.16+be4b75ae4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-codec/commons-codec/1.19.0/f133992014cbfedccce3acb9486816bcfd9d3425/commons-codec-1.19.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-codec/commons-codec/1.19.0/8c0dbe3ae883fceda9b50a6c76e745e548073388/commons-codec-1.19.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-rendering-fluids-v1/6.0.1+d871b99e4c/fe53bab501b2a582517f39ede3e1514074e8de7/fabric-rendering-fluids-v1-6.0.1+d871b99e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-rendering-fluids-v1/6.0.1+d871b99e4c/f15d2f130270e1045b5d4b28f46f7319119e5696/fabric-rendering-fluids-v1-6.0.1+d871b99e4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-rendering-fluids-v1"/>
+			<attribute name="version" value="6.0.1+d871b99e4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-buffer/4.2.7.Final/50436608c4a1cf11ff7c5d94e8228e98af436c0a/netty-buffer-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-buffer/4.2.7.Final/5555ff561643bf2f8430fb57c24403c0efe15994/netty-buffer-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-databind/2.15.2/9353b021f10c307c00328f52090de2bdb4b6ff9c/jackson-databind-2.15.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-databind/2.15.2/32d4d520f3e46e7b2c2d4d863d8f2f381af4fa6/jackson-databind-2.15.2-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.fasterxml.jackson.core"/>
+			<attribute name="artifactId" value="jackson-databind"/>
+			<attribute name="version" value="2.15.2"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-base/4.2.7.Final/33d7d083be0fb71630d69f987fab4a25e42f65cb/netty-codec-base-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-base/4.2.7.Final/915e381ebabcf115f1c7ff7032d55c48afb50210/netty-codec-base-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/datafixerupper/9.0.19/4e91f9712fa1e83231d1501625381b0210a977da/datafixerupper-9.0.19.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/datafixerupper/9.0.19/fa2c43eb1669ecf52148b3dca681491cf0173cbc/datafixerupper-9.0.19-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="datafixerupper"/>
+			<attribute name="version" value="9.0.19"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-compression/4.2.7.Final/632639393a5d4c2830967aa8210b7f8e4c198eac/netty-codec-compression-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-compression/4.2.7.Final/572341bc1ca90fd9d6e47f1d2694aab5258566e9/netty-codec-compression-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-key-mapping-api-v1/2.0.4+e2bdee784c/b098e3e06b71a0fec9d18843ba9327f038b7cd5/fabric-key-mapping-api-v1-2.0.4+e2bdee784c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-key-mapping-api-v1/2.0.4+e2bdee784c/571758edeb19f53f35dc6bbd8037d9a4f8a70cb9/fabric-key-mapping-api-v1-2.0.4+e2bdee784c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-key-mapping-api-v1"/>
+			<attribute name="version" value="2.0.4+e2bdee784c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-http/4.2.7.Final/d5ea1a1789e7449741137638b4212855e7b81681/netty-codec-http-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-http/4.2.7.Final/b734c108854099c421fd94d92d9f865e4d4da853/netty-codec-http-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/8e83fdfdf65c80c9877c6fb6cb645d239ed7638/lwjgl-openal-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/487c8307e47895e8dab01c0d1f84774f0c26935d/lwjgl-openal-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-openal"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-common/4.2.7.Final/ca57754b709612b8a2a9a270129d2ed1c2cd351/netty-common-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-common/4.2.7.Final/11aa30df26af4fca3239ac1917f303a280f301e1/netty-common-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.10.1/8d49f14d51f632cb1d87c88d1ceaf50db0d8af1b/asm-analysis-9.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-analysis/9.10.1/dc5795b6a72aba9b953aebb3707afff61d34b640/asm-analysis-9.10.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.ow2.asm"/>
+			<attribute name="artifactId" value="asm-analysis"/>
+			<attribute name="version" value="9.10.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-handler/4.2.7.Final/d62036c292296beb6e0cd535f888062a1c649676/netty-handler-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-handler/4.2.7.Final/7ad8a1f851e2e6fe93cdd091871fda2b81c03b5b/netty-handler-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/a3fb649b2e2b2288d2978f0b0bc3d83f62809d1e/jtracy-1.0.37.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/bb5ded9cac574ef76b0c5339bbb848c9c9c3ea1/jtracy-1.0.37-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="jtracy"/>
+			<attribute name="version" value="1.0.37"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-resolver/4.2.7.Final/8e53256e4682a27915eb9c50a00e0349b24cfe3b/netty-resolver-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-resolver/4.2.7.Final/5f3e5ef8de03992cd4fb46960dc0085ec1a12a12/netty-resolver-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-base/4.2.7.Final/915e381ebabcf115f1c7ff7032d55c48afb50210/netty-codec-base-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-base/4.2.7.Final/33d7d083be0fb71630d69f987fab4a25e42f65cb/netty-codec-base-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-codec-base"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-epoll/4.2.7.Final/fdde5a347444e08355c6f8f7667b3776333f33c4/netty-transport-classes-epoll-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-epoll/4.2.7.Final/1075c09f48a78eef9d819fbfd9096b903fdd362a/netty-transport-classes-epoll-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/98d02251c98c8f07a23ac5ea27657d9e0ef57614/netty-transport-native-epoll-4.2.7.Final-linux-aarch_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/82357565476baa9138d99e6e2367f9f6bd885f22/netty-transport-native-epoll-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-native-epoll"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-kqueue/4.2.7.Final/685b6b760beaa8fc8865e815445cc5a7f27b3f4e/netty-transport-classes-kqueue-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-kqueue/4.2.7.Final/bdec7c23c75caabd848426d073c09568e8d5f94e/netty-transport-classes-kqueue-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-creative-tab-api-v1/5.0.11+d871b99e4c/9e6937cef2aa7955d2ff66c9d2415118c58ec15c/fabric-creative-tab-api-v1-5.0.11+d871b99e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-creative-tab-api-v1/5.0.11+d871b99e4c/5804cc96ec54c044153cc743b549e990bf3dbb12/fabric-creative-tab-api-v1-5.0.11+d871b99e4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-creative-tab-api-v1"/>
+			<attribute name="version" value="5.0.11+d871b99e4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-unix-common/4.2.7.Final/a82c40b0ef3bfb4e75c926695d4ea61a51461554/netty-transport-native-unix-common-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-unix-common/4.2.7.Final/89953f04259ea7502cffb313630dd51e00e60669/netty-transport-native-unix-common-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/24.0.0/69b8b443c437fdeefa8d20c18d257b94836a92b9/annotations-24.0.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/24.0.0/d0f77e3bd1ba4927fc8bcf0e1ca3b76f6e9b34f8/annotations-24.0.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.jetbrains"/>
+			<attribute name="artifactId" value="annotations"/>
+			<attribute name="version" value="24.0.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport/4.2.7.Final/477c473691b0de4e797d4abeb127b982cbe6191/netty-transport-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport/4.2.7.Final/83ea548981d0d8c4a98027cc1a6f9624f902e142/netty-transport-4.2.7.Final.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna/5.17.0/33d12735bef894440780fce64f9758d420c7bae2/jna-5.17.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna/5.17.0/4fb8a8af5ba9b24599b7d5a9505c3fc038762144/jna-5.17.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.java.dev.jna"/>
+			<attribute name="artifactId" value="jna"/>
+			<attribute name="version" value="5.17.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/it.unimi.dsi/fastutil/8.5.18/d49bcbf212cca0ba085bff99870a77f2322e0a7/fastutil-8.5.18-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/it.unimi.dsi/fastutil/8.5.18/a6cff377eecc19c2037bf31568a6d7106b50ba1f/fastutil-8.5.18.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/a48bbdd544f00c88f8906e9d09e3f31bc1c17fac/lwjgl-glfw-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.4.1/947ab4411813fdad5d541ddcd78df9e58858dc84/lwjgl-glfw-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-glfw"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna-platform/5.17.0/d771ab7bcab3669533833f523539989cbbda85d2/jna-platform-5.17.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna-platform/5.17.0/a4934c44d25a9d8c2ddf4203affd20330cb3426f/jna-platform-5.17.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.153.0+26.1.2/5d984764e54f1f1db397d3f76429a0f15e591845/fabric-api-0.153.0+26.1.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.153.0+26.1.2/e1fc71eedbe51676d2cb8d53dbcc5deaaf3519b8/fabric-api-0.153.0+26.1.2-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-api"/>
+			<attribute name="version" value="0.153.0+26.1.2"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna/5.17.0/4fb8a8af5ba9b24599b7d5a9505c3fc038762144/jna-5.17.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna/5.17.0/33d12735bef894440780fce64f9758d420c7bae2/jna-5.17.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-resolver/4.2.7.Final/5f3e5ef8de03992cd4fb46960dc0085ec1a12a12/netty-resolver-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-resolver/4.2.7.Final/8e53256e4682a27915eb9c50a00e0349b24cfe3b/netty-resolver-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-resolver"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.sf.jopt-simple/jopt-simple/5.0.4/950831646d014c9162999019a3cb17d5fc01ac0d/jopt-simple-5.0.4-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.sf.jopt-simple/jopt-simple/5.0.4/4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c/jopt-simple-5.0.4.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-data-attachment-api-v1/2.2.8+44a0bd1d4c/425d2a381aca8ce46377091a31be37b2bada3218/fabric-data-attachment-api-v1-2.2.8+44a0bd1d4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-data-attachment-api-v1/2.2.8+44a0bd1d4c/7fb4f13fcd377377648a9151caec4e26519c0caa/fabric-data-attachment-api-v1-2.2.8+44a0bd1d4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-compress/1.28.0/35c6f7682cb67429c381953106d89c278428d69a/commons-compress-1.28.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-compress/1.28.0/e482f2c7a88dac3c497e96aa420b6a769f59c8d7/commons-compress-1.28.0.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-lang3/3.19.0/5d534eb3f0fb4d6febb7643d8736f3c2b754df2b/commons-lang3-3.19.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-lang3/3.19.0/d6524b169a6574cd253760c472d419b47bfd37e6/commons-lang3-3.19.0.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-api/2.25.2/fccc23e47499d8ed545901ec5e2ff5a6ab17b4f1/log4j-api-2.25.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-api/2.25.2/292c1a2b1702f1e1e3adb13e1c57e5bff60335ff/log4j-api-2.25.2.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-core/2.25.2/aed03834249eaee1b3dcc5e0c54b328983085a67/log4j-core-2.25.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-core/2.25.2/d4d0ad2e51e03e531f784891fbfff1bae1e13a12/log4j-core-2.25.2.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-slf4j2-impl/2.25.2/1588b727d7f742291b3ce50af46ee0e6b391864f/log4j-slf4j2-impl-2.25.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-slf4j2-impl/2.25.2/5eec0c392661dee8a366baec17e8896900dd978f/log4j-slf4j2-impl-2.25.2.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jcraft/jorbis/0.0.17/5446be5d62e4c6b347c8e6cd28dc00a936417ba2/jorbis-0.0.17-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jcraft/jorbis/0.0.17/8872d22b293e8f5d7d56ff92be966e6dc28ebdc6/jorbis-0.0.17.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.joml/joml/1.10.8/3fa7a5a8a5119d23dbe3402f6ffa3df1b3d9598e/joml-1.10.8-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.joml/joml/1.10.8/fc0a71dad90a2cf41d82a76156a0e700af8e4f8d/joml-1.10.8.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jspecify/jspecify/1.0.0/f1a67bbcf2f9f282baf3821046563983f16ca9b2/jspecify-1.0.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jspecify/jspecify/1.0.0/7425a601c1c7ec76645a78d22b8c6a627edee507/jspecify-1.0.0.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/d9fba96328a80677edbab28a843f33b847cf1e57/lwjgl-freetype-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/a0db6c84a8becc8ca05f9dbfa985edc348a824c7/lwjgl-freetype-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/fa2c760452674d3eaf336123539b0dd9a83041a4/lwjgl-glfw-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/efa1eb78c5ccd840e9f329717109b5e892d72f8e/lwjgl-glfw-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/6a4ea7a9095e1684a9c6adb2c49d28daae2b6e45/lwjgl-jemalloc-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/b543467b7ff3c6920539a88ee602d34098628be5/lwjgl-jemalloc-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/60a4ce24d71b3376ce53b50cfe3eaaf3277dd727/lwjgl-openal-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/daada81ceb5fc0c291fbfdd4433cb8d9423577f2/lwjgl-openal-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/3353d0b2cac91b84088b01711d33cc403893450b/lwjgl-opengl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/2f6b0147078396a58979125a4c947664e98293a/lwjgl-opengl-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/37c2b604ec4a5ee356dd734dc8167a193e8874ed/lwjgl-stb-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/25dd6161988d7e65f71d5065c99902402ee32746/lwjgl-stb-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/dcda55223f2f940654d222bf4371baa969c60bb9/lwjgl-tinyfd-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/82d755ca94b102e9ca77283b9e2dc46d1b15fbe5/lwjgl-tinyfd-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/e5949c7bbf4f839afe6d1a631e9b75f63c559e0/lwjgl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/29589b5f87ed335a6c7e7ee6a5775f81f97ecb84/lwjgl-3.3.3.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.slf4j/slf4j-api/2.0.17/d7da5e7fecb3544b1e32f86dc0ef5d5ecf9f381b/slf4j-api-2.0.17-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.slf4j/slf4j-api/2.0.17/d9e58ac9c7779ba3bf8142aff6c830617a7fe60f/slf4j-api-2.0.17.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-54f2c19a0c/1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.4-v2/minecraft-merged-54f2c19a0c-1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.4-v2.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/82357565476baa9138d99e6e2367f9f6bd885f22/netty-transport-native-epoll-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/e83998bfc10b5289d9bcbe807c4079ef0eed8e6f/netty-transport-native-epoll-4.2.7.Final-linux-x86_64.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/82357565476baa9138d99e6e2367f9f6bd885f22/netty-transport-native-epoll-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/98d02251c98c8f07a23ac5ea27657d9e0ef57614/netty-transport-native-epoll-4.2.7.Final-linux-aarch_64.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/b2af5f33830abdd4fbded26ff51088726bee4f8b/netty-transport-native-kqueue-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/40868fd4e43bce2798245f790624b58803dc26b6/netty-transport-native-kqueue-4.2.7.Final-osx-x86_64.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/b2af5f33830abdd4fbded26ff51088726bee4f8b/netty-transport-native-kqueue-4.2.7.Final-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/e5a0feef41410c8a5ae00c6cb4e0c99bd0aded6a/netty-transport-native-kqueue-4.2.7.Final-osx-aarch_64.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loader/0.18.4/c346b05fad0e97adcf357f519cf8e61b153e5ee2/fabric-loader-0.18.4-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loader/0.18.4/dc4682125d5db647d6ce80a98b98945835adcd4b/fabric-loader-0.18.4.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.cabaletta/baritone/1.2.14/126aed0835f9e67f4dcef2f6772083f442cc7ffd/baritone-1.2.14-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.cabaletta/baritone/1.2.14/bb68175a5ba02a906532736611d2db255b15e9c5/baritone-1.2.14.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value=""/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-4b5d3c0a/0.140.2+1.21.11/fabric-api-4b5d3c0a-0.140.2+1.21.11-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-4b5d3c0a/0.140.2+1.21.11/fabric-api-4b5d3c0a-0.140.2+1.21.11.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-transfer-api-v1-4b5d3c0a/6.0.24+4fc5413f3e/fabric-transfer-api-v1-4b5d3c0a-6.0.24+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-transfer-api-v1-4b5d3c0a/6.0.24+4fc5413f3e/fabric-transfer-api-v1-4b5d3c0a-6.0.24+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-lookup-api-v1-4b5d3c0a/1.6.113+1fb1cde93e/fabric-api-lookup-api-v1-4b5d3c0a-1.6.113+1fb1cde93e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-lookup-api-v1-4b5d3c0a/1.6.113+1fb1cde93e/fabric-api-lookup-api-v1-4b5d3c0a-1.6.113+1fb1cde93e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-command-api-v2-4b5d3c0a/2.4.7+6b42a6003e/fabric-command-api-v2-4b5d3c0a-2.4.7+6b42a6003e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-command-api-v2-4b5d3c0a/2.4.7+6b42a6003e/fabric-command-api-v2-4b5d3c0a-2.4.7+6b42a6003e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-content-registries-v0-4b5d3c0a/10.2.14+4fc5413f3e/fabric-content-registries-v0-4b5d3c0a-10.2.14+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-content-registries-v0-4b5d3c0a/10.2.14+4fc5413f3e/fabric-content-registries-v0-4b5d3c0a-10.2.14+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-data-generation-api-v1-4b5d3c0a/23.4.0+69974c4e3e/fabric-data-generation-api-v1-4b5d3c0a-23.4.0+69974c4e3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-data-generation-api-v1-4b5d3c0a/23.4.0+69974c4e3e/fabric-data-generation-api-v1-4b5d3c0a-23.4.0+69974c4e3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-convention-tags-v1-4b5d3c0a/2.1.55+7f945d5b3e/fabric-convention-tags-v1-4b5d3c0a-2.1.55+7f945d5b3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-convention-tags-v1-4b5d3c0a/2.1.55+7f945d5b3e/fabric-convention-tags-v1-4b5d3c0a-2.1.55+7f945d5b3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-convention-tags-v2-4b5d3c0a/2.17.3+8ef948ba3e/fabric-convention-tags-v2-4b5d3c0a-2.17.3+8ef948ba3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-convention-tags-v2-4b5d3c0a/2.17.3+8ef948ba3e/fabric-convention-tags-v2-4b5d3c0a-2.17.3+8ef948ba3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-data-attachment-api-v1-4b5d3c0a/1.8.44+1fb1cde93e/fabric-data-attachment-api-v1-4b5d3c0a-1.8.44+1fb1cde93e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-data-attachment-api-v1-4b5d3c0a/1.8.44+1fb1cde93e/fabric-data-attachment-api-v1-4b5d3c0a-1.8.44+1fb1cde93e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-entity-events-v1-4b5d3c0a/3.0.5+4ebb5c083e/fabric-entity-events-v1-4b5d3c0a-3.0.5+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-entity-events-v1-4b5d3c0a/3.0.5+4ebb5c083e/fabric-entity-events-v1-4b5d3c0a-3.0.5+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-events-interaction-v0-4b5d3c0a/4.0.44+1fb1cde93e/fabric-events-interaction-v0-4b5d3c0a-4.0.44+1fb1cde93e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-events-interaction-v0-4b5d3c0a/4.0.44+1fb1cde93e/fabric-events-interaction-v0-4b5d3c0a-4.0.44+1fb1cde93e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-game-rule-api-v1-4b5d3c0a/2.0.3+4fc5413f3e/fabric-game-rule-api-v1-4b5d3c0a-2.0.3+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-game-rule-api-v1-4b5d3c0a/2.0.3+4fc5413f3e/fabric-game-rule-api-v1-4b5d3c0a-2.0.3+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-gametest-api-v1-4b5d3c0a/3.1.27+4fc5413f3e/fabric-gametest-api-v1-4b5d3c0a-3.1.27+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-gametest-api-v1-4b5d3c0a/3.1.27+4fc5413f3e/fabric-gametest-api-v1-4b5d3c0a-3.1.27+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-item-api-v1-4b5d3c0a/11.5.20+d0c46b9e3e/fabric-item-api-v1-4b5d3c0a-11.5.20+d0c46b9e3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-item-api-v1-4b5d3c0a/11.5.20+d0c46b9e3e/fabric-item-api-v1-4b5d3c0a-11.5.20+d0c46b9e3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-item-group-api-v1-4b5d3c0a/4.2.36+4fc5413f3e/fabric-item-group-api-v1-4b5d3c0a-4.2.36+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-item-group-api-v1-4b5d3c0a/4.2.36+4fc5413f3e/fabric-item-group-api-v1-4b5d3c0a-4.2.36+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-recipe-api-v1-4b5d3c0a/8.2.3+4ebb5c083e/fabric-recipe-api-v1-4b5d3c0a-8.2.3+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-recipe-api-v1-4b5d3c0a/8.2.3+4ebb5c083e/fabric-recipe-api-v1-4b5d3c0a-8.2.3+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-model-loading-api-v1-4b5d3c0a/6.0.13+4fc5413f3e/fabric-model-loading-api-v1-4b5d3c0a-6.0.13+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-model-loading-api-v1-4b5d3c0a/6.0.13+4fc5413f3e/fabric-model-loading-api-v1-4b5d3c0a-6.0.13+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-renderer-indigo-4b5d3c0a/5.0.1+f4ffd2e53e/fabric-renderer-indigo-4b5d3c0a-5.0.1+f4ffd2e53e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-renderer-indigo-4b5d3c0a/5.0.1+f4ffd2e53e/fabric-renderer-indigo-4b5d3c0a-5.0.1+f4ffd2e53e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-renderer-api-v1-4b5d3c0a/8.0.1+f4ffd2e53e/fabric-renderer-api-v1-4b5d3c0a-8.0.1+f4ffd2e53e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-renderer-api-v1-4b5d3c0a/8.0.1+f4ffd2e53e/fabric-renderer-api-v1-4b5d3c0a-8.0.1+f4ffd2e53e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-rendering-v1-4b5d3c0a/16.2.8+f4ffd2e53e/fabric-rendering-v1-4b5d3c0a-16.2.8+f4ffd2e53e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-rendering-v1-4b5d3c0a/16.2.8+f4ffd2e53e/fabric-rendering-v1-4b5d3c0a-16.2.8+f4ffd2e53e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-lifecycle-events-v1-4b5d3c0a/2.6.15+4ebb5c083e/fabric-lifecycle-events-v1-4b5d3c0a-2.6.15+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-lifecycle-events-v1-4b5d3c0a/2.6.15+4ebb5c083e/fabric-lifecycle-events-v1-4b5d3c0a-2.6.15+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-loot-api-v2-4b5d3c0a/3.0.73+3f89f5a53e/fabric-loot-api-v2-4b5d3c0a-3.0.73+3f89f5a53e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-loot-api-v2-4b5d3c0a/3.0.73+3f89f5a53e/fabric-loot-api-v2-4b5d3c0a-3.0.73+3f89f5a53e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-loot-api-v3-4b5d3c0a/2.0.20+78c8b4663e/fabric-loot-api-v3-4b5d3c0a-2.0.20+78c8b4663e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-loot-api-v3-4b5d3c0a/2.0.20+78c8b4663e/fabric-loot-api-v3-4b5d3c0a-2.0.20+78c8b4663e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-message-api-v1-4b5d3c0a/6.1.12+4ebb5c083e/fabric-message-api-v1-4b5d3c0a-6.1.12+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-message-api-v1-4b5d3c0a/6.1.12+4ebb5c083e/fabric-message-api-v1-4b5d3c0a-6.1.12+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-particles-v1-4b5d3c0a/4.2.11+4fc5413f3e/fabric-particles-v1-4b5d3c0a-4.2.11+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-particles-v1-4b5d3c0a/4.2.11+4fc5413f3e/fabric-particles-v1-4b5d3c0a-4.2.11+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-object-builder-api-v1-4b5d3c0a/21.1.39+4fc5413f3e/fabric-object-builder-api-v1-4b5d3c0a-21.1.39+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-object-builder-api-v1-4b5d3c0a/21.1.39+4fc5413f3e/fabric-object-builder-api-v1-4b5d3c0a-21.1.39+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-screen-handler-api-v1-4b5d3c0a/1.3.161+4fc5413f3e/fabric-screen-handler-api-v1-4b5d3c0a-1.3.161+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-screen-handler-api-v1-4b5d3c0a/1.3.161+4fc5413f3e/fabric-screen-handler-api-v1-4b5d3c0a-1.3.161+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-registry-sync-v0-4b5d3c0a/6.2.5+1718722b3e/fabric-registry-sync-v0-4b5d3c0a-6.2.5+1718722b3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-registry-sync-v0-4b5d3c0a/6.2.5+1718722b3e/fabric-registry-sync-v0-4b5d3c0a-6.2.5+1718722b3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-networking-api-v1-4b5d3c0a/5.1.5+ae1e07683e/fabric-networking-api-v1-4b5d3c0a-5.1.5+ae1e07683e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-networking-api-v1-4b5d3c0a/5.1.5+ae1e07683e/fabric-networking-api-v1-4b5d3c0a-5.1.5+ae1e07683e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-rendering-fluids-v1-4b5d3c0a/3.1.43+4ebb5c083e/fabric-rendering-fluids-v1-4b5d3c0a-3.1.43+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-rendering-fluids-v1-4b5d3c0a/3.1.43+4ebb5c083e/fabric-rendering-fluids-v1-4b5d3c0a-3.1.43+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-tag-api-v1-4b5d3c0a/1.2.20+4fc5413f3e/fabric-tag-api-v1-4b5d3c0a-1.2.20+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-tag-api-v1-4b5d3c0a/1.2.20+4fc5413f3e/fabric-tag-api-v1-4b5d3c0a-1.2.20+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-loader-v0-4b5d3c0a/3.3.4+4fc5413f3e/fabric-resource-loader-v0-4b5d3c0a-3.3.4+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-loader-v0-4b5d3c0a/3.3.4+4fc5413f3e/fabric-resource-loader-v0-4b5d3c0a-3.3.4+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-loader-v1-4b5d3c0a/1.0.10+78c8b4663e/fabric-resource-loader-v1-4b5d3c0a-1.0.10+78c8b4663e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-loader-v1-4b5d3c0a/1.0.10+78c8b4663e/fabric-resource-loader-v1-4b5d3c0a-1.0.10+78c8b4663e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-screen-api-v1-4b5d3c0a/3.1.7+4ebb5c083e/fabric-screen-api-v1-4b5d3c0a-3.1.7+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-screen-api-v1-4b5d3c0a/3.1.7+4ebb5c083e/fabric-screen-api-v1-4b5d3c0a-3.1.7+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-base-4b5d3c0a/1.0.5+4ebb5c083e/fabric-api-base-4b5d3c0a-1.0.5+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-api-base-4b5d3c0a/1.0.5+4ebb5c083e/fabric-api-base-4b5d3c0a-1.0.5+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-biome-api-v1-4b5d3c0a/17.1.1+4fc5413f3e/fabric-biome-api-v1-4b5d3c0a-17.1.1+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-biome-api-v1-4b5d3c0a/17.1.1+4fc5413f3e/fabric-biome-api-v1-4b5d3c0a-17.1.1+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-block-api-v1-4b5d3c0a/1.1.10+4ebb5c083e/fabric-block-api-v1-4b5d3c0a-1.1.10+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-block-api-v1-4b5d3c0a/1.1.10+4ebb5c083e/fabric-block-api-v1-4b5d3c0a-1.1.10+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-block-view-api-v2-4b5d3c0a/1.0.39+4ebb5c083e/fabric-block-view-api-v2-4b5d3c0a-1.0.39+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-block-view-api-v2-4b5d3c0a/1.0.39+4ebb5c083e/fabric-block-view-api-v2-4b5d3c0a-1.0.39+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-client-gametest-api-v1-4b5d3c0a/4.3.5+bfe9fcf43e/fabric-client-gametest-api-v1-4b5d3c0a-4.3.5+bfe9fcf43e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-client-gametest-api-v1-4b5d3c0a/4.3.5+bfe9fcf43e/fabric-client-gametest-api-v1-4b5d3c0a-4.3.5+bfe9fcf43e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-crash-report-info-v1-4b5d3c0a/0.3.23+4ebb5c083e/fabric-crash-report-info-v1-4b5d3c0a-0.3.23+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-crash-report-info-v1-4b5d3c0a/0.3.23+4ebb5c083e/fabric-crash-report-info-v1-4b5d3c0a-0.3.23+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-dimensions-v1-4b5d3c0a/4.0.28+4fc5413f3e/fabric-dimensions-v1-4b5d3c0a-4.0.28+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-dimensions-v1-4b5d3c0a/4.0.28+4fc5413f3e/fabric-dimensions-v1-4b5d3c0a-4.0.28+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-key-binding-api-v1-4b5d3c0a/1.1.7+4fc5413f3e/fabric-key-binding-api-v1-4b5d3c0a-1.1.7+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-key-binding-api-v1-4b5d3c0a/1.1.7+4fc5413f3e/fabric-key-binding-api-v1-4b5d3c0a-1.1.7+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-conditions-api-v1-4b5d3c0a/5.0.35+4fc5413f3e/fabric-resource-conditions-api-v1-4b5d3c0a-5.0.35+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-resource-conditions-api-v1-4b5d3c0a/5.0.35+4fc5413f3e/fabric-resource-conditions-api-v1-4b5d3c0a-5.0.35+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-serialization-api-v1-4b5d3c0a/1.0.5+4ebb5c083e/fabric-serialization-api-v1-4b5d3c0a-1.0.5+4ebb5c083e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-serialization-api-v1-4b5d3c0a/1.0.5+4ebb5c083e/fabric-serialization-api-v1-4b5d3c0a-1.0.5+4ebb5c083e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-sound-api-v1-4b5d3c0a/1.0.51+4fc5413f3e/fabric-sound-api-v1-4b5d3c0a-1.0.51+4fc5413f3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-sound-api-v1-4b5d3c0a/1.0.51+4fc5413f3e/fabric-sound-api-v1-4b5d3c0a-1.0.51+4fc5413f3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-transitive-access-wideners-v1-4b5d3c0a/7.1.0+014c8cec3e/fabric-transitive-access-wideners-v1-4b5d3c0a-7.1.0+014c8cec3e-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/net/fabricmc/fabric-api/fabric-transitive-access-wideners-v1-4b5d3c0a/7.1.0+014c8cec3e/fabric-transitive-access-wideners-v1-4b5d3c0a-7.1.0+014c8cec3e.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/dev/boze/boze-api-4b5d3c0a/3.2.2+1.21.11/boze-api-4b5d3c0a-3.2.2+1.21.11-sources.jar" kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/dev/boze/boze-api-4b5d3c0a/3.2.2+1.21.11/boze-api-4b5d3c0a-3.2.2+1.21.11.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value=""/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.15/969f48bef04f63a140a371dbb0c965904a06e34c/rhino-engine-1.7.15-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.15/7bd21acc82129fa4a9d229250c74d238710b53ca/rhino-engine-1.7.15.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
-		</attributes>
-	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.15/87c3edbf53920fdd85ba85a6fd68454ac334641/rhino-1.7.15-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.15/39e53f8e769ea9a7e799f266aa47c85edd99a29e/rhino-1.7.15.jar">
-		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-data-attachment-api-v1"/>
+			<attribute name="version" value="2.2.8+44a0bd1d4c"/>
 		</attributes>
 	</classpathentry>
 	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/dev-launch-injector/0.2.1+build.8/da8bef7e6e2f952da707f282bdb46882a0fce5e3/dev-launch-injector-0.2.1+build.8.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc"/>
+			<attribute name="artifactId" value="dev-launch-injector"/>
+			<attribute name="version" value="0.2.1+build.8"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-log4j-util/1.0.2/201d8a3ecff0b60ef3aba97140dde83c22801a36/fabric-log4j-util-1.0.2-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-log4j-util/1.0.2/ef0b3fb613356feb75a67d54f2fad6f03a006648/fabric-log4j-util-1.0.2.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/9e4bab87e9b89876fa77ea3c19e1b45334b97c10/lwjgl-openal-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/487c8307e47895e8dab01c0d1f84774f0c26935d/lwjgl-openal-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-openal"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/bb5ded9cac574ef76b0c5339bbb848c9c9c3ea1/jtracy-1.0.37-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/6ff6d710fd4ffd470f2799653fab57e27fed0c9d/jtracy-1.0.37-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-annotations/2.15.2/4724a65ac8e8d156a24898d50fd5dbd3642870b8/jackson-annotations-2.15.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-annotations/2.15.2/7458734de3b894cff3f3744ab11ff79b635c80e2/jackson-annotations-2.15.2-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.fasterxml.jackson.core"/>
+			<attribute name="artifactId" value="jackson-annotations"/>
+			<attribute name="version" value="2.15.2"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/d9fba96328a80677edbab28a843f33b847cf1e57/lwjgl-freetype-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/81091b006dbb43fab04c8c638e9ac87c51b4096d/lwjgl-freetype-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/patchy/2.2.10/da05971b07cbb379d002cf7eaec6a2048211fefc/patchy-2.2.10.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="patchy"/>
+			<attribute name="version" value="2.2.10"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/d9fba96328a80677edbab28a843f33b847cf1e57/lwjgl-freetype-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/82028265a0a2ff33523ca75137ada7dc176e5210/lwjgl-freetype-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/d8cf69e1155df83260f9bbe01944fe91f8ca3955/lwjgl-jemalloc-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/44c0e97ab159e7f0087217629ff87ae3283307d0/lwjgl-jemalloc-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-jemalloc"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/d9fba96328a80677edbab28a843f33b847cf1e57/lwjgl-freetype-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.3.3/15a8c1de7f51d07a92eae7ce1222557073a0c0c3/lwjgl-freetype-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/types/0.2.0/98e13503212afcdfd44b1fd6c6f1f4b98931a834/types-0.2.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/types/0.2.0/5c95220a71f0d840a5512ffa3c91bd78ad11ad1d/types-0.2.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.github.humbleui"/>
+			<attribute name="artifactId" value="types"/>
+			<attribute name="version" value="0.2.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/fa2c760452674d3eaf336123539b0dd9a83041a4/lwjgl-glfw-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/e449e28b4891fc423c54c85fbc5bb0b9efece67a/lwjgl-glfw-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacpp/1.5.11/76a0197853ab5e2d3643804e62f9018053750ddf/javacpp-1.5.11.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacpp/1.5.11/10daa5438ad7467b7a82f236ebc3f1e88d6b4c10/javacpp-1.5.11-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.bytedeco"/>
+			<attribute name="artifactId" value="javacpp"/>
+			<attribute name="version" value="1.5.11"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/fa2c760452674d3eaf336123539b0dd9a83041a4/lwjgl-glfw-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/f27018dc74f6289574502b46cce55d52817554e2/lwjgl-glfw-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.azure/azure-json/1.4.0/fcc1d354dbc3e0300e5276b1bf124d0247799cd8/azure-json-1.4.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.azure/azure-json/1.4.0/1aa682f6aad24c331dddf779ec3e40aa7d4ca556/azure-json-1.4.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.azure"/>
+			<attribute name="artifactId" value="azure-json"/>
+			<attribute name="version" value="1.4.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/fa2c760452674d3eaf336123539b0dd9a83041a4/lwjgl-glfw-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-glfw/3.3.3/32334f3fd5270a59bad9939a93115acb6de36dcf/lwjgl-glfw-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-permission-api-v1/1.0.1+c3369b134c/5c6d03641826dc7519113b1beb25dca36ba653f2/fabric-permission-api-v1-1.0.1+c3369b134c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-permission-api-v1/1.0.1+c3369b134c/aac0c6dda3b39b93881269126c6a85b2afa8e01f/fabric-permission-api-v1-1.0.1+c3369b134c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-permission-api-v1"/>
+			<attribute name="version" value="1.0.1+c3369b134c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/6a4ea7a9095e1684a9c6adb2c49d28daae2b6e45/lwjgl-jemalloc-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/426222fc027602a5f21b9c0fe79cde6a4c7a011f/lwjgl-jemalloc-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/4b996cc3321a807ee34e7ce53aba7fe529dc485a/lwjgl-openal-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/487c8307e47895e8dab01c0d1f84774f0c26935d/lwjgl-openal-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-openal"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/6a4ea7a9095e1684a9c6adb2c49d28daae2b6e45/lwjgl-jemalloc-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/ba1f3fed0ee4be0217eaa41c5bbfb4b9b1383c33/lwjgl-jemalloc-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/e5a0feef41410c8a5ae00c6cb4e0c99bd0aded6a/netty-transport-native-kqueue-4.2.7.Final-osx-aarch_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/b2af5f33830abdd4fbded26ff51088726bee4f8b/netty-transport-native-kqueue-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-native-kqueue"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/6a4ea7a9095e1684a9c6adb2c49d28daae2b6e45/lwjgl-jemalloc-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.3.3/f6063b6e0f23be483c5c88d84ce51b39dc69126c/lwjgl-jemalloc-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/b4e13ece83c228ecf57354639d8555076a989d74/lwjgl-stb-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.4.1/6ba89a25de97bb73ac1dfb59d042482866bb929c/lwjgl-stb-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-stb"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/60a4ce24d71b3376ce53b50cfe3eaaf3277dd727/lwjgl-openal-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/cf83862ae95d98496b26915024c7e666d8ab1c8f/lwjgl-openal-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/96a217f0428ab73487f114a54179a4f41e851a04/lwjgl-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/424efe3b0b8045fbb68fb888e65726d5e917b23c/lwjgl-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/60a4ce24d71b3376ce53b50cfe3eaaf3277dd727/lwjgl-openal-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/8e0615235116b9e4160dfe87bec90f5f6378bf72/lwjgl-openal-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-io/commons-io/2.20.0/36f3474daec2849c149e877614e7f979b2082cd2/commons-io-2.20.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-io/commons-io/2.20.0/71533071559ab4d6b295cd711dcdb2203b103dcd/commons-io-2.20.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="commons-io"/>
+			<attribute name="artifactId" value="commons-io"/>
+			<attribute name="version" value="2.20.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/60a4ce24d71b3376ce53b50cfe3eaaf3277dd727/lwjgl-openal-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.3.3/87b8d5050e3adb46bb58fe1cb2669a4a48fce10d/lwjgl-openal-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api-base/2.0.3+ece063234c/bdf802883d0f9c1034c436367ab2c7e04ce34ca6/fabric-api-base-2.0.3+ece063234c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api-base/2.0.3+ece063234c/cc0e5ab3ab8ec035aa0024b82ec889d07424f0fe/fabric-api-base-2.0.3+ece063234c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-api-base"/>
+			<attribute name="version" value="2.0.3+ece063234c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/3353d0b2cac91b84088b01711d33cc403893450b/lwjgl-opengl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/e6c1eec8be8a71951b830a4d69efc01c6531900c/lwjgl-opengl-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jsoup/jsoup/1.16.1/ae551410a16433984cd4a8603622fafa9d8299f0/jsoup-1.16.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jsoup/jsoup/1.16.1/9c150c9b9257a3c319115d87b9f4a732dd41762d/jsoup-1.16.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.jsoup"/>
+			<attribute name="artifactId" value="jsoup"/>
+			<attribute name="version" value="1.16.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/3353d0b2cac91b84088b01711d33cc403893450b/lwjgl-opengl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/65e956d3735a1abdc82eff4baec1b61174697d4b/lwjgl-opengl-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport/4.2.7.Final/83ea548981d0d8c4a98027cc1a6f9624f902e142/netty-transport-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport/4.2.7.Final/477c473691b0de4e797d4abeb127b982cbe6191/netty-transport-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/3353d0b2cac91b84088b01711d33cc403893450b/lwjgl-opengl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.3.3/d32d833dcaa2f355a886eaf21f0408b5f03241d/lwjgl-opengl-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/8508bd60589de0539aa465b78fcf838efd07ae9a/lwjgl-openal-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-openal/3.4.1/487c8307e47895e8dab01c0d1f84774f0c26935d/lwjgl-openal-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-openal"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/37c2b604ec4a5ee356dd734dc8167a193e8874ed/lwjgl-stb-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/1d9facdf6541de114b0f963be33505b7679c78cb/lwjgl-stb-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-compression/4.2.7.Final/572341bc1ca90fd9d6e47f1d2694aab5258566e9/netty-codec-compression-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-codec-compression/4.2.7.Final/632639393a5d4c2830967aa8210b7f8e4c198eac/netty-codec-compression-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-codec-compression"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/37c2b604ec4a5ee356dd734dc8167a193e8874ed/lwjgl-stb-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/a584ab44de569708871f0a79561f4d8c37487f2c/lwjgl-stb-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api-lookup-api-v1/2.0.12+d5a053b64c/9d899b4f811936369c0c7a5139fd15746d2f3032/fabric-api-lookup-api-v1-2.0.12+d5a053b64c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api-lookup-api-v1/2.0.12+d5a053b64c/9ef09e969c9800a45646bf70a4af447e28d64417/fabric-api-lookup-api-v1-2.0.12+d5a053b64c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-api-lookup-api-v1"/>
+			<attribute name="version" value="2.0.12+d5a053b64c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/37c2b604ec4a5ee356dd734dc8167a193e8874ed/lwjgl-stb-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-stb/3.3.3/b5c874687b9aac1a936501d4ed2c49567fd1b575/lwjgl-stb-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-loot-api-v3/3.0.12+00a1fba64c/58ffa00757774d7060115afa05742753ff26c769/fabric-loot-api-v3-3.0.12+00a1fba64c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-loot-api-v3/3.0.12+00a1fba64c/b281629abdd2cd9a108b82ecff18952e1f0d530b/fabric-loot-api-v3-3.0.12+00a1fba64c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-loot-api-v3"/>
+			<attribute name="version" value="3.0.12+00a1fba64c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/dcda55223f2f940654d222bf4371baa969c60bb9/lwjgl-tinyfd-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/a6697981b0449a5087c1d546fc08b4f73e8f98c9/lwjgl-tinyfd-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.cabaletta/baritone/1.2.14/bb68175a5ba02a906532736611d2db255b15e9c5/baritone-1.2.14.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.cabaletta/baritone/1.2.14/126aed0835f9e67f4dcef2f6772083f442cc7ffd/baritone-1.2.14-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.github.cabaletta"/>
+			<attribute name="artifactId" value="baritone"/>
+			<attribute name="version" value="1.2.14"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/dcda55223f2f940654d222bf4371baa969c60bb9/lwjgl-tinyfd-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/a88c494f3006eb91a7433b12a3a55a9a6c20788b/lwjgl-tinyfd-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/logging/1.6.11/fd147240733010c158249d986323f9ef98977fe/logging-1.6.11.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/logging/1.6.11/7178506b181105f055eeffdac958cfcd89bca7d/logging-1.6.11-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="logging"/>
+			<attribute name="version" value="1.6.11"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/dcda55223f2f940654d222bf4371baa969c60bb9/lwjgl-tinyfd-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.3.3/c336c84ee88cccb495c6ffa112395509e7378e8a/lwjgl-tinyfd-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-model-loading-api-v1/8.0.9+c80601bb4c/f5ca8eb737c103378eeaa3303d8091ad315b0d09/fabric-model-loading-api-v1-8.0.9+c80601bb4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-model-loading-api-v1/8.0.9+c80601bb4c/7d24b7cb053f4e0d280853c187eaf161f6c99daf/fabric-model-loading-api-v1-8.0.9+c80601bb4c-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-model-loading-api-v1"/>
+			<attribute name="version" value="8.0.9+c80601bb4c"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/e5949c7bbf4f839afe6d1a631e9b75f63c559e0/lwjgl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540/lwjgl-3.3.3-natives-windows.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/a677b4a7bba84f925b4cc4f52a58c5248974bdeb/lwjgl-freetype-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/60379db97116ee67fffbae0122b22d189fd2a4a/lwjgl-freetype-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-freetype"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/e5949c7bbf4f839afe6d1a631e9b75f63c559e0/lwjgl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/e9aca8c5479b520a2a7f0d542a118140e812c5e8/lwjgl-3.3.3-natives-windows-arm64.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/meteordevelopment/orbit/0.2.5/2d8f50f669e89aedb229ee3233cd2fa89583b633/orbit-0.2.5.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="meteordevelopment"/>
+			<attribute name="artifactId" value="orbit"/>
+			<attribute name="version" value="0.2.5"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/e5949c7bbf4f839afe6d1a631e9b75f63c559e0/lwjgl-3.3.3-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.3.3/9e670718e050aeaeea0c2d5b907cffb142f2e58f/lwjgl-3.3.3-natives-windows-x86.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.5.0-jre/8699de25f2f979108d6c1b804a7ba38cda1116bc/guava-33.5.0-jre.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.google.guava/guava/33.5.0-jre/d4a99a57361d167bb70cffcc86e3302add771bba/guava-33.5.0-jre-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.google.guava"/>
+			<attribute name="artifactId" value="guava"/>
+			<attribute name="version" value="33.5.0-jre"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/conng/Downloads/example-addon-master/.gradle/loom-cache/remapped_mods/remapped/dev/boze/boze-loader-beta-4b5d3c0a/1.0.0/boze-loader-beta-4b5d3c0a-1.0.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer/2.2.6/94c02c98687a65215e5c5c2da7fad392d9eacb4c/lavaplayer-2.2.6.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer/2.2.6/83d5dc5d7e02a63f16f6741ad80861b1ec041581/lavaplayer-2.2.6-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="dev.arbjerg"/>
+			<attribute name="artifactId" value="lavaplayer"/>
+			<attribute name="version" value="2.2.6"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jsoup/jsoup/1.16.1/9c150c9b9257a3c319115d87b9f4a732dd41762d/jsoup-1.16.1-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jsoup/jsoup/1.16.1/ae551410a16433984cd4a8603622fafa9d8299f0/jsoup-1.16.1.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-compress/1.28.0/e482f2c7a88dac3c497e96aa420b6a769f59c8d7/commons-compress-1.28.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.commons/commons-compress/1.28.0/35c6f7682cb67429c381953106d89c278428d69a/commons-compress-1.28.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.commons"/>
+			<attribute name="artifactId" value="commons-compress"/>
+			<attribute name="version" value="1.28.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.iharder/base64/2.3.9/f7aa9fa9bdb0c9d6ade1586c979d631cf71e8645/base64-2.3.9-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.iharder/base64/2.3.9/6c34d1c85141be8a21b0a957d84359894e2684b7/base64-2.3.9.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-kqueue/4.2.7.Final/bdec7c23c75caabd848426d073c09568e8d5f94e/netty-transport-classes-kqueue-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-kqueue/4.2.7.Final/685b6b760beaa8fc8865e815445cc5a7f27b3f4e/netty-transport-classes-kqueue-4.2.7.Final-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-classes-kqueue"/>
+			<attribute name="version" value="4.2.7.Final"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.json/json/20240303/1245e385b5212a5a1403458d23aebcf8b0a11463/json-20240303-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.json/json/20240303/ebb88e8fb5122b7506d5cf1d69f1ccdb790d22a/json-20240303.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.14/7f5c9501e9756ecd33464b82607843040294cdda/rhino-engine-1.7.14.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino-engine/1.7.14/c2671a840d9d92f99492d562ff830870c0d886b7/rhino-engine-1.7.14-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.mozilla"/>
+			<attribute name="artifactId" value="rhino-engine"/>
+			<attribute name="version" value="1.7.14"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/24.0.0/d0f77e3bd1ba4927fc8bcf0e1ca3b76f6e9b34f8/annotations-24.0.0-sources.jar" kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/24.0.0/69b8b443c437fdeefa8d20c18d257b94836a92b9/annotations-24.0.0.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna-platform/5.17.0/a4934c44d25a9d8c2ddf4203affd20330cb3426f/jna-platform-5.17.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.java.dev.jna/jna-platform/5.17.0/d771ab7bcab3669533833f523539989cbbda85d2/jna-platform-5.17.0-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.java.dev.jna"/>
+			<attribute name="artifactId" value="jna-platform"/>
+			<attribute name="version" value="5.17.0"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/fabric-loom/1.21.11/net.fabricmc.yarn.1_21_11.1.21.11+build.4-v2/mappings.jar">
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/4b6a9c5d7d5325312b740d9886087b7292b43bf9/lwjgl-opengl-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/b268a69846a185c0f7dad39d90655315a5e22d7c/lwjgl-opengl-3.4.1-sources.jar">
 		<attributes>
-			<attribute name="gradle_used_by_scope" value="main,test"/>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-opengl"/>
+			<attribute name="version" value="3.4.1"/>
 		</attributes>
 	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.10.1/e244332a17564c1d1572449399a842de35881be2/asm-tree-9.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.10.1/868e297f64cade189fff6600060ae8418b77bb92/asm-tree-9.10.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.ow2.asm"/>
+			<attribute name="artifactId" value="asm-tree"/>
+			<attribute name="version" value="9.10.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-unix-common/4.2.7.Final/89953f04259ea7502cffb313630dd51e00e60669/netty-transport-native-unix-common-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-unix-common/4.2.7.Final/a82c40b0ef3bfb4e75c926695d4ea61a51461554/netty-transport-native-unix-common-4.2.7.Final-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-native-unix-common"/>
+			<attribute name="version" value="4.2.7.Final"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-rendering-v1/23.2.0+c9da2e974c/da0f1b7bc5133992e276a36b89967a4ac4b2890a/fabric-rendering-v1-23.2.0+c9da2e974c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-rendering-v1/23.2.0+c9da2e974c/d1b19dd24882de3f4853d6ce079c430bf9f27762/fabric-rendering-v1-23.2.0+c9da2e974c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-rendering-v1"/>
+			<attribute name="version" value="23.2.0+c9da2e974c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.boze/boze-api/3.2.2+26.1.2/1682d861fa3b0660026a74b5e7f235641b82c2be/boze-api-3.2.2+26.1.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.boze/boze-api/3.2.2+26.1.2/7a80dd39ae58243e1ea92f3e16ea69a124532765/boze-api-3.2.2+26.1.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="dev.boze"/>
+			<attribute name="artifactId" value="boze-api"/>
+			<attribute name="version" value="3.2.2+26.1.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-message-api-v1/7.0.5+dae8ce3e4c/6211835e1348e8b9b89defb98a616adb483b8284/fabric-message-api-v1-7.0.5+dae8ce3e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-message-api-v1/7.0.5+dae8ce3e4c/bd14979b54b405ef500e61c44d05a868abae22fd/fabric-message-api-v1-7.0.5+dae8ce3e4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-message-api-v1"/>
+			<attribute name="version" value="7.0.5+dae8ce3e4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-block-getter-api-v2/2.0.6+ec56b6014c/caabc9eb2f3823864682da5a1c5381a035c00d5f/fabric-block-getter-api-v2-2.0.6+ec56b6014c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-block-getter-api-v2/2.0.6+ec56b6014c/2650b61ef47433b0163fc7d963ebfc83fcddf2d4/fabric-block-getter-api-v2-2.0.6+ec56b6014c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-block-getter-api-v2"/>
+			<attribute name="version" value="2.0.6+ec56b6014c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.15/39e53f8e769ea9a7e799f266aa47c85edd99a29e/rhino-1.7.15.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.mozilla/rhino/1.7.15/87c3edbf53920fdd85ba85a6fd68454ac334641/rhino-1.7.15-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.mozilla"/>
+			<attribute name="artifactId" value="rhino"/>
+			<attribute name="version" value="1.7.15"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.grack/nanojson/1.8/b1754283ea682b74024a8a6addf51e073fb782bb/nanojson-1.8.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.grack/nanojson/1.8/cad00695db8f2fa66eb5063022a1536fc3a97895/nanojson-1.8-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.grack"/>
+			<attribute name="artifactId" value="nanojson"/>
+			<attribute name="version" value="1.8"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loader/0.19.3/354dfaa02d0552e11867f85dff7cdbfaf813ba3e/fabric-loader-0.19.3.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loader/0.19.3/53f6d308ed57a4281ec3dda2457499ac53c8cc4d/fabric-loader-0.19.3-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc"/>
+			<attribute name="artifactId" value="fabric-loader"/>
+			<attribute name="version" value="0.19.3"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lava-common/2.2.6/349046451f66c071caaf44ae5fc8edeb95ee513d/lava-common-2.2.6.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lava-common/2.2.6/4551f3b0d812b35cbb6861e26fd829e7e59f85cc/lava-common-2.2.6-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="dev.arbjerg"/>
+			<attribute name="artifactId" value="lava-common"/>
+			<attribute name="version" value="2.2.6"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-command-api-v2/3.0.5+e2bdee784c/d2bfa62e2f489900be2210dfb84458dcdecb75b6/fabric-command-api-v2-3.0.5+e2bdee784c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-command-api-v2/3.0.5+e2bdee784c/54bd6b24c59ea4dff7c459a31a012a4037b5dbb1/fabric-command-api-v2-3.0.5+e2bdee784c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-command-api-v2"/>
+			<attribute name="version" value="3.0.5+e2bdee784c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jcraft/jorbis/0.0.17/8872d22b293e8f5d7d56ff92be966e6dc28ebdc6/jorbis-0.0.17.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jcraft/jorbis/0.0.17/5446be5d62e4c6b347c8e6cd28dc00a936417ba2/jorbis-0.0.17-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.jcraft"/>
+			<attribute name="artifactId" value="jorbis"/>
+			<attribute name="version" value="0.0.17"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/ffmpeg/7.1-1.5.11/85302b8049f9c5869bf7b61307f39c5b53069339/ffmpeg-7.1-1.5.11-windows-x86_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/ffmpeg/7.1-1.5.11/3ccb2de7a0d667c8ccebf54f387ebabb993e2936/ffmpeg-7.1-1.5.11-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.bytedeco"/>
+			<attribute name="artifactId" value="ffmpeg"/>
+			<attribute name="version" value="7.1-1.5.11"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/26.0.2/c7ce3cdeda3d18909368dfe5977332dfad326c6d/annotations-26.0.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/26.0.2/bfa27b5e683363963c8d5e2fec39d755295cbb82/annotations-26.0.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.jetbrains"/>
+			<attribute name="artifactId" value="annotations"/>
+			<attribute name="version" value="26.0.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/40868fd4e43bce2798245f790624b58803dc26b6/netty-transport-native-kqueue-4.2.7.Final-osx-x86_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-kqueue/4.2.7.Final/b2af5f33830abdd4fbded26ff51088726bee4f8b/netty-transport-native-kqueue-4.2.7.Final-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-native-kqueue"/>
+			<attribute name="version" value="4.2.7.Final"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-data-generation-api-v1/24.3.1+4ec50a434c/6a4c7c4a6d91a9bbf6d58663571c68d8fbc71f5/fabric-data-generation-api-v1-24.3.1+4ec50a434c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-data-generation-api-v1/24.3.1+4ec50a434c/7ca40e9aa77d07220d650686733da7e8c9d2fae8/fabric-data-generation-api-v1-24.3.1+4ec50a434c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-data-generation-api-v1"/>
+			<attribute name="version" value="24.3.1+4ec50a434c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-transitive-access-wideners-v1/8.1.1+7f80f93d4c/f2c5df8d0601978094cc557b78b3c5aafcc4f40f/fabric-transitive-access-wideners-v1-8.1.1+7f80f93d4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-transitive-access-wideners-v1/8.1.1+7f80f93d4c/11d80097ba0284f308e7a67e7df7d95ef7463acb/fabric-transitive-access-wideners-v1-8.1.1+7f80f93d4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-transitive-access-wideners-v1"/>
+			<attribute name="version" value="8.1.1+7f80f93d4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-debug-api-v1/1.0.1+c792624d4c/3e65954340d5153face34ee7d2f9b114271bca38/fabric-debug-api-v1-1.0.1+c792624d4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-debug-api-v1/1.0.1+c792624d4c/dda65d5b4715445551db926fcff62242a326ec60/fabric-debug-api-v1-1.0.1+c792624d4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-debug-api-v1"/>
+			<attribute name="version" value="1.0.1+c792624d4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-renderer-indigo/8.1.3+1403e82c4c/6b527a07b2ce38ddff7d8d5ef5cbbf2d69c1d06d/fabric-renderer-indigo-8.1.3+1403e82c4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-renderer-indigo/8.1.3+1403e82c4c/f8c3ad11b5484a0a156cbdbb1608d725762fa389/fabric-renderer-indigo-8.1.3+1403e82c4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-renderer-indigo"/>
+			<attribute name="version" value="8.1.3+1403e82c4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.10.1/7bb9d450e8d4cbf9f9e04096c44bbfe7fba80b15/asm-util-9.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-util/9.10.1/a18ec55bd1dceeb27f5d02e5ae3f9ac76239926e/asm-util-9.10.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.ow2.asm"/>
+			<attribute name="artifactId" value="asm-util"/>
+			<attribute name="version" value="9.10.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/it.unimi.dsi/fastutil/8.5.18/a6cff377eecc19c2037bf31568a6d7106b50ba1f/fastutil-8.5.18.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/it.unimi.dsi/fastutil/8.5.18/d49bcbf212cca0ba085bff99870a77f2322e0a7/fastutil-8.5.18-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="it.unimi.dsi"/>
+			<attribute name="artifactId" value="fastutil"/>
+			<attribute name="version" value="8.5.18"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacpp/1.5.11/b1245824a612462e16021b26aa1004e2b69aead0/javacpp-1.5.11-windows-x86_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacpp/1.5.11/10daa5438ad7467b7a82f236ebc3f1e88d6b4c10/javacpp-1.5.11-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.bytedeco"/>
+			<attribute name="artifactId" value="javacpp"/>
+			<attribute name="version" value="1.5.11"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/at.yawk.lz4/lz4-java/1.10.1/f541d7f910fe3d76f38f799c507c48cc81b12ecb/lz4-java-1.10.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/at.yawk.lz4/lz4-java/1.10.1/4f7f994f3034599c521ef1d3d650b0c019499639/lz4-java-1.10.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="at.yawk.lz4"/>
+			<attribute name="artifactId" value="lz4-java"/>
+			<attribute name="version" value="1.10.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-log4j-util/1.0.2/ef0b3fb613356feb75a67d54f2fad6f03a006648/fabric-log4j-util-1.0.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-log4j-util/1.0.2/201d8a3ecff0b60ef3aba97140dde83c22801a36/fabric-log4j-util-1.0.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc"/>
+			<attribute name="artifactId" value="fabric-log4j-util"/>
+			<attribute name="version" value="1.0.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/6ff6d710fd4ffd470f2799653fab57e27fed0c9d/jtracy-1.0.37-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/jtracy/1.0.37/bb5ded9cac574ef76b0c5339bbb848c9c9c3ea1/jtracy-1.0.37-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="jtracy"/>
+			<attribute name="version" value="1.0.37"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-screen-api-v1/5.0.2+1ed6f6f64c/c8772bedb221f77f68c6e32c9c2837bc1976d7c2/fabric-screen-api-v1-5.0.2+1ed6f6f64c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-screen-api-v1/5.0.2+1ed6f6f64c/b720b81fcff25cc59a7ea1ccaeb662d905dd9efa/fabric-screen-api-v1-5.0.2+1ed6f6f64c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-screen-api-v1"/>
+			<attribute name="version" value="5.0.2+1ed6f6f64c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-convention-tags-v2/4.6.2+4f11f7994c/8ef69feffc66d725cbd6e0861e4fdcd5d733f433/fabric-convention-tags-v2-4.6.2+4f11f7994c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-convention-tags-v2/4.6.2+4f11f7994c/5c13fff168635a43619a2d79f7dc40340090e8f8/fabric-convention-tags-v2-4.6.2+4f11f7994c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-convention-tags-v2"/>
+			<attribute name="version" value="4.6.2+4f11f7994c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacv/1.5.11/8bcc9af0d9995080960c061edcfd6da9be84b0b5/javacv-1.5.11.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.bytedeco/javacv/1.5.11/a9939fc6f9ae1a57b9c2a3395d949b0c0f2cc7e7/javacv-1.5.11-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.bytedeco"/>
+			<attribute name="artifactId" value="javacv"/>
+			<attribute name="version" value="1.5.11"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/caa75a37e857efc9b0686e434d708d6420c5b6ea/lwjgl-freetype-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/60379db97116ee67fffbae0122b22d189fd2a4a/lwjgl-freetype-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-freetype"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-block-api-v1/3.0.2+ec56b6014c/f5f91f5b317b7acd3014677dd909b55ebc4097b2/fabric-block-api-v1-3.0.2+ec56b6014c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-block-api-v1/3.0.2+ec56b6014c/b28368af5fff270d7a3ef7d66bfc55f977c59f3b/fabric-block-api-v1-3.0.2+ec56b6014c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-block-api-v1"/>
+			<attribute name="version" value="3.0.2+ec56b6014c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpclient/4.5.14/1194890e6f56ec29177673f2f12d0b8e627dec98/httpclient-4.5.14.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpclient/4.5.14/14321a360aa0e037c56d4c820747a84954d9196e/httpclient-4.5.14-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.httpcomponents"/>
+			<attribute name="artifactId" value="httpclient"/>
+			<attribute name="version" value="4.5.14"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/text2speech/1.18.11/e853a12cdd6ba4f4836e8f4bf3b37844a13482b6/text2speech-1.18.11.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/text2speech/1.18.11/7d5fb57405ae67117b5471c243067c0efe0f6b58/text2speech-1.18.11-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="text2speech"/>
+			<attribute name="version" value="1.18.11"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/d1d3a7052da47ccde2a5fdf3a1bd45d801c3157c/lwjgl-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/424efe3b0b8045fbb68fb888e65726d5e917b23c/lwjgl-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/bdd8c03151cc94460247986f843d134ae8f9406a/lwjgl-tinyfd-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/419e8f5d842330b762c6900ba42a5fa0ef52589e/lwjgl-tinyfd-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-tinyfd"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/f585da74a17695ba38351697712c03784ee1348b/lwjgl-tinyfd-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/419e8f5d842330b762c6900ba42a5fa0ef52589e/lwjgl-tinyfd-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-tinyfd"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.microsoft.azure/msal4j/1.23.1/6c722b514873b24a4e1ce9c22dca36ea3c22bdbe/msal4j-1.23.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.microsoft.azure/msal4j/1.23.1/c41fa09a8d8df4be11db84f34acb9bf6241a1f24/msal4j-1.23.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.microsoft.azure"/>
+			<attribute name="artifactId" value="msal4j"/>
+			<attribute name="version" value="1.23.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/9c93b8211856bfe682f3225ccac811e74243f98e/lwjgl-tinyfd-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-tinyfd/3.4.1/419e8f5d842330b762c6900ba42a5fa0ef52589e/lwjgl-tinyfd-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-tinyfd"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-epoll/4.2.7.Final/1075c09f48a78eef9d819fbfd9096b903fdd362a/netty-transport-classes-epoll-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-classes-epoll/4.2.7.Final/fdde5a347444e08355c6f8f7667b3776333f33c4/netty-transport-classes-epoll-4.2.7.Final-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-classes-epoll"/>
+			<attribute name="version" value="4.2.7.Final"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/662e0926dd990f679e1cfb31d710d22d175bdabc/lwjgl-jemalloc-3.4.1-natives-windows-arm64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/44c0e97ab159e7f0087217629ff87ae3283307d0/lwjgl-jemalloc-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-jemalloc"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-lifecycle-events-v1/4.1.1+df84eb3d4c/2b9fe06c9552e45f03c18d177c8c71e879655eb/fabric-lifecycle-events-v1-4.1.1+df84eb3d4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-lifecycle-events-v1/4.1.1+df84eb3d4c/d2dc9b24792a241986567e4758c685b57dd64a7/fabric-lifecycle-events-v1-4.1.1+df84eb3d4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-lifecycle-events-v1"/>
+			<attribute name="version" value="4.1.1+df84eb3d4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-loader-v1/2.0.10+7c44c7324c/bb44ca7ae64fe82666c2cd99920cdc017b15f368/fabric-resource-loader-v1-2.0.10+7c44c7324c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-loader-v1/2.0.10+7c44c7324c/7fd329ae4ca8dc8e34eca9a433b35cc7f606680f/fabric-resource-loader-v1-2.0.10+7c44c7324c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-resource-loader-v1"/>
+			<attribute name="version" value="2.0.10+7c44c7324c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpcore/4.4.16/51cf043c87253c9f58b539c9f7e44c8894223850/httpcore-4.4.16.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.httpcomponents/httpcore/4.4.16/229e4c0eae80465381ae02adf61bca5558360777/httpcore-4.4.16-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.httpcomponents"/>
+			<attribute name="artifactId" value="httpcore"/>
+			<attribute name="version" value="4.4.16"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-codec/commons-codec/1.19.0/8c0dbe3ae883fceda9b50a6c76e745e548073388/commons-codec-1.19.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-codec/commons-codec/1.19.0/f133992014cbfedccce3acb9486816bcfd9d3425/commons-codec-1.19.0-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="commons-codec"/>
+			<attribute name="artifactId" value="commons-codec"/>
+			<attribute name="version" value="1.19.0"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-slf4j2-impl/2.25.2/5eec0c392661dee8a366baec17e8896900dd978f/log4j-slf4j2-impl-2.25.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-slf4j2-impl/2.25.2/1588b727d7f742291b3ce50af46ee0e6b391864f/log4j-slf4j2-impl-2.25.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.logging.log4j"/>
+			<attribute name="artifactId" value="log4j-slf4j2-impl"/>
+			<attribute name="version" value="2.25.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-windows-x64/0.143.17/6e69b3b065f85e600f1fe35fbaaf415138556164/skija-windows-x64-0.143.17.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-windows-x64/0.143.17/fb07ef75607b0f68d0f4675c25b03162e05a98ef/skija-windows-x64-0.143.17-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.github.humbleui"/>
+			<attribute name="artifactId" value="skija-windows-x64"/>
+			<attribute name="version" value="0.143.17"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/65de43bd52507e108a58247c0da57a50ce3ee6f6/lwjgl-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl/3.4.1/424efe3b0b8045fbb68fb888e65726d5e917b23c/lwjgl-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-events-interaction-v0/5.2.2+07b380be4c/5b17edcb8109dd185ea59637275b0dfabd538021/fabric-events-interaction-v0-5.2.2+07b380be4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-events-interaction-v0/5.2.2+07b380be4c/aa38d1f825683fd2faa23f382c2965622ec90ccd/fabric-events-interaction-v0-5.2.2+07b380be4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-events-interaction-v0"/>
+			<attribute name="version" value="5.2.2+07b380be4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-api/2.25.2/292c1a2b1702f1e1e3adb13e1c57e5bff60335ff/log4j-api-2.25.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-api/2.25.2/fccc23e47499d8ed545901ec5e2ff5a6ab17b4f1/log4j-api-2.25.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.logging.log4j"/>
+			<attribute name="artifactId" value="log4j-api"/>
+			<attribute name="version" value="2.25.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/77.1/38693cf0b1d7362a8b726af74dc06026a7c23809/icu4j-77.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.ibm.icu/icu4j/77.1/3816e175e91475575e91393835140f34a739dbc7/icu4j-77.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.ibm.icu"/>
+			<attribute name="artifactId" value="icu4j"/>
+			<attribute name="version" value="77.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.joml/joml/1.10.8/fc0a71dad90a2cf41d82a76156a0e700af8e4f8d/joml-1.10.8.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.joml/joml/1.10.8/3fa7a5a8a5119d23dbe3402f6ffa3df1b3d9598e/joml-1.10.8-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.joml"/>
+			<attribute name="artifactId" value="joml"/>
+			<attribute name="version" value="1.10.8"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/81431d868bcf162d4c915b9c39b2c7aae155ad4f/lwjgl-freetype-3.4.1-natives-windows-x86.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/60379db97116ee67fffbae0122b22d189fd2a4a/lwjgl-freetype-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-freetype"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-object-builder-api-v1/23.0.17+b95dd56e4c/52ee8ba717852271110991ce443b413b0f00e686/fabric-object-builder-api-v1-23.0.17+b95dd56e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-object-builder-api-v1/23.0.17+b95dd56e4c/c43de1ee2aa0fd15b65a742aadd1ad7ddbc1fd63/fabric-object-builder-api-v1-23.0.17+b95dd56e4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-object-builder-api-v1"/>
+			<attribute name="version" value="23.0.17+b95dd56e4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-biome-api-v1/18.0.5+2fa62b4e4c/bdf3f76674b627857efb3d4cd6053e2e50b595d/fabric-biome-api-v1-18.0.5+2fa62b4e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-biome-api-v1/18.0.5+2fa62b4e4c/13fafb41633779c82f3dd3389e915fc4ee56fe39/fabric-biome-api-v1-18.0.5+2fa62b4e4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-biome-api-v1"/>
+			<attribute name="version" value="18.0.5+2fa62b4e4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-conditions-api-v1/6.1.0+83dd0ba34c/9805a98e0e54521c415de025d938dd8b78bc6874/fabric-resource-conditions-api-v1-6.1.0+83dd0ba34c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-resource-conditions-api-v1/6.1.0+83dd0ba34c/9f393a2fe0513dd3c64926662fa639955b0218a3/fabric-resource-conditions-api-v1-6.1.0+83dd0ba34c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-resource-conditions-api-v1"/>
+			<attribute name="version" value="6.1.0+83dd0ba34c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer-natives/2.2.6/bb54a4e6aa45ae5a00fac2f1eec8cb513bc09c8f/lavaplayer-natives-2.2.6.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.arbjerg/lavaplayer-natives/2.2.6/29ea2e804d3292011a961cc5842e6562eac7b34a/lavaplayer-natives-2.2.6-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="dev.arbjerg"/>
+			<attribute name="artifactId" value="lavaplayer-natives"/>
+			<attribute name="version" value="2.2.6"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-core/2.25.2/d4d0ad2e51e03e531f784891fbfff1bae1e13a12/log4j-core-2.25.2.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.apache.logging.log4j/log4j-core/2.25.2/aed03834249eaee1b3dcc5e0c54b328983085a67/log4j-core-2.25.2-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.apache.logging.log4j"/>
+			<attribute name="artifactId" value="log4j-core"/>
+			<attribute name="version" value="2.25.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.iharder/base64/2.3.9/6c34d1c85141be8a21b0a957d84359894e2684b7/base64-2.3.9.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.iharder/base64/2.3.9/f7aa9fa9bdb0c9d6ade1586c979d631cf71e8645/base64-2.3.9-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.iharder"/>
+			<attribute name="artifactId" value="base64"/>
+			<attribute name="version" value="2.3.9"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/32fc9cfd236aca5433d53af78bfb15f1b4c1103e/lwjgl-freetype-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-freetype/3.4.1/60379db97116ee67fffbae0122b22d189fd2a4a/lwjgl-freetype-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-freetype"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-shared/0.143.17/19426ea3b8f3013b2d0e2e7bbed86730a54876bd/skija-shared-0.143.17.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.humbleui/skija-shared/0.143.17/a209b83758a3e72bada10b1de20dc89448b975f8/skija-shared-0.143.17-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.github.humbleui"/>
+			<attribute name="artifactId" value="skija-shared"/>
+			<attribute name="version" value="0.143.17"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.json/json/20240303/ebb88e8fb5122b7506d5cf1d69f1ccdb790d22a/json-20240303.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.json/json/20240303/1245e385b5212a5a1403458d23aebcf8b0a11463/json-20240303-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.json"/>
+			<attribute name="artifactId" value="json"/>
+			<attribute name="version" value="20240303"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/16b663092854fc6adfe0a941e61cae2bb2e437b6/lwjgl-jemalloc-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/44c0e97ab159e7f0087217629ff87ae3283307d0/lwjgl-jemalloc-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-jemalloc"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-dimensions-v1/5.1.6+9cbf5da54c/501ad573c3e45e74327386c4aa4a636040210b72/fabric-dimensions-v1-5.1.6+9cbf5da54c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-dimensions-v1/5.1.6+9cbf5da54c/b1314778cbfddfe83b551595849aa8660ca6fcc/fabric-dimensions-v1-5.1.6+9cbf5da54c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-dimensions-v1"/>
+			<attribute name="version" value="5.1.6+9cbf5da54c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.4/5e167154bcb9942111313a5e186e16cd7265f858/mixinextras-fabric-0.5.4.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.github.llamalad7/mixinextras-fabric/0.5.4/9b49421bfb1c206978b96076af42ad51ceac08e4/mixinextras-fabric-0.5.4-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.github.llamalad7"/>
+			<attribute name="artifactId" value="mixinextras-fabric"/>
+			<attribute name="version" value="0.5.4"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.oshi/oshi-core/6.9.0/3224870731860cfcd7744581a05b559e94291e7/oshi-core-6.9.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.github.oshi/oshi-core/6.9.0/4827976de844bcfe0c5c6d760b7d1a2dccd85af1/oshi-core-6.9.0-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.github.oshi"/>
+			<attribute name="artifactId" value="oshi-core"/>
+			<attribute name="version" value="6.9.0"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/e83998bfc10b5289d9bcbe807c4079ef0eed8e6f/netty-transport-native-epoll-4.2.7.Final-linux-x86_64.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-transport-native-epoll/4.2.7.Final/82357565476baa9138d99e6e2367f9f6bd885f22/netty-transport-native-epoll-4.2.7.Final-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-transport-native-epoll"/>
+			<attribute name="version" value="4.2.7.Final"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/70db8048d1aca8a6365f46f9963b8d6cd77b9e94/lwjgl-jemalloc-3.4.1-natives-windows.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-jemalloc/3.4.1/44c0e97ab159e7f0087217629ff87ae3283307d0/lwjgl-jemalloc-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-jemalloc"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-registry-sync-v0/7.1.0+2fa62b4e4c/8e6cb4f2b460a0daeb84e7a280bfdd7bba1b8446/fabric-registry-sync-v0-7.1.0+2fa62b4e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-registry-sync-v0/7.1.0+2fa62b4e4c/633650ebb72891338848deb71022fc6579aeb926/fabric-registry-sync-v0-7.1.0+2fa62b4e4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-registry-sync-v0"/>
+			<attribute name="version" value="7.1.0+2fa62b4e4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-transfer-api-v1/8.0.6+357ea7334c/13e5a331abc499be570ea0f0e0c7d6277716ba8d/fabric-transfer-api-v1-8.0.6+357ea7334c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-transfer-api-v1/8.0.6+357ea7334c/fdd8632d59524fcc88b02d58947ea8027bc67375/fabric-transfer-api-v1-8.0.6+357ea7334c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-transfer-api-v1"/>
+			<attribute name="version" value="8.0.6+357ea7334c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-client-gametest-api-v1/5.1.0+0a5283664c/e0508f23e7c6971d3c77c9fae0246012f13f0426/fabric-client-gametest-api-v1-5.1.0+0a5283664c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-client-gametest-api-v1/5.1.0+0a5283664c/e96ab9af1db13017da35f2031029cb9031cd6446/fabric-client-gametest-api-v1-5.1.0+0a5283664c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-client-gametest-api-v1"/>
+			<attribute name="version" value="5.1.0+0a5283664c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-crash-report-info-v1/1.0.3+9f78a5a84c/8af0277ba9afc03c6882490db447d40d55ebcedb/fabric-crash-report-info-v1-1.0.3+9f78a5a84c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-crash-report-info-v1/1.0.3+9f78a5a84c/5565a451ff693c33ce84a8afec1b2b937300470b/fabric-crash-report-info-v1-1.0.3+9f78a5a84c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-crash-report-info-v1"/>
+			<attribute name="version" value="1.0.3+9f78a5a84c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.sf.jopt-simple/jopt-simple/5.0.4/4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c/jopt-simple-5.0.4.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.sf.jopt-simple/jopt-simple/5.0.4/950831646d014c9162999019a3cb17d5fc01ac0d/jopt-simple-5.0.4-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.sf.jopt-simple"/>
+			<attribute name="artifactId" value="jopt-simple"/>
+			<attribute name="version" value="5.0.4"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/830412cab823c029cda6b9729f9d2ed36cf79959/lwjgl-opengl-3.4.1.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/org.lwjgl/lwjgl-opengl/3.4.1/b268a69846a185c0f7dad39d90655315a5e22d7c/lwjgl-opengl-3.4.1-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="org.lwjgl"/>
+			<attribute name="artifactId" value="lwjgl-opengl"/>
+			<attribute name="version" value="3.4.1"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.lavalink.youtube/common/9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT/a7671228c222e6282f531ab5f46b0dce2b1974ba/common-9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/dev.lavalink.youtube/common/9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT/9999a25b6696c004d6817870461d7fe96883460d/common-9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="dev.lavalink.youtube"/>
+			<attribute name="artifactId" value="common"/>
+			<attribute name="version" value="9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.3+mixin.0.8.7/41c4a3984a80f4679e759fb9f495587acc5cdac7/sponge-mixin-0.17.3+mixin.0.8.7.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.3+mixin.0.8.7/ce226d968e085dca001d90aaee5b32d28bbe2b8f/sponge-mixin-0.17.3+mixin.0.8.7-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc"/>
+			<attribute name="artifactId" value="sponge-mixin"/>
+			<attribute name="version" value="0.17.3+mixin.0.8.7"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-game-rule-api-v1/4.0.5+d871b99e4c/8b1189ddbfe446bf9468920526ed668db253da65/fabric-game-rule-api-v1-4.0.5+d871b99e4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-game-rule-api-v1/4.0.5+d871b99e4c/1f1f6be6d6207c7f0f8a65889de3da0bb8e10efd/fabric-game-rule-api-v1-4.0.5+d871b99e4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-game-rule-api-v1"/>
+			<attribute name="version" value="4.0.5+d871b99e4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-renderer-api-v1/13.0.6+c80601bb4c/64211c037def568c7545389af32454adc10546ae/fabric-renderer-api-v1-13.0.6+c80601bb4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-renderer-api-v1/13.0.6+c80601bb4c/80828fcc57b374c37817c03261241239bb39f2c/fabric-renderer-api-v1-13.0.6+c80601bb4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-renderer-api-v1"/>
+			<attribute name="version" value="13.0.6+c80601bb4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-logging/commons-logging/1.3.0/f5e064b541f5c5fbc5e4fb49c4e8cd4eabb3afd6/commons-logging-1.3.0.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/commons-logging/commons-logging/1.3.0/c6791b54d7d9b6dcae4c3d0af646fb0143c96592/commons-logging-1.3.0-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="commons-logging"/>
+			<attribute name="artifactId" value="commons-logging"/>
+			<attribute name="version" value="1.3.0"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/authlib/7.0.63/54895b4e25e8b9b4cbbbe25f24eccf2b71b1ac2b/authlib-7.0.63.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/com.mojang/authlib/7.0.63/b6657318d88a64a5f063bbb34ba1d87183b50cf0/authlib-7.0.63-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="com.mojang"/>
+			<attribute name="artifactId" value="authlib"/>
+			<attribute name="version" value="7.0.63"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-handler/4.2.7.Final/7ad8a1f851e2e6fe93cdd091871fda2b81c03b5b/netty-handler-4.2.7.Final.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/io.netty/netty-handler/4.2.7.Final/d62036c292296beb6e0cd535f888062a1c649676/netty-handler-4.2.7.Final-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="io.netty"/>
+			<attribute name="artifactId" value="netty-handler"/>
+			<attribute name="version" value="4.2.7.Final"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/Desktop/example-addon-master/.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-043a8b3edf/26.1.2/minecraft-merged-043a8b3edf-26.1.2.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.minecraft"/>
+			<attribute name="artifactId" value="minecraft-merged-043a8b3edf"/>
+			<attribute name="version" value="26.1.2"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-content-registries-v0/11.2.1+76b0b6bb4c/46f5e13d429c31c6ebffe6156c480761c1be74ee/fabric-content-registries-v0-11.2.1+76b0b6bb4c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-content-registries-v0/11.2.1+76b0b6bb4c/393edf7830f79dc0f31e83291c4a5dddc2370914/fabric-content-registries-v0-11.2.1+76b0b6bb4c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-content-registries-v0"/>
+			<attribute name="version" value="11.2.1+76b0b6bb4c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-particles-v1/5.0.15+b61fef434c/e9659d152cefb7255056f432234a11621ab00945/fabric-particles-v1-5.0.15+b61fef434c.jar" sourcepath="C:/Users/conng/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-particles-v1/5.0.15+b61fef434c/a18e27c94363b47bcdb14fbaec8df0c180d703b2/fabric-particles-v1-5.0.15+b61fef434c-sources.jar">
+		<attributes>
+			<attribute name="gradle.buildServer" value="true"/>
+			<attribute name="groupId" value="net.fabricmc.fabric-api"/>
+			<attribute name="artifactId" value="fabric-particles-v1"/>
+			<attribute name="version" value="5.0.15+b61fef434c"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="output" path="bin/default"/>
 </classpath>

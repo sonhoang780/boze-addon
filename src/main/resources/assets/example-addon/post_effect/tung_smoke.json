@@ -1,0 +1,33 @@
+{
+    "targets": {
+        "params_sampler": {
+            "width": 8,
+            "height": 3
+        },
+        "sdf_sampler": {
+            "width": 256,
+            "height": 128
+        }
+    },
+    "passes": [
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "example-addon:post/tung_smoke",
+            "inputs": [
+                {
+                    "sampler_name": "In",
+                    "target": "minecraft:main"
+                },
+                {
+                    "sampler_name": "Params",
+                    "target": "params_sampler"
+                },
+                {
+                    "sampler_name": "SDF",
+                    "target": "sdf_sampler"
+                }
+            ],
+            "output": "minecraft:main"
+        }
+    ]
+}
