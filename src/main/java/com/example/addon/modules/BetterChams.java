@@ -54,6 +54,7 @@ public class BetterChams extends AddonModule {
     public final dev.boze.api.option.ModeOption fillMode = new dev.boze.api.option.ModeOption(this, "Image Fill",
         "Mode for fill image.", FillMode.Off);
         
+    public final SliderOption outlineOpacity = new SliderOption(this, "Outline Opacity", "Opacity of the solid outline when Bloom is off.", 1.0, 0.0, 1.0, 0.01);
     public final SliderOption fillOpacity   = new SliderOption(this, "Fill Opacity",
         "Opacity of image fill.", 0.8, 0.0, 1.0, 0.01);
     public final ToggleOption selectImage   = new ToggleOption(this, "Select Image",
@@ -210,7 +211,8 @@ public class BetterChams extends AddonModule {
         int outAbgr = (outC & 0xFF000000) | ((outC & 0xFF) << 16) | (outC & 0xFF00) | ((outC >> 16) & 0xFF);
 
         int flipY = (fillMode.getValue() == FillMode.Shader) ? 0 : 255;
-        int flipAbgr = (255 << 24) | (255 << 16) | (255 << 8) | flipY;
+        int outOp = Math.round((float)(outlineOpacity.getValue() * 255)) & 0xFF;
+        int flipAbgr = (255 << 24) | (255 << 16) | (outOp << 8) | flipY;
 
         NativeImage pixels = paramsTexture.getPixels();
         if (pixels != null) {
