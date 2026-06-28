@@ -203,6 +203,8 @@ public class ChamsCustomShader {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fillFbo);
         GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, fillTexId, 0);
         GL11.glViewport(0, 0, width, height);
+        GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
         GL20.glUniform1i(uIsOutlineLoc, 0);
         drawQuad();
 
@@ -210,6 +212,8 @@ public class ChamsCustomShader {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, outlineFbo);
         GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, outlineTexId, 0);
         GL11.glViewport(0, 0, width, height);
+        GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
         GL20.glUniform1i(uIsOutlineLoc, 1);
         drawQuad();
 
