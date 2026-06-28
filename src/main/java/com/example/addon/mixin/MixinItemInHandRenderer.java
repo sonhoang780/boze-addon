@@ -16,6 +16,13 @@ public abstract class MixinItemInHandRenderer {
     @Inject(method = "renderHandsWithItems", at = @At("HEAD"))
     private void betterchams$startHand(float tickDelta, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, LocalPlayer localPlayer, int light, CallbackInfo ci) {
         BetterChams.isRenderingHand = true;
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.levelRenderer != null) {
+            com.mojang.blaze3d.pipeline.RenderTarget outlineTarget = ((com.example.addon.mixin.LevelRendererAccessor) mc.levelRenderer).getEntityOutlineTarget();
+            if (outlineTarget == null) {
+                ((com.example.addon.mixin.LevelRendererAccessor) mc.levelRenderer).invokeInitOutline();
+            }
+        }
     }
 
     @Inject(method = "renderHandsWithItems", at = @At("RETURN"))

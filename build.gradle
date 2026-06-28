@@ -60,7 +60,7 @@ dependencies {
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
     // Boze Dependencies
-    compileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"
+    compileOnly "dev.boze:boze-api:${project.boze_api_version}"
     bozeLoader "dev.boze:boze-loader-beta:${project.boze_loader_version}"
     implementation "meteordevelopment:orbit:${project.orbit_version}"
 
