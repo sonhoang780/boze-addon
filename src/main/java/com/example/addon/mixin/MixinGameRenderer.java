@@ -69,6 +69,9 @@ public abstract class MixinGameRenderer {
         if (mc.level == null || mc.player == null) return;
 
         net.minecraft.resources.Identifier handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "hand_outline");
+        if (!com.example.addon.modules.BetterChams.INSTANCE.bloomToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
+            handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_hand_outline");
+        }
         net.minecraft.client.renderer.ShaderManager shaderManager = mc.getShaderManager();
         net.minecraft.client.renderer.PostChain activePostChain = shaderManager.getPostChain(handOutlineId, net.minecraft.client.renderer.LevelTargetBundle.MAIN_TARGETS);
         if (activePostChain == null) return;

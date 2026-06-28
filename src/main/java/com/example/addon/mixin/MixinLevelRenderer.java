@@ -51,6 +51,11 @@ public class MixinLevelRenderer {
         net.minecraft.resources.Identifier id,
         java.util.Set<net.minecraft.resources.Identifier> externalTargets
     ) {
+        if (id.getPath().equals("entity_outline") && com.example.addon.modules.BetterChams.INSTANCE.getState()) {
+            if (!com.example.addon.modules.BetterChams.INSTANCE.bloomToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
+                return instance.getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_outline"), externalTargets);
+            }
+        }
         return instance.getPostChain(id, externalTargets);
     }
 
