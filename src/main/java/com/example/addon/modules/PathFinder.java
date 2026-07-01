@@ -4,9 +4,7 @@ import dev.babbaj.pathfinder.NetherPathfinder;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
-import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 
 public class PathFinder extends AddonModule {
@@ -35,7 +33,6 @@ public class PathFinder extends AddonModule {
             System.err.println("[PathFinder] Native library failed to load; module will do nothing.");
             return;
         }
-        int cacheMiss = (seed != null) ? NetherPathfinder.CACHE_MISS_GENERATE : NetherPathfinder.CACHE_MISS_SOLID;
         context = NetherPathfinder.newContext(seed != null ? seed : 0L, null,
             NetherPathfinder.DIMENSION_NETHER, maxHeight.getValue().intValue(), true);
     }
