@@ -27,6 +27,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import com.mojang.math.Axis;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
+import org.joml.Vector4f;
+import com.mojang.blaze3d.systems.RenderSystem;
 
 public class TungTungSahur extends AddonModule {
     public static final TungTungSahur INSTANCE = new TungTungSahur();
@@ -55,9 +58,9 @@ public class TungTungSahur extends AddonModule {
     private ObjMesh mesh;
 
     // ── Fade-out state (persists past onDisable) ──────────────────────────────
-    boolean fadingOut    = false;
+    public boolean fadingOut    = false;
     private long fadeStartMs  = 0L;
-    private int  smokeCounter = 0;
+    public float smokeFadeAlpha = 0f;
 
     private SoundInstance currentScreamSound;
 
@@ -112,7 +115,7 @@ public class TungTungSahur extends AddonModule {
         if (mesh != null && initialized) {
             fadingOut    = true;
             fadeStartMs  = System.currentTimeMillis();
-            smokeCounter = 0;
+            smokeFadeAlpha = 1f;
         } else {
             mesh        = null;
             initialized = false;
@@ -172,6 +175,7 @@ public class TungTungSahur extends AddonModule {
         if (isFading) {
             long elapsed = System.currentTimeMillis() - fadeStartMs;
             float alpha  = 1f - (float) elapsed / FADE_DURATION_MS;
+            smokeFadeAlpha = alpha;
             if (alpha <= 0f) {
                 fadingOut   = false;
                 mesh        = null;
@@ -179,16 +183,6 @@ public class TungTungSahur extends AddonModule {
                 return;
             }
             alphaInt = Math.max(1, (int)(alpha * 255));
-
-            // Emit rising smoke particles every 4th render call
-            smokeCounter++;
-            if (smokeCounter % 4 == 0) {
-                double smokeX = posX + (Math.random() - 0.5) * 0.6;
-                double smokeY = posY + 0.5 + Math.random() * 0.8;
-                double smokeZ = posZ + (Math.random() - 0.5) * 0.6;
-                mc.level.addParticle(ParticleTypes.CAMPFIRE_COSY_SMOKE,
-                    smokeX, smokeY, smokeZ, 0.0, 0.04, 0.0);
-            }
         }
 
         PoseStack matrices = ctx.poseStack();
@@ -235,6 +229,8 @@ public class TungTungSahur extends AddonModule {
 
     // ── Texture ──────────────────────────────────────────────────────────────
 
+    private NativeImage sdfImg;
+
     private void buildTexture(Minecraft mc) {
         try {
             Identifier fileId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung.png");
@@ -242,6 +238,13 @@ public class TungTungSahur extends AddonModule {
                 NativeImage img = NativeImage.read(stream);
                 mc.getTextureManager().register(TEXTURE_ID,
                     new DynamicTexture(() -> "tung_tung_companion", img));
+            }
+        } catch (Exception ignored) {}
+        
+        try {
+            Identifier sdfId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung_sdf.png");
+            try (var stream = mc.getResourceManager().getResourceOrThrow(sdfId).open()) {
+                sdfImg = NativeImage.read(stream);
             }
         } catch (Exception ignored) {}
     }
@@ -255,7 +258,93 @@ public class TungTungSahur extends AddonModule {
                 mesh = ObjMesh.load(stream);
             }
         } catch (Exception e) {
-            // Mesh failed to load — module will remain inactive (mesh == null check in render/tick)
+            // Mesh failed to load
         }
+    }
+
+    private static java.lang.reflect.Field persistentTargetsField = null;
+    static {
+        try {
+            persistentTargetsField = net.minecraft.client.renderer.PostChain.class.getDeclaredField("persistentTargets");
+            persistentTargetsField.setAccessible(true);
+        } catch (Exception e) {}
+    }
+
+    private com.mojang.blaze3d.platform.NativeImage smokeParamsImg;
+
+    public void updateSmokeParams(Minecraft mc, net.minecraft.client.renderer.PostChain smokeChain) {
+        if (smokeParamsImg == null) {
+            smokeParamsImg = new com.mojang.blaze3d.platform.NativeImage(8, 3, false);
+        }
+        com.mojang.blaze3d.platform.NativeImage img = smokeParamsImg;
+        
+        float aspect = (float)mc.getWindow().getWidth() / mc.getWindow().getHeight();
+        float fovY = (float)Math.toRadians(mc.options.fov().get());
+        float halfH = (float)Math.tan(fovY / 2.0);
+        float halfW = halfH * aspect;
+
+        org.joml.Vector3fc fwd = mc.gameRenderer.getMainCamera().forwardVector();
+        org.joml.Vector3fc upV = mc.gameRenderer.getMainCamera().upVector();
+        org.joml.Vector3fc leftV = mc.gameRenderer.getMainCamera().leftVector();
+
+        org.joml.Vector3f tl = new org.joml.Vector3f(fwd).add(new org.joml.Vector3f(upV).mul(halfH)).add(new org.joml.Vector3f(leftV).mul(halfW));
+        org.joml.Vector3f tr = new org.joml.Vector3f(fwd).add(new org.joml.Vector3f(upV).mul(halfH)).sub(new org.joml.Vector3f(leftV).mul(halfW));
+        org.joml.Vector3f bl = new org.joml.Vector3f(fwd).sub(new org.joml.Vector3f(upV).mul(halfH)).add(new org.joml.Vector3f(leftV).mul(halfW));
+        org.joml.Vector3f br = new org.joml.Vector3f(fwd).sub(new org.joml.Vector3f(upV).mul(halfH)).sub(new org.joml.Vector3f(leftV).mul(halfW));
+        
+        tl.normalize(); tr.normalize(); bl.normalize(); br.normalize();
+        
+        setFloat(img, 0, tl.x(), -2, 2); setFloat(img, 1, tl.y(), -2, 2); setFloat(img, 2, tl.z(), -2, 2);
+        setFloat(img, 3, tr.x(), -2, 2); setFloat(img, 4, tr.y(), -2, 2); setFloat(img, 5, tr.z(), -2, 2);
+        setFloat(img, 6, bl.x(), -2, 2); setFloat(img, 7, bl.y(), -2, 2); setFloat(img, 8, bl.z(), -2, 2);
+        setFloat(img, 9, br.x(), -2, 2); setFloat(img, 10, br.y(), -2, 2); setFloat(img, 11, br.z(), -2, 2);
+        
+        Vec3 camPos = mc.gameRenderer.getMainCamera().position();
+        float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+        double renderX = prevPosX + (posX - prevPosX) * tickDelta;
+        double renderY = prevPosY + (posY - prevPosY) * tickDelta + 1.0;
+        double renderZ = prevPosZ + (posZ - prevPosZ) * tickDelta;
+        
+        setFloat(img, 12, (float)(renderX - camPos.x), -64, 64);
+        setFloat(img, 13, (float)(renderY - camPos.y), -64, 64);
+        setFloat(img, 14, (float)(renderZ - camPos.z), -64, 64);
+        setFloat(img, 15, smokeFadeAlpha, 0, 1);
+        setFloat(img, 16, (System.currentTimeMillis() % 1000000L) / 1000f, 0, 1000);
+        
+        try {
+            if (persistentTargetsField != null) {
+                java.util.Map<net.minecraft.resources.Identifier, com.mojang.blaze3d.pipeline.RenderTarget> targets = 
+                    (java.util.Map<net.minecraft.resources.Identifier, com.mojang.blaze3d.pipeline.RenderTarget>) persistentTargetsField.get(smokeChain);
+                if (targets != null) {
+                    com.mojang.blaze3d.pipeline.RenderTarget target = targets.get(net.minecraft.resources.Identifier.withDefaultNamespace("params_sampler"));
+                    if (target == null) {
+                        target = targets.get(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "params_sampler"));
+                    }
+                    if (target != null && target.getColorTexture() != null) {
+                        com.mojang.blaze3d.systems.RenderSystem.getDevice().createCommandEncoder().writeToTexture(target.getColorTexture(), img);
+                    }
+                    
+                    com.mojang.blaze3d.pipeline.RenderTarget sdfTarget = targets.get(net.minecraft.resources.Identifier.withDefaultNamespace("sdf_sampler"));
+                    if (sdfTarget == null) {
+                        sdfTarget = targets.get(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "sdf_sampler"));
+                    }
+                    if (sdfTarget != null && sdfTarget.getColorTexture() != null && sdfImg != null) {
+                        com.mojang.blaze3d.systems.RenderSystem.getDevice().createCommandEncoder().writeToTexture(sdfTarget.getColorTexture(), sdfImg);
+                    }
+                }
+            }
+        } catch (Exception e) {}
+    }
+    
+    private void setFloat(com.mojang.blaze3d.platform.NativeImage img, int index, float val, float min, float max) {
+        int x = index % 8;
+        int y = index / 8;
+        float normalized = Math.max(0f, Math.min(1f, (val - min) / (max - min)));
+        int v = (int)(normalized * 16777215f);
+        int r = v & 0xFF;
+        int g = (v >> 8) & 0xFF;
+        int b = (v >> 16) & 0xFF;
+        int color = (0xFF << 24) | (b << 16) | (g << 8) | r;
+        img.setPixel(x, y, color);
     }
 }
