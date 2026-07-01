@@ -33,6 +33,7 @@ import com.example.addon.modules.PlayMusic;
 import com.example.addon.modules.SpotifyIntegration;
 import com.example.addon.modules.SelfWeb;
 import com.example.addon.modules.VersionHUD;
+import com.example.addon.modules.PathFinder;
 import dev.boze.api.addon.Addon;
 import dev.boze.api.BozeInstance;
 
@@ -92,6 +93,7 @@ public class ExampleAddon extends Addon {
         modules.add(SelfWeb.INSTANCE);
         modules.add(TungTungSahur.INSTANCE);
         modules.add(VersionHUD.INSTANCE);
+        modules.add(PathFinder.INSTANCE);
         // Register client module extensions - demonstrate extension API
         extensions.add(new ExampleExtension());
 
