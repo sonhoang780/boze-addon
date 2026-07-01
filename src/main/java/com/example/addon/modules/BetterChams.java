@@ -34,13 +34,13 @@ public class BetterChams extends AddonModule {
     private static DynamicTexture paramsTexture;
 
     public final ToggleOption crystalToggle = new ToggleOption(this, "Crystals",
-        "Bloom outline on End Crystals.", true);
+        "Glow outline on End Crystals.", true);
     public final ToggleOption handToggle    = new ToggleOption(this, "Hand",
-        "Bloom outline on hand.", true);
+        "Glow outline on hand.", true);
     public final ToggleOption playerToggle  = new ToggleOption(this, "Players",
-        "Bloom outline on other players.", true);
+        "Glow outline on other players.", true);
     public final ToggleOption selfToggle    = new ToggleOption(this, "Self",
-        "Bloom outline on yourself in 3rd person.", true);
+        "Glow outline on yourself in 3rd person.", true);
     public final SliderOption range         = new SliderOption(this, "Range",
         "Max range in blocks.", 16.0, 8.0, 64.0, 1.0);
     public final ToggleOption glowToggle    = new ToggleOption(this, "Glow",
@@ -72,7 +72,7 @@ public class BetterChams extends AddonModule {
     public final ToggleOption selectShader  = new ToggleOption(this, "Select Shader", "Open shader picker from boze/shaders/.", false);
 
     private BetterChams() {
-        super("BetterChams", "Bloom outline + image fill for End Crystals and players.");
+        super("BetterChams", "Glow outline + image fill for End Crystals and players.");
     }
 
     public static void registerTextures() {
