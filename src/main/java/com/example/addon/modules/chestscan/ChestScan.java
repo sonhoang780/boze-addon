@@ -2,8 +2,12 @@ package com.example.addon.modules.chestscan;
 
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.event.EventWorldRender;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
+import dev.boze.api.render.ClientColor;
+import dev.boze.api.render.ColorMaker;
+import dev.boze.api.render.WorldDrawer;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -12,8 +16,16 @@ import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 public class ChestScan extends AddonModule {
     public static final ChestScan INSTANCE = new ChestScan();
@@ -26,10 +38,19 @@ public class ChestScan extends AddonModule {
     private final ChestScanStore store = new ChestScanStore();
     private String lastWorldKey = null;
 
+    private static final ClientColor EMPTY_COLOR = ColorMaker.staticColor(0, 200, 0);
+    private static final ClientColor PARTIAL_COLOR = ColorMaker.staticColor(230, 200, 0);
+    private static final ClientColor FULL_COLOR = ColorMaker.staticColor(220, 0, 0);
+    private static final float FILL_OPACITY = 0.47f;
+    private static final float OUTLINE_OPACITY = 1.0f;
+
     private BlockPos lastLookedAtChestPos = null;
     private boolean wasChestMenuOpenLastTick = false;
     private BlockPos openChestPos = null;
     private ChestScanStore.ChestStatus lastSnapshotStatus = null;
+
+    private int chainTicks = 0;
+    private Set<BlockPos> lastInferredEmpty = Collections.emptySet();
 
     private ChestScan() {
         super("ChestScan", "Highlights opened chests by contents (empty/partial/full), with optional hopper-chain inference.");
@@ -87,6 +108,68 @@ public class ChestScan extends AddonModule {
         }
 
         wasChestMenuOpenLastTick = chestMenuOpenNow;
+
+        tickChainRecompute(mc);
+    }
+
+    private void tickChainRecompute(Minecraft mc) {
+        if (!hopperChain.getValue()) {
+            lastInferredEmpty = Collections.emptySet();
+            return;
+        }
+        chainTicks++;
+        if (chainTicks < 20) return;
+        chainTicks = 0;
+
+        BlockPos center = mc.player.blockPosition();
+        int radius = scanRadius.getValue().intValue();
+        Set<BlockPos> tracked = new HashSet<>(store.positions());
+
+        Map<BlockPos, BlockPos> edges = ChestScanChain.findEdges(mc.level, tracked, center, radius);
+        Map<BlockPos, ChestScanStore.ChestStatus> real = new HashMap<>();
+        for (BlockPos pos : tracked) {
+            real.put(pos, store.get(pos));
+        }
+        lastInferredEmpty = ChestScanChain.inferEmpty(edges, real);
+    }
+
+    @EventHandler
+    private void onWorldRender(EventWorldRender event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
+
+        double radius = scanRadius.getValue();
+        double radiusSq = radius * radius;
+        BlockPos center = mc.player.blockPosition();
+
+        WorldDrawer.start();
+
+        for (BlockPos pos : new ArrayList<>(store.positions())) {
+            if (center.distSqr(pos) > radiusSq) continue;
+            if (!(mc.level.getBlockState(pos).getBlock() instanceof ChestBlock)) {
+                store.remove(pos);
+                continue;
+            }
+            WorldDrawer.box(colorFor(store.get(pos)), FILL_OPACITY, OUTLINE_OPACITY, new AABB(pos));
+        }
+
+        if (hopperChain.getValue()) {
+            for (BlockPos pos : lastInferredEmpty) {
+                if (store.get(pos) != null) continue;
+                if (center.distSqr(pos) > radiusSq) continue;
+                WorldDrawer.box(EMPTY_COLOR, FILL_OPACITY, OUTLINE_OPACITY, new AABB(pos));
+            }
+        }
+
+        WorldDrawer.draw(event.matrices);
+    }
+
+    private ClientColor colorFor(ChestScanStore.ChestStatus status) {
+        return switch (status) {
+            case EMPTY -> EMPTY_COLOR;
+            case PARTIAL -> PARTIAL_COLOR;
+            case FULL -> FULL_COLOR;
+        };
     }
 
     private BlockPos resolveLookedAtChestPos(Minecraft mc) {
