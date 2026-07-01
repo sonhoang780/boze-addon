@@ -6,6 +6,8 @@ import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
+import com.example.addon.commands.GoalCommand;
+import com.example.addon.commands.ElytraCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.MaceAura;
@@ -65,6 +67,8 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(KitCommand.INSTANCE);
         dispatcher.registerCommand(PrintModuleCommand.INSTANCE);
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
+        dispatcher.registerCommand(GoalCommand.INSTANCE);
+        dispatcher.registerCommand(ElytraCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(MaceAura.INSTANCE);

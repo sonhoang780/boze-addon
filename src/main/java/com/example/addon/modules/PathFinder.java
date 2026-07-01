@@ -104,6 +104,30 @@ public class PathFinder extends AddonModule {
         }
     }
 
+    private void steer(net.minecraft.client.Minecraft mc) {
+        if (!flying || currentPath == null || !mc.player.isFallFlying()) return;
+        if (pathCursor >= currentPath.length) return;
+
+        BlockPos waypoint = BlockPos.of(currentPath[pathCursor]);
+        double dx = (waypoint.getX() + 0.5) - mc.player.getX();
+        double dy = (waypoint.getY() + 0.5) - mc.player.getY();
+        double dz = (waypoint.getZ() + 0.5) - mc.player.getZ();
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist < 2.0) {
+            pathCursor++;
+            return;
+        }
+
+        double speed = flySpeed.getValue();
+        double vSpeed = vertSpeed.getValue();
+        double vx = (dx / dist) * speed;
+        double vy = Math.max(-vSpeed, Math.min(vSpeed, (dy / dist) * speed));
+        double vz = (dz / dist) * speed;
+
+        mc.player.setDeltaMovement(vx, vy, vz);
+    }
+
     public void requestPath() {
         if (goal == null || context == 0 || pathfindInProgress) return;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -144,6 +168,7 @@ public class PathFinder extends AddonModule {
             if (currentPath == null || pathCursor >= currentPath.length) {
                 requestPath();
             }
+            steer(mc);
         }
     }
 }
