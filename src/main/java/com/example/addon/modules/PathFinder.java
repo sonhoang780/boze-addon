@@ -27,6 +27,7 @@ public class PathFinder extends AddonModule {
     public volatile long[] currentPath = null;
     public volatile int pathCursor = 0;
     private volatile boolean pathfindInProgress = false;
+    private final java.util.concurrent.atomic.AtomicInteger inFlightNativeCalls = new java.util.concurrent.atomic.AtomicInteger(0);
     private int cullTicks = 0;
 
     private PathFinder() {
@@ -39,16 +40,56 @@ public class PathFinder extends AddonModule {
             System.err.println("[PathFinder] Native library failed to load; module will do nothing.");
             return;
         }
-        context = NetherPathfinder.newContext(seed != null ? seed : 0L, null,
+        context = createContext();
+    }
+
+    private long createContext() {
+        return NetherPathfinder.newContext(seed != null ? seed : 0L, null,
             NetherPathfinder.DIMENSION_NETHER, maxHeight.getValue().intValue(), true);
+    }
+
+    // Waits (with a safety timeout) for in-flight native pathFind calls to drain before
+    // it's safe to free/replace the native context. Must be called from the tick thread
+    // only, and only after new requestPath() calls have been prevented (getState()==false,
+    // or the caller is about to replace context itself).
+    private void awaitNoInFlightNativeCalls() {
+        long deadline = System.currentTimeMillis() + 2000;
+        while (inFlightNativeCalls.get() > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ignored) {
+            }
+        }
+    }
+
+    // Called from GoalCommand when the user runs `goal ... seed <v>`. Recreates the native
+    // context with the new seed if the module is already enabled (since onEnable() already
+    // baked the old seed into the existing context), otherwise just stores the seed for
+    // onEnable() to use later.
+    public void updateSeed(Long newSeed) {
+        if (java.util.Objects.equals(seed, newSeed)) {
+            return;
+        }
+        seed = newSeed;
+        if (context == 0) {
+            return;
+        }
+        awaitNoInFlightNativeCalls();
+        NetherPathfinder.freeContext(context);
+        context = createContext();
+        fedChunks.clear();
+        currentPath = null;
+        pathCursor = 0;
     }
 
     @Override
     public void onDisable() {
         if (context != 0) {
+            awaitNoInFlightNativeCalls();
             NetherPathfinder.freeContext(context);
             context = 0;
         }
+        fedChunks.clear();
         goal = null;
         flying = false;
     }
@@ -135,22 +176,29 @@ public class PathFinder extends AddonModule {
 
         final BlockPos start = mc.player.blockPosition();
         final BlockPos target = goal;
-        final boolean generate = (seed != null);
+        // Unseen chunks: no seed -> treat as air (optimistic, honestly-unknown).
+        // Seed set -> generate real terrain via native ported nether worldgen.
+        final boolean airIfFake = (seed == null);
 
         pathfindInProgress = true;
         new Thread(() -> {
+            inFlightNativeCalls.incrementAndGet();
             try {
                 dev.babbaj.pathfinder.PathSegment segment = NetherPathfinder.pathFind(
                     context,
                     start.getX(), start.getY(), start.getZ(),
                     target.getX(), target.getY(), target.getZ(),
-                    false, true, 500, generate, 10.0
+                    false, true, 500, airIfFake, 10.0
                 );
                 if (segment != null) {
                     currentPath = segment.packed;
                     pathCursor = 0;
                 }
+            } catch (Throwable t) {
+                System.err.println("[PathFinder] pathFind failed: " + t);
+                t.printStackTrace();
             } finally {
+                inFlightNativeCalls.decrementAndGet();
                 pathfindInProgress = false;
             }
         }, "PathFinder-pathfind").start();

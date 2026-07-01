@@ -89,12 +89,12 @@ public class GoalCommand extends AddonCommand {
             y1 = PathFinder.INSTANCE.maxHeight.getValue().intValue();
         }
         PathFinder.INSTANCE.goal = new BlockPos(x1, y1, z1);
-        PathFinder.INSTANCE.seed = seed;
+        PathFinder.INSTANCE.updateSeed(seed);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
                 "[PathFinder] Goal set to " + x1 + ", " + y1 + ", " + z1
-                    + (seed != null ? " (seed " + seed + ")" : " (no seed, CACHE_MISS_SOLID)")));
+                    + (seed != null ? " (seed " + seed + ", unseen terrain generated)" : " (no seed, unseen terrain treated as air)")));
         }
         return SINGLE_SUCCESS;
     }
