@@ -1,0 +1,56 @@
+{
+    "targets": {
+        "swap": { }
+    },
+    "passes": [
+        {
+            "fragment_shader": "example-addon:post/fill_only_resolve",
+            "inputs": [
+                {
+                    "target": "minecraft:main",
+                    "sampler_name": "In"
+                },
+                {
+                    "width": 1,
+                    "sampler_name": "Image",
+                    "location": "example-addon:betterchamsfill",
+                    "height": 1
+                },
+                {
+                    "width": 4,
+                    "sampler_name": "Params",
+                    "location": "example-addon:betterchamsparam",
+                    "height": 1
+                },
+                {
+                    "width": 1,
+                    "sampler_name": "OutlineImage",
+                    "location": "example-addon:betterchamsoutline",
+                    "height": 1
+                }
+            ],
+            "vertex_shader": "minecraft:core/screenquad",
+            "output": "swap"
+        },
+        {
+            "fragment_shader": "minecraft:post/blit",
+            "inputs": [
+                {
+                    "target": "swap",
+                    "sampler_name": "In"
+                }
+            ],
+            "vertex_shader": "minecraft:core/screenquad",
+            "uniforms": {
+                "BlitConfig": [
+                    {
+                        "name": "ColorModulate",
+                        "value": [1.0, 1.0, 1.0, 1.0],
+                        "type": "vec4"
+                    }
+                ]
+            },
+            "output": "minecraft:main"
+        }
+    ]
+}
