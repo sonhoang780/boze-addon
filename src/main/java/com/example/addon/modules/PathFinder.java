@@ -39,6 +39,10 @@ public class PathFinder extends AddonModule {
     public boolean flying = false;
 
     private final java.util.Set<Long> fedChunks = new java.util.HashSet<>();
+    // Synthetic solid ring cells (Mode B / no-seed only) -- chebyshev distance
+    // radius+1 from the player, one chunk thick, keeps the native search from ever
+    // reaching genuinely-unknown territory. See buildWallRing().
+    private final java.util.Set<Long> wallChunks = new java.util.HashSet<>();
     public volatile long[] currentPath = null;
     public volatile int pathCursor = 0;
     private volatile boolean pathfindInProgress = false;
@@ -125,6 +129,7 @@ public class PathFinder extends AddonModule {
         NetherPathfinder.freeContext(context);
         context = createContext();
         fedChunks.clear();
+        wallChunks.clear();
         currentPath = null;
         pathCursor = 0;
     }
@@ -137,6 +142,7 @@ public class PathFinder extends AddonModule {
             context = 0;
         }
         fedChunks.clear();
+        wallChunks.clear();
         goal = null;
         flying = false;
         currentPath = null;
@@ -154,6 +160,10 @@ public class PathFinder extends AddonModule {
         return getState() && context != 0 && NetherPathfinder.isThisSystemSupported();
     }
 
+    private static long chunkKey(int cx, int cz) {
+        return (((long) cx) << 32) ^ (cz & 0xFFFFFFFFL);
+    }
+
     private void feedNearbyChunks(net.minecraft.client.Minecraft mc) {
         if (mc.player == null || mc.level == null) return;
         final int NETHER_HEIGHT = 256;
@@ -165,7 +175,7 @@ public class PathFinder extends AddonModule {
             for (int dz = -radius; dz <= radius; dz++) {
                 int cx = pcx + dx;
                 int cz = pcz + dz;
-                long key = (((long) cx) << 32) ^ (cz & 0xFFFFFFFFL);
+                long key = chunkKey(cx, cz);
                 if (fedChunks.contains(key)) continue;
                 if (!mc.level.hasChunk(cx, cz)) continue;
 
@@ -195,7 +205,22 @@ public class PathFinder extends AddonModule {
                     continue;
                 }
                 fedChunks.add(key);
+                // This chunk may have been a synthetic solid wall cell in a previous
+                // cycle (player has since flown close enough to load it for real).
+                // insertChunkData above already overwrote its native-side data with the
+                // real terrain; drop it from wallChunks so it's not treated as
+                // already-walled if it falls on the ring again, and log once so the
+                // overwrite-on-reinsert assumption (undocumented in the vendored binding)
+                // gets eyeballed against actual pathing behavior in-game.
+                if (wallChunks.remove(key)) {
+                    System.out.println("[PathFinder] chunk (" + cx + "," + cz
+                        + ") transitioned wall -> real data");
+                }
             }
+        }
+
+        if (!seedKnown()) {
+            buildWallRing(mc, pcx, pcz, radius);
         }
 
         cullTicks++;
@@ -208,6 +233,44 @@ public class PathFinder extends AddonModule {
             } catch (Throwable t) {
                 System.err.println("[PathFinder] cullFarChunks failed: " + t);
                 t.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * Mode B (no seed): inserts an all-solid ring of chunks at chebyshev distance
+     * exactly radius+1 from the player's chunk -- one chunk thick, immediately outside
+     * the real-fed bubble built by feedNearbyChunks' main loop above. The native A* can
+     * never search past a solid cell, so this bounds every pathFind call to terrain the
+     * client has actually loaded, regardless of the (moot, but kept honest) `air`
+     * cache-miss default passed by requestPath(). As the player flies and the real
+     * radius advances, new ring cells get walled and previously-ringed cells that are
+     * now inside the real radius get overwritten with real data by the loop above (see
+     * the wallChunks.remove(key) log) -- the frontier organically pushes outward.
+     */
+    private void buildWallRing(net.minecraft.client.Minecraft mc, int pcx, int pcz, int radius) {
+        final int ring = radius + 1;
+        final int NETHER_HEIGHT = 256;
+        boolean[] solid = new boolean[16 * 16 * NETHER_HEIGHT];
+        java.util.Arrays.fill(solid, true);
+
+        for (int dx = -ring; dx <= ring; dx++) {
+            for (int dz = -ring; dz <= ring; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) != ring) continue; // ring only, not a filled disk
+                int cx = pcx + dx;
+                int cz = pcz + dz;
+                long key = chunkKey(cx, cz);
+                if (fedChunks.contains(key) || wallChunks.contains(key)) continue;
+
+                try {
+                    synchronized (nativeLock) {
+                        NetherPathfinder.insertChunkData(context, cx, cz, solid);
+                    }
+                } catch (Throwable t) {
+                    System.err.println("[PathFinder] wall insertChunkData failed cx=" + cx + " cz=" + cz + ": " + t);
+                    continue;
+                }
+                wallChunks.add(key);
             }
         }
     }
