@@ -32,6 +32,7 @@ public class PathFinder extends AddonModule {
     private static final int REPATH_INTERVAL_TICKS = 40;   // re-plan periodically so newly-fed terrain corrects the route
     private static final int STUCK_TICKS_THRESHOLD = 20;   // ~1s of sustained collision while flying = dead end
     private static final int BACKOFF_TICKS = 8;            // ticks spent backing away before re-requesting a path
+    private static final int FEED_RADIUS_CHUNKS = 8;       // real chunk-feed radius; wall ring sits one chunk past this
 
     private long context = 0;
     public BlockPos goal = null;
@@ -167,7 +168,7 @@ public class PathFinder extends AddonModule {
     private void feedNearbyChunks(net.minecraft.client.Minecraft mc) {
         if (mc.player == null || mc.level == null) return;
         final int NETHER_HEIGHT = 256;
-        final int radius = 8; // chunks
+        final int radius = FEED_RADIUS_CHUNKS;
         int pcx = mc.player.blockPosition().getX() >> 4;
         int pcz = mc.player.blockPosition().getZ() >> 4;
 
@@ -318,6 +319,28 @@ public class PathFinder extends AddonModule {
         return y == pos.getY() ? pos : new BlockPos(pos.getX(), y, pos.getZ());
     }
 
+    /**
+     * No-seed mode only: the real fed radius (and the solid wall ring one chunk past it,
+     * see buildWallRing) bounds every pathFind call's reachable search space to
+     * FEED_RADIUS_CHUNKS*16 blocks around the player. A goal farther than that is
+     * unreachable within a single call -- return it unchanged (goal already in range), or
+     * a point along the start->goal vector clamped to just inside the wall (one chunk of
+     * margin, so the frontier point itself sits in real-fed, not solid, terrain).
+     */
+    private static BlockPos frontierTarget(BlockPos start, BlockPos goal) {
+        double dx = goal.getX() - start.getX();
+        double dz = goal.getZ() - start.getZ();
+        double horizDist = Math.sqrt(dx * dx + dz * dz);
+
+        double maxDist = (FEED_RADIUS_CHUNKS - 1) * 16.0;
+        if (horizDist <= maxDist) return goal;
+
+        double scale = maxDist / horizDist;
+        int fx = start.getX() + (int) Math.round(dx * scale);
+        int fz = start.getZ() + (int) Math.round(dz * scale);
+        return new BlockPos(fx, goal.getY(), fz);
+    }
+
     public void requestPath() {
         if (goal == null || context == 0 || pathfindInProgress) return;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -329,9 +352,20 @@ public class PathFinder extends AddonModule {
         // native side does no bounds-checking of its own.
         final int ceiling = maxHeight.getValue().intValue() - 1;
         final BlockPos start = clampY(mc.player.blockPosition(), ceiling);
-        final BlockPos target = clampY(goal, ceiling);
         final long ctx = context;
         final boolean seedKnownForThisCall = seedKnown();
+
+        // In no-seed mode the search space is walled off just past the real-fed radius
+        // (see buildWallRing) -- a goal farther than that is architecturally unreachable
+        // in a single pathFind call, and the native side falls back to some arbitrary
+        // direction when the true target can't be reached (observed: consistently +Z
+        // regardless of where the real goal was). Route toward a frontier waypoint on the
+        // wall boundary, in the goal's direction, instead of the real goal until the
+        // player is close enough for the goal to actually sit inside the known bubble.
+        // Seed-known mode has no wall (generation covers the whole distance), so it
+        // always targets the real goal directly.
+        final BlockPos target = clampY(
+            seedKnownForThisCall ? goal : frontierTarget(start, goal), ceiling);
 
         pathfindInProgress = true;
         new Thread(() -> {
