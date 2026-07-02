@@ -2,10 +2,10 @@ package com.example.addon.modules;
 
 import com.example.addon.render.ObjMesh;
 import dev.boze.api.addon.AddonModule;
-import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
-import meteordevelopment.orbit.EventHandler;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
@@ -29,13 +29,26 @@ import com.mojang.math.Axis;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
-import com.mojang.blaze3d.systems.RenderSystem;
 
 public class TungTungSahur extends AddonModule {
     public static final TungTungSahur INSTANCE = new TungTungSahur();
 
     private static final Identifier TEXTURE_ID =
         Identifier.fromNamespaceAndPath("example-addon", "tung_tung_companion");
+
+    // Post-effect "location": "example-addon:tungsmokeparams" resolves to the resource
+    // path textures/effect/tungsmokeparams.png -- registering under the bare name bound
+    // the sampler to the missing-texture fallback (see "Missing resource ..." warnings
+    // in logs), so the shader read garbage params and never drew smoke. Must register
+    // under the full resolved path, exactly like BetterChams' FILL/PARAM/OUTLINE ids.
+    private static final Identifier SMOKE_PARAMS_ID =
+        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/tungsmokeparams.png");
+    private static final Identifier SMOKE_SDF_ID =
+        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/tungsmokesdf.png");
+    private static DynamicTexture smokeParamsTexture;
+    private static DynamicTexture smokeSdfTexture;
+    // SDF atlas content is static; copy it into smokeSdfTexture once, ever
+    private static boolean sdfLoaded = false;
 
     private static final Identifier SCREAM_ID = Identifier.fromNamespaceAndPath("example-addon", "scream");
     private static final SoundEvent SCREAM_SOUND = SoundEvent.createVariableRangeEvent(SCREAM_ID);
@@ -66,12 +79,51 @@ public class TungTungSahur extends AddonModule {
 
     static {
         LevelRenderEvents.AFTER_SOLID_FEATURES.register(ctx -> {
-            if (INSTANCE.getState() || INSTANCE.fadingOut) INSTANCE.onWorldRender(ctx);
+            if (INSTANCE.getState() && !INSTANCE.fadingOut) INSTANCE.onWorldRender(ctx);
+        });
+        // Fading model uses entityTranslucent -- must render AFTER translucent terrain
+        // (water). Submitted from AFTER_SOLID_FEATURES it wrote depth before the water
+        // pass, culling water behind it: looking through the model showed the lake bed
+        // with no water tint (xray look).
+        LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(ctx -> {
+            if (INSTANCE.fadingOut) INSTANCE.onWorldRender(ctx);
+        });
+        // Plain Fabric tick event, not a Boze @EventHandler subscription -- Boze
+        // unsubscribes @EventHandler methods the instant onDisable() runs, which froze
+        // position/yaw interpolation for the entire 2s fade (the "giật" bug). This hook
+        // stays registered permanently and self-gates on getState()||fadingOut, exactly
+        // mirroring how the render hook above already survives past module-disable.
+        ClientTickEvents.START_CLIENT_TICK.register(mc -> {
+            if (INSTANCE.getState() || INSTANCE.fadingOut) INSTANCE.onTick();
         });
     }
 
     public TungTungSahur() {
         super("TungTungSahur", "TUNG TUNG");
+    }
+
+    /**
+     * Registers the smoke post-process's two data textures via the standard
+     * DynamicTexture + TextureManager pattern (same as BetterChams' paramsTexture) --
+     * replaces a prior implementation that reflected into PostChain's private
+     * `persistentTargets` field and wrote through writeToTexture(), silently failing
+     * (caught, unlogged) whenever that field/target-key didn't match, which is why the
+     * smoke effect never actually appeared. Call once from ExampleAddon.initialize().
+     */
+    public static void registerTextures() {
+        ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
+            NativeImage paramsImg = new NativeImage(NativeImage.Format.RGBA, 8, 3, false);
+            smokeParamsTexture = new DynamicTexture(() -> "tungsmoke-params", paramsImg);
+            mc.getTextureManager().register(SMOKE_PARAMS_ID, smokeParamsTexture);
+
+            // 256x128 all-white placeholder until the real baked SDF loads in
+            // onEnable()/buildTexture() -- avoids sampling an unregistered texture if
+            // the smoke chain ever runs before the module is first enabled.
+            NativeImage sdfPlaceholder = new NativeImage(NativeImage.Format.RGBA, 256, 128, false);
+            sdfPlaceholder.fillRect(0, 0, 256, 128, 0xFFFFFFFF);
+            smokeSdfTexture = new DynamicTexture(() -> "tungsmoke-sdf", sdfPlaceholder);
+            mc.getTextureManager().register(SMOKE_SDF_ID, smokeSdfTexture);
+        });
     }
 
     @Override
@@ -124,8 +176,7 @@ public class TungTungSahur extends AddonModule {
 
     // ── Tick: update follow position ─────────────────────────────────────────
 
-    @EventHandler
-    private void onTick(EventTick.Pre event) {
+    private void onTick() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mesh == null) return;
 
@@ -229,8 +280,6 @@ public class TungTungSahur extends AddonModule {
 
     // ── Texture ──────────────────────────────────────────────────────────────
 
-    private NativeImage sdfImg;
-
     private void buildTexture(Minecraft mc) {
         try {
             Identifier fileId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung.png");
@@ -240,13 +289,28 @@ public class TungTungSahur extends AddonModule {
                     new DynamicTexture(() -> "tung_tung_companion", img));
             }
         } catch (Exception ignored) {}
-        
-        try {
-            Identifier sdfId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung_sdf.png");
-            try (var stream = mc.getResourceManager().getResourceOrThrow(sdfId).open()) {
-                sdfImg = NativeImage.read(stream);
-            }
-        } catch (Exception ignored) {}
+
+        // Baked volumetric SDF atlas (8x4 grid of 32 Z-slices, 256x128 total) for the
+        // smoke dissolve shader. Copied INTO the one texture registered by
+        // registerTextures() -- never re-registered: PostPass$TextureInput caches the
+        // AbstractTexture INSTANCE at chain-compile time, and TextureManager.register()
+        // closes the previous instance, so re-registering here crashed the next fade
+        // with "Texture view does not exist" (crash-2026-07-03_03.26.48).
+        if (!sdfLoaded && smokeSdfTexture != null) {
+            try {
+                Identifier sdfId = Identifier.fromNamespaceAndPath("example-addon", "textures/entity/tung_tung_sdf.png");
+                try (var stream = mc.getResourceManager().getResourceOrThrow(sdfId).open()) {
+                    NativeImage src = NativeImage.read(stream);
+                    NativeImage dst = smokeSdfTexture.getPixels();
+                    if (dst != null && src.getWidth() == dst.getWidth() && src.getHeight() == dst.getHeight()) {
+                        dst.copyFrom(src);
+                        smokeSdfTexture.upload();
+                        sdfLoaded = true;
+                    }
+                    src.close();
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     // ── OBJ Mesh ─────────────────────────────────────────────────────────────
@@ -262,22 +326,21 @@ public class TungTungSahur extends AddonModule {
         }
     }
 
-    private static java.lang.reflect.Field persistentTargetsField = null;
-    static {
-        try {
-            persistentTargetsField = net.minecraft.client.renderer.PostChain.class.getDeclaredField("persistentTargets");
-            persistentTargetsField.setAccessible(true);
-        } catch (Exception e) {}
-    }
-
-    private com.mojang.blaze3d.platform.NativeImage smokeParamsImg;
-
+    /**
+     * Writes this frame's camera-ray corners / tung position / fade alpha / time into
+     * smokeParamsTexture via the standard DynamicTexture upload path (same as
+     * BetterChams' paramsTexture) -- replaces a prior implementation that reflected
+     * into PostChain's private `persistentTargets` field and wrote through
+     * writeToTexture(), silently failing whenever that field/target-key didn't match
+     * (caught and swallowed, unlogged), which is why the smoke shader never actually
+     * received real data. `smokeChain` is unused now -- kept in the signature so the
+     * MixinLevelRenderer call site doesn't need touching.
+     */
     public void updateSmokeParams(Minecraft mc, net.minecraft.client.renderer.PostChain smokeChain) {
-        if (smokeParamsImg == null) {
-            smokeParamsImg = new com.mojang.blaze3d.platform.NativeImage(8, 3, false);
-        }
-        com.mojang.blaze3d.platform.NativeImage img = smokeParamsImg;
-        
+        if (smokeParamsTexture == null) return;
+        com.mojang.blaze3d.platform.NativeImage img = smokeParamsTexture.getPixels();
+        if (img == null) return;
+
         float aspect = (float)mc.getWindow().getWidth() / mc.getWindow().getHeight();
         float fovY = (float)Math.toRadians(mc.options.fov().get());
         float halfH = (float)Math.tan(fovY / 2.0);
@@ -310,30 +373,8 @@ public class TungTungSahur extends AddonModule {
         setFloat(img, 14, (float)(renderZ - camPos.z), -64, 64);
         setFloat(img, 15, smokeFadeAlpha, 0, 1);
         setFloat(img, 16, (System.currentTimeMillis() % 1000000L) / 1000f, 0, 1000);
-        
-        try {
-            if (persistentTargetsField != null) {
-                java.util.Map<net.minecraft.resources.Identifier, com.mojang.blaze3d.pipeline.RenderTarget> targets = 
-                    (java.util.Map<net.minecraft.resources.Identifier, com.mojang.blaze3d.pipeline.RenderTarget>) persistentTargetsField.get(smokeChain);
-                if (targets != null) {
-                    com.mojang.blaze3d.pipeline.RenderTarget target = targets.get(net.minecraft.resources.Identifier.withDefaultNamespace("params_sampler"));
-                    if (target == null) {
-                        target = targets.get(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "params_sampler"));
-                    }
-                    if (target != null && target.getColorTexture() != null) {
-                        com.mojang.blaze3d.systems.RenderSystem.getDevice().createCommandEncoder().writeToTexture(target.getColorTexture(), img);
-                    }
-                    
-                    com.mojang.blaze3d.pipeline.RenderTarget sdfTarget = targets.get(net.minecraft.resources.Identifier.withDefaultNamespace("sdf_sampler"));
-                    if (sdfTarget == null) {
-                        sdfTarget = targets.get(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "sdf_sampler"));
-                    }
-                    if (sdfTarget != null && sdfTarget.getColorTexture() != null && sdfImg != null) {
-                        com.mojang.blaze3d.systems.RenderSystem.getDevice().createCommandEncoder().writeToTexture(sdfTarget.getColorTexture(), sdfImg);
-                    }
-                }
-            }
-        } catch (Exception e) {}
+
+        smokeParamsTexture.upload();
     }
     
     private void setFloat(com.mojang.blaze3d.platform.NativeImage img, int index, float val, float min, float max) {
