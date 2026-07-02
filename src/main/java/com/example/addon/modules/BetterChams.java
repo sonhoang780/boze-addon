@@ -9,15 +9,10 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
-import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
-import net.minecraft.world.phys.Vec3;
-import org.joml.Vector3f;
 
 import java.nio.file.Path;
 
@@ -64,9 +59,9 @@ public class BetterChams extends AddonModule {
         "Strength of the glow halo.", 0.97, 0.0, 1.0, 0.01);
 
     public final ToggleOption flareToggle = new ToggleOption(this, "Flare",
-        "Nonuniform lens-flare-style rays radiating from the nearest glowing target, using a mask image. Only visible while Glow is on.", false);
+        "Warps the glow halo's spread using a mask image, hugging each glowing silhouette's edge (nonuniform, lens-flare-style rays instead of a uniform round halo). Only visible while Glow is on.", false);
     public final SliderOption flareSize = new SliderOption(this, "Flare Size",
-        "Radius (fraction of screen) the flare mask is projected across.", 0.6, 0.05, 2.0, 0.01);
+        "How far into the glow's thickness the mask's rays reach before tapering off.", 0.6, 0.05, 2.0, 0.01);
     public final ToggleOption selectFlareMask = new ToggleOption(this, "Select Flare Mask",
         "Open flare mask picker from boze/flares/.", false);
 
@@ -264,89 +259,6 @@ public class BetterChams extends AddonModule {
         updateParamsTexture();
     }
 
-    /**
-     * Screen-space UV (0..1, y-down) of the nearest currently-glowing target's position,
-     * or null if none is eligible / it's behind the camera. Eligibility mirrors the exact
-     * conditions MixinEndCrystalRenderer / MixinAvatarRenderer use to decide whether an
-     * entity gets the outline treatment at all (crystalToggle+range, playerToggle+range,
-     * selfToggle+third-person) -- a flare with no matching glow target would be pointless.
-     * V1 scope: one flare source per frame (nearest to camera), not one per glowing entity
-     * -- the shared entity_outline resolve pass has no per-entity screen position to work
-     * with without a much larger architecture change.
-     */
-    private Vec3 findFlareTargetPos(Minecraft mc) {
-        if (mc.player == null || mc.level == null) return null;
-        Vec3 camPos = mc.gameRenderer.getMainCamera().position();
-
-        Vec3 best = null;
-        double bestDistSq = Double.MAX_VALUE;
-
-        if (crystalToggle.getValue()) {
-            for (Entity e : mc.level.entitiesForRendering()) {
-                if (!(e instanceof EndCrystal crystal)) continue;
-                if (!isInRange(crystal)) continue;
-                double d = camPos.distanceToSqr(crystal.position());
-                if (d < bestDistSq) { bestDistSq = d; best = crystal.position(); }
-            }
-        }
-
-        if (playerToggle.getValue()) {
-            for (Entity e : mc.level.entitiesForRendering()) {
-                if (!(e instanceof AbstractClientPlayer p) || p == mc.player) continue;
-                if (!isInRange(p)) continue;
-                double d = camPos.distanceToSqr(p.position());
-                if (d < bestDistSq) { bestDistSq = d; best = p.getEyePosition(); }
-            }
-        }
-
-        if (selfToggle.getValue() && !mc.options.getCameraType().isFirstPerson()) {
-            double d = camPos.distanceToSqr(mc.player.position());
-            if (d < bestDistSq) { bestDistSq = d; best = mc.player.getEyePosition(); }
-        }
-
-        return best;
-    }
-
-    /**
-     * Standard direction-vector perspective projection: decompose (target - camera) into
-     * the camera's forward/left/up basis, scale by tan(halfFov) to land in NDC, remap to
-     * UV (y-down, matching texture space). Deliberately avoids reconstructing Mojang's
-     * internal Projection matrix (RenderSystem no longer exposes a plain CPU-side
-     * projection Matrix4f in 26.1.2 -- it's GPU-buffer only) -- this only needs public
-     * Camera accessors (position/forwardVector/leftVector/upVector/getFov) plus the
-     * window size, so it can't drift from an unverifiable internal matrix layout.
-     */
-    private static float[] worldToScreenUV(Minecraft mc, Vec3 worldPos) {
-        Camera camera = mc.gameRenderer.getMainCamera();
-        Vec3 camPos = camera.position();
-        Vec3 diff = worldPos.subtract(camPos);
-        double len = diff.length();
-        if (len < 1.0e-4) return null;
-        Vector3f dir = new Vector3f((float) (diff.x / len), (float) (diff.y / len), (float) (diff.z / len));
-
-        Vector3f forward = new Vector3f(camera.forwardVector());
-        Vector3f up = new Vector3f(camera.upVector());
-        Vector3f left = new Vector3f(camera.leftVector());
-
-        float f = dir.dot(forward);
-        if (f <= 0.001f) return null; // behind camera
-
-        float rightComp = -dir.dot(left); // "left" vector -> negate for a "right" component
-        float upComp = dir.dot(up);
-
-        float fovRad = (float) Math.toRadians(camera.getFov());
-        float tanHalfFovY = (float) Math.tan(fovRad / 2.0);
-        float aspect = (float) mc.getWindow().getWidth() / (float) mc.getWindow().getHeight();
-        float tanHalfFovX = tanHalfFovY * aspect;
-
-        float ndcX = (rightComp / f) / tanHalfFovX;
-        float ndcY = (upComp / f) / tanHalfFovY;
-
-        float u = ndcX * 0.5f + 0.5f;
-        float v = 1.0f - (ndcY * 0.5f + 0.5f);
-        return new float[]{u, v};
-    }
-
     private void updateParamsTexture() {
         if (paramsTexture == null) return;
         boolean on = getState();
@@ -373,24 +285,13 @@ public class BetterChams extends AddonModule {
         int flipAbgr = (255 << 24) | (intensityPacked << 16) | (stepPacked << 8) | flipY;
 
         // Flare: only meaningful while Glow is also on (see flareToggle description).
+        // No target/center needed anymore -- glow_resolve.fsh derives an outward
+        // direction per-pixel from the blurred glow's own screen-space gradient
+        // (dFdx/dFdy), so the mask hugs each glowing silhouette's actual edge instead of
+        // radiating from one single projected world point.
         boolean flareOn = glowOn && flareToggle.getValue() && FLARE_TEXTURE.hasImage();
-        float flareU = 0f, flareV = 0f;
-        if (flareOn) {
-            Minecraft mc = Minecraft.getInstance();
-            Vec3 targetPos = findFlareTargetPos(mc);
-            float[] uv = targetPos != null ? worldToScreenUV(mc, targetPos) : null;
-            if (uv == null) {
-                flareOn = false;
-            } else {
-                flareU = uv[0];
-                flareV = uv[1];
-            }
-        }
         int flareSizePacked = Math.round((float)(Math.min(2.0, flareSize.getValue()) / 2.0 * 255.0)) & 0xFF;
-        int flareAbgr = ((flareSizePacked & 0xFF) << 24)
-            | ((Math.round(flareV * 255f) & 0xFF) << 16)
-            | ((Math.round(flareU * 255f) & 0xFF) << 8)
-            | (flareOn ? 255 : 0);
+        int flareAbgr = ((flareSizePacked & 0xFF) << 24) | (flareOn ? 255 : 0);
 
         boolean glowTexOn = glowOn && glowTextureToggle.getValue() && GLOW_TEXTURE.hasImage();
         int glowTexAbgr = (255 << 24) | (glowTexOn ? 255 : 0);
