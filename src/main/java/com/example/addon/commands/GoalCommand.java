@@ -86,7 +86,8 @@ public class GoalCommand extends AddonCommand {
         } else {
             // 2-arg form: params were (x, z, null)
             z1 = zOrY;
-            y1 = PathFinder.INSTANCE.maxHeight.getValue().intValue();
+            // Native isInBounds() requires y < maxHeight, so the ceiling itself is invalid.
+            y1 = PathFinder.INSTANCE.maxHeight.getValue().intValue() - 1;
         }
         PathFinder.INSTANCE.goal = new BlockPos(x1, y1, z1);
         PathFinder.INSTANCE.updateSeed(seed);
@@ -94,7 +95,7 @@ public class GoalCommand extends AddonCommand {
         if (mc.player != null) {
             mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
                 "[PathFinder] Goal set to " + x1 + ", " + y1 + ", " + z1
-                    + (seed != null ? " (seed " + seed + ", unseen terrain generated)" : " (no seed, unseen terrain treated as air)")));
+                    + (seed != null ? " (seed " + seed + ", unseen terrain generated)" : " (no seed, unseen terrain treated as solid)")));
         }
         return SINGLE_SUCCESS;
     }
