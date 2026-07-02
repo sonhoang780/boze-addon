@@ -9,10 +9,15 @@ import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 
 import java.nio.file.Path;
 
@@ -24,10 +29,16 @@ public class BetterChams extends AddonModule {
 
     public static final ChamsImageTexture CHAMS_TEXTURE = new ChamsImageTexture();
     public static final ChamsImageTexture OUTLINE_TEXTURE = new ChamsImageTexture();
+    public static final ChamsImageTexture FLARE_TEXTURE = new ChamsImageTexture();
+    public static final ChamsImageTexture GLOW_TEXTURE = new ChamsImageTexture();
     public static final Identifier TEX_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsfill.png");
     public static final Identifier OUTLINE_TEX_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsoutline.png");
+    public static final Identifier FLARE_TEX_ID =
+        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsflare.png");
+    public static final Identifier GLOW_TEX_ID =
+        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsglowtex.png");
     public static final Identifier PARAMS_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsparam.png");
 
@@ -48,9 +59,21 @@ public class BetterChams extends AddonModule {
     public final SliderOption glowThickness = new SliderOption(this, "Glow Thickness",
         "Radius of the glow effect in pixels.", 12.0, 1.0, 64.0, 1.0);
     public final SliderOption sampleStep    = new SliderOption(this, "Sample Step",
-        "Kawase tap-offset multiplier. Higher = cheaper/blockier, lower = smoother/costlier.", 1.0, 1.0, 4.0, 0.1);
+        "Inner-rim glow bleed radius in pixels (into the silhouette from its edge). Independent of Glow Thickness (outer radius).", 1.0, 1.0, 4.0, 0.1);
     public final SliderOption glowIntensity = new SliderOption(this, "Glow Intensity",
         "Strength of the glow halo.", 0.97, 0.0, 1.0, 0.01);
+
+    public final ToggleOption flareToggle = new ToggleOption(this, "Flare",
+        "Nonuniform lens-flare-style rays radiating from the nearest glowing target, using a mask image. Only visible while Glow is on.", false);
+    public final SliderOption flareSize = new SliderOption(this, "Flare Size",
+        "Radius (fraction of screen) the flare mask is projected across.", 0.6, 0.05, 2.0, 0.01);
+    public final ToggleOption selectFlareMask = new ToggleOption(this, "Select Flare Mask",
+        "Open flare mask picker from boze/flares/.", false);
+
+    public final ToggleOption glowTextureToggle = new ToggleOption(this, "Glow Texture",
+        "Screen-blend an image onto the glow halo itself (not just the fill). Only visible while Glow is on.", false);
+    public final ToggleOption selectGlowTexture = new ToggleOption(this, "Select Glow Texture",
+        "Open glow overlay texture picker from boze/glowtextures/.", false);
 
     public enum FillMode {
         Off, Image, Gif, Shader
@@ -79,20 +102,28 @@ public class BetterChams extends AddonModule {
         ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
             CHAMS_TEXTURE.init();
             OUTLINE_TEXTURE.init();
+            FLARE_TEXTURE.init();
+            GLOW_TEXTURE.init();
             // Initialize Outline texture with a solid white pixel by default so standard bloom works
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
-            
+
             if (INSTANCE != null) {
                 INSTANCE.reloadTextureForCurrentMode();
             }
 
             mc.getTextureManager().register(TEX_ID, CHAMS_TEXTURE);
             mc.getTextureManager().register(OUTLINE_TEX_ID, OUTLINE_TEXTURE);
-            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 4, 1, false);
+            mc.getTextureManager().register(FLARE_TEX_ID, FLARE_TEXTURE);
+            mc.getTextureManager().register(GLOW_TEX_ID, GLOW_TEXTURE);
+            // 6 columns: [0]=fill/glow/thickness [1]=fillTint [2]=glowTint [3]=flip/step/intensity
+            // [4]=flare enabled/center.x/center.y/size [5]=glowTexture enabled
+            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 6, 1, false);
             img.setPixelABGR(0, 0, 0xFF0000FF); // glow on, fill off, opacity 0, thickness max
             img.setPixelABGR(1, 0, 0xFFFFFFFF); // fill color
             img.setPixelABGR(2, 0, 0xFFFFFFFF); // outline color
             img.setPixelABGR(3, 0, 0xFFFFFFFF); // flipY (255 = flip, 0 = no flip)
+            img.setPixelABGR(4, 0, 0xFF000000); // flare disabled, center 0,0, size 0
+            img.setPixelABGR(5, 0, 0xFF000000); // glow texture disabled
             paramsTexture = new DynamicTexture(() -> "chams-params", img);
             mc.getTextureManager().register(PARAMS_ID, paramsTexture);
         });
@@ -108,11 +139,30 @@ public class BetterChams extends AddonModule {
     private FillMode lastFillMode = FillMode.Off;
 
     public void reloadTextureForCurrentMode() {
+        // Independent of fillMode -- Flare and Glow Texture are their own toggles under Glow.
+        String savedFlare = com.example.addon.AddonConfig.get("betterchams_flare", "");
+        if (!savedFlare.isEmpty()) {
+            Path fp = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("boze/flares/" + savedFlare);
+            if (java.nio.file.Files.exists(fp)) FLARE_TEXTURE.loadImage(fp);
+        }
+        String savedGlowTex = com.example.addon.AddonConfig.get("betterchams_glowtex", "");
+        if (!savedGlowTex.isEmpty()) {
+            Path gp = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("boze/glowtextures/" + savedGlowTex);
+            if (java.nio.file.Files.exists(gp)) GLOW_TEXTURE.loadImage(gp);
+        }
+
         FillMode mode = (FillMode) fillMode.getValue();
         if (mode != FillMode.Shader) {
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
         }
-        
+
+        if (mode != FillMode.Gif) {
+            // Switching away from Gif (e.g. straight to Shader) doesn't call loadImage()
+            // again, so a still-running gif decode must be cancelled here explicitly,
+            // otherwise it finishes later and clobbers whatever mode we switched to.
+            CHAMS_TEXTURE.cancelPendingDecode();
+        }
+
         if (mode == FillMode.Image) {
             String savedName = com.example.addon.AddonConfig.get("betterchams_image", "");
             if (!savedName.isEmpty()) {
@@ -153,6 +203,16 @@ public class BetterChams extends AddonModule {
         lastFillMode = (FillMode) fillMode.getValue();
     }
 
+    public void loadFlareMask(Path path) {
+        com.example.addon.AddonConfig.set("betterchams_flare", path.getFileName().toString());
+        FLARE_TEXTURE.loadImage(path);
+    }
+
+    public void loadGlowTexture(Path path) {
+        com.example.addon.AddonConfig.set("betterchams_glowtex", path.getFileName().toString());
+        GLOW_TEXTURE.loadImage(path);
+    }
+
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
         FillMode currentMode = (FillMode) fillMode.getValue();
@@ -176,7 +236,17 @@ public class BetterChams extends AddonModule {
             Minecraft mc = Minecraft.getInstance();
             mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/shaders", "Select Shader", "(?i).*\\.frag$", this::loadImage)));
         }
-        
+        if (selectFlareMask.getValue()) {
+            selectFlareMask.setValue(false);
+            Minecraft mc = Minecraft.getInstance();
+            mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/flares", "Select Flare Mask", "(?i).*\\.(png|jpg|jpeg)$", this::loadFlareMask)));
+        }
+        if (selectGlowTexture.getValue()) {
+            selectGlowTexture.setValue(false);
+            Minecraft mc = Minecraft.getInstance();
+            mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/glowtextures", "Select Glow Texture", "(?i).*\\.(png|jpg|jpeg)$", this::loadGlowTexture)));
+        }
+
         if (currentMode == FillMode.Gif) {
             CHAMS_TEXTURE.tick(frameDelay.getValue());
         }
@@ -192,6 +262,89 @@ public class BetterChams extends AddonModule {
         }
         
         updateParamsTexture();
+    }
+
+    /**
+     * Screen-space UV (0..1, y-down) of the nearest currently-glowing target's position,
+     * or null if none is eligible / it's behind the camera. Eligibility mirrors the exact
+     * conditions MixinEndCrystalRenderer / MixinAvatarRenderer use to decide whether an
+     * entity gets the outline treatment at all (crystalToggle+range, playerToggle+range,
+     * selfToggle+third-person) -- a flare with no matching glow target would be pointless.
+     * V1 scope: one flare source per frame (nearest to camera), not one per glowing entity
+     * -- the shared entity_outline resolve pass has no per-entity screen position to work
+     * with without a much larger architecture change.
+     */
+    private Vec3 findFlareTargetPos(Minecraft mc) {
+        if (mc.player == null || mc.level == null) return null;
+        Vec3 camPos = mc.gameRenderer.getMainCamera().position();
+
+        Vec3 best = null;
+        double bestDistSq = Double.MAX_VALUE;
+
+        if (crystalToggle.getValue()) {
+            for (Entity e : mc.level.entitiesForRendering()) {
+                if (!(e instanceof EndCrystal crystal)) continue;
+                if (!isInRange(crystal)) continue;
+                double d = camPos.distanceToSqr(crystal.position());
+                if (d < bestDistSq) { bestDistSq = d; best = crystal.position(); }
+            }
+        }
+
+        if (playerToggle.getValue()) {
+            for (Entity e : mc.level.entitiesForRendering()) {
+                if (!(e instanceof AbstractClientPlayer p) || p == mc.player) continue;
+                if (!isInRange(p)) continue;
+                double d = camPos.distanceToSqr(p.position());
+                if (d < bestDistSq) { bestDistSq = d; best = p.getEyePosition(); }
+            }
+        }
+
+        if (selfToggle.getValue() && !mc.options.getCameraType().isFirstPerson()) {
+            double d = camPos.distanceToSqr(mc.player.position());
+            if (d < bestDistSq) { bestDistSq = d; best = mc.player.getEyePosition(); }
+        }
+
+        return best;
+    }
+
+    /**
+     * Standard direction-vector perspective projection: decompose (target - camera) into
+     * the camera's forward/left/up basis, scale by tan(halfFov) to land in NDC, remap to
+     * UV (y-down, matching texture space). Deliberately avoids reconstructing Mojang's
+     * internal Projection matrix (RenderSystem no longer exposes a plain CPU-side
+     * projection Matrix4f in 26.1.2 -- it's GPU-buffer only) -- this only needs public
+     * Camera accessors (position/forwardVector/leftVector/upVector/getFov) plus the
+     * window size, so it can't drift from an unverifiable internal matrix layout.
+     */
+    private static float[] worldToScreenUV(Minecraft mc, Vec3 worldPos) {
+        Camera camera = mc.gameRenderer.getMainCamera();
+        Vec3 camPos = camera.position();
+        Vec3 diff = worldPos.subtract(camPos);
+        double len = diff.length();
+        if (len < 1.0e-4) return null;
+        Vector3f dir = new Vector3f((float) (diff.x / len), (float) (diff.y / len), (float) (diff.z / len));
+
+        Vector3f forward = new Vector3f(camera.forwardVector());
+        Vector3f up = new Vector3f(camera.upVector());
+        Vector3f left = new Vector3f(camera.leftVector());
+
+        float f = dir.dot(forward);
+        if (f <= 0.001f) return null; // behind camera
+
+        float rightComp = -dir.dot(left); // "left" vector -> negate for a "right" component
+        float upComp = dir.dot(up);
+
+        float fovRad = (float) Math.toRadians(camera.getFov());
+        float tanHalfFovY = (float) Math.tan(fovRad / 2.0);
+        float aspect = (float) mc.getWindow().getWidth() / (float) mc.getWindow().getHeight();
+        float tanHalfFovX = tanHalfFovY * aspect;
+
+        float ndcX = (rightComp / f) / tanHalfFovX;
+        float ndcY = (upComp / f) / tanHalfFovY;
+
+        float u = ndcX * 0.5f + 0.5f;
+        float v = 1.0f - (ndcY * 0.5f + 0.5f);
+        return new float[]{u, v};
     }
 
     private void updateParamsTexture() {
@@ -219,12 +372,37 @@ public class BetterChams extends AddonModule {
         int intensityPacked = Math.round((float)(glowIntensity.getValue() * 255.0)) & 0xFF;
         int flipAbgr = (255 << 24) | (intensityPacked << 16) | (stepPacked << 8) | flipY;
 
+        // Flare: only meaningful while Glow is also on (see flareToggle description).
+        boolean flareOn = glowOn && flareToggle.getValue() && FLARE_TEXTURE.hasImage();
+        float flareU = 0f, flareV = 0f;
+        if (flareOn) {
+            Minecraft mc = Minecraft.getInstance();
+            Vec3 targetPos = findFlareTargetPos(mc);
+            float[] uv = targetPos != null ? worldToScreenUV(mc, targetPos) : null;
+            if (uv == null) {
+                flareOn = false;
+            } else {
+                flareU = uv[0];
+                flareV = uv[1];
+            }
+        }
+        int flareSizePacked = Math.round((float)(Math.min(2.0, flareSize.getValue()) / 2.0 * 255.0)) & 0xFF;
+        int flareAbgr = ((flareSizePacked & 0xFF) << 24)
+            | ((Math.round(flareV * 255f) & 0xFF) << 16)
+            | ((Math.round(flareU * 255f) & 0xFF) << 8)
+            | (flareOn ? 255 : 0);
+
+        boolean glowTexOn = glowOn && glowTextureToggle.getValue() && GLOW_TEXTURE.hasImage();
+        int glowTexAbgr = (255 << 24) | (glowTexOn ? 255 : 0);
+
         NativeImage pixels = paramsTexture.getPixels();
         if (pixels != null) {
             pixels.setPixelABGR(0, 0, abgr);
             pixels.setPixelABGR(1, 0, fillAbgr);
             pixels.setPixelABGR(2, 0, glowAbgr);
             pixels.setPixelABGR(3, 0, flipAbgr);
+            pixels.setPixelABGR(4, 0, flareAbgr);
+            pixels.setPixelABGR(5, 0, glowTexAbgr);
             paramsTexture.upload();
         }
     }
