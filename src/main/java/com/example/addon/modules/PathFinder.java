@@ -86,6 +86,10 @@ public class PathFinder extends AddonModule {
         return mc.level != null && mc.level.dimension() == Level.NETHER;
     }
 
+    private boolean seedKnown() {
+        return seed != null;
+    }
+
     private long createContext() {
         return NetherPathfinder.newContext(seed != null ? seed : 0L, null,
             NetherPathfinder.DIMENSION_NETHER, maxHeight.getValue().intValue(), true);
@@ -264,6 +268,7 @@ public class PathFinder extends AddonModule {
         final BlockPos start = clampY(mc.player.blockPosition(), ceiling);
         final BlockPos target = clampY(goal, ceiling);
         final long ctx = context;
+        final boolean seedKnownForThisCall = seedKnown();
 
         pathfindInProgress = true;
         new Thread(() -> {
@@ -275,13 +280,17 @@ public class PathFinder extends AddonModule {
                         ctx,
                         start.getX(), start.getY(), start.getZ(),
                         target.getX(), target.getY(), target.getZ(),
-                        // Unseen terrain (not yet fed via feedNearbyChunks) is ALWAYS
-                        // treated as solid, never as air. Treating it as passable let the
-                        // planner draw straight lines through real, not-yet-loaded walls.
-                        // A pessimistic assumption yields a best-effort path only through
-                        // known-clear space; the frontier extends (and the route improves)
-                        // as more real chunks get fed in, via the periodic re-path below.
-                        false, true, 500, false, 10.0
+                        // seedKnownForThisCall: false = GENERATE using the real seed baked
+                        // into this context by createContext() -- the native side
+                        // reproduces actual server terrain for any unfed chunk, enabling
+                        // long-range avoidance/backtrack/turns ahead of loaded chunks.
+                        // !seedKnownForThisCall: true = default cache-miss chunks to AIR.
+                        // Moot for correctness once the wall ring (feedNearbyChunks) is in
+                        // place -- the wall makes true cache-misses unreachable by the
+                        // search -- but must NOT be `false` here: with no real seed the
+                        // context was created with a fake seed 0L, and `false` would
+                        // generate WRONG terrain the bot would wrongly avoid/trust.
+                        false, true, 500, !seedKnownForThisCall, 10.0
                     );
                 }
                 if (segment != null) {
