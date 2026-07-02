@@ -24,16 +24,10 @@ public class BetterChams extends AddonModule {
 
     public static final ChamsImageTexture CHAMS_TEXTURE = new ChamsImageTexture();
     public static final ChamsImageTexture OUTLINE_TEXTURE = new ChamsImageTexture();
-    public static final ChamsImageTexture FLARE_TEXTURE = new ChamsImageTexture();
-    public static final ChamsImageTexture GLOW_TEXTURE = new ChamsImageTexture();
     public static final Identifier TEX_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsfill.png");
     public static final Identifier OUTLINE_TEX_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsoutline.png");
-    public static final Identifier FLARE_TEX_ID =
-        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsflare.png");
-    public static final Identifier GLOW_TEX_ID =
-        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsglowtex.png");
     public static final Identifier PARAMS_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsparam.png");
 
@@ -54,21 +48,9 @@ public class BetterChams extends AddonModule {
     public final SliderOption glowThickness = new SliderOption(this, "Glow Thickness",
         "Radius of the glow effect in pixels.", 12.0, 1.0, 64.0, 1.0);
     public final SliderOption sampleStep    = new SliderOption(this, "Sample Step",
-        "Inner-rim glow bleed radius in pixels (into the silhouette from its edge). Independent of Glow Thickness (outer radius).", 1.0, 1.0, 4.0, 0.1);
+        "Kawase tap-offset multiplier. Higher = cheaper/blockier, lower = smoother/costlier.", 1.0, 1.0, 4.0, 0.1);
     public final SliderOption glowIntensity = new SliderOption(this, "Glow Intensity",
         "Strength of the glow halo.", 0.97, 0.0, 1.0, 0.01);
-
-    public final ToggleOption flareToggle = new ToggleOption(this, "Flare",
-        "Warps the glow halo's spread using a mask image, hugging each glowing silhouette's edge (nonuniform, lens-flare-style rays instead of a uniform round halo). Only visible while Glow is on.", false);
-    public final SliderOption flareSize = new SliderOption(this, "Flare Size",
-        "How far into the glow's thickness the mask's rays reach before tapering off.", 0.6, 0.05, 2.0, 0.01);
-    public final ToggleOption selectFlareMask = new ToggleOption(this, "Select Flare Mask",
-        "Open flare mask picker from boze/flares/.", false);
-
-    public final ToggleOption glowTextureToggle = new ToggleOption(this, "Glow Texture",
-        "Screen-blend an image onto the glow halo itself (not just the fill). Only visible while Glow is on.", false);
-    public final ToggleOption selectGlowTexture = new ToggleOption(this, "Select Glow Texture",
-        "Open glow overlay texture picker from boze/glowtextures/.", false);
 
     public enum FillMode {
         Off, Image, Gif, Shader
@@ -97,28 +79,20 @@ public class BetterChams extends AddonModule {
         ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
             CHAMS_TEXTURE.init();
             OUTLINE_TEXTURE.init();
-            FLARE_TEXTURE.init();
-            GLOW_TEXTURE.init();
             // Initialize Outline texture with a solid white pixel by default so standard bloom works
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
-
+            
             if (INSTANCE != null) {
                 INSTANCE.reloadTextureForCurrentMode();
             }
 
             mc.getTextureManager().register(TEX_ID, CHAMS_TEXTURE);
             mc.getTextureManager().register(OUTLINE_TEX_ID, OUTLINE_TEXTURE);
-            mc.getTextureManager().register(FLARE_TEX_ID, FLARE_TEXTURE);
-            mc.getTextureManager().register(GLOW_TEX_ID, GLOW_TEXTURE);
-            // 6 columns: [0]=fill/glow/thickness [1]=fillTint [2]=glowTint [3]=flip/step/intensity
-            // [4]=flare enabled/center.x/center.y/size [5]=glowTexture enabled
-            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 6, 1, false);
+            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 4, 1, false);
             img.setPixelABGR(0, 0, 0xFF0000FF); // glow on, fill off, opacity 0, thickness max
             img.setPixelABGR(1, 0, 0xFFFFFFFF); // fill color
             img.setPixelABGR(2, 0, 0xFFFFFFFF); // outline color
             img.setPixelABGR(3, 0, 0xFFFFFFFF); // flipY (255 = flip, 0 = no flip)
-            img.setPixelABGR(4, 0, 0xFF000000); // flare disabled, center 0,0, size 0
-            img.setPixelABGR(5, 0, 0xFF000000); // glow texture disabled
             paramsTexture = new DynamicTexture(() -> "chams-params", img);
             mc.getTextureManager().register(PARAMS_ID, paramsTexture);
         });
@@ -134,30 +108,11 @@ public class BetterChams extends AddonModule {
     private FillMode lastFillMode = FillMode.Off;
 
     public void reloadTextureForCurrentMode() {
-        // Independent of fillMode -- Flare and Glow Texture are their own toggles under Glow.
-        String savedFlare = com.example.addon.AddonConfig.get("betterchams_flare", "");
-        if (!savedFlare.isEmpty()) {
-            Path fp = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("boze/flares/" + savedFlare);
-            if (java.nio.file.Files.exists(fp)) FLARE_TEXTURE.loadImage(fp);
-        }
-        String savedGlowTex = com.example.addon.AddonConfig.get("betterchams_glowtex", "");
-        if (!savedGlowTex.isEmpty()) {
-            Path gp = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("boze/glowtextures/" + savedGlowTex);
-            if (java.nio.file.Files.exists(gp)) GLOW_TEXTURE.loadImage(gp);
-        }
-
         FillMode mode = (FillMode) fillMode.getValue();
         if (mode != FillMode.Shader) {
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
         }
-
-        if (mode != FillMode.Gif) {
-            // Switching away from Gif (e.g. straight to Shader) doesn't call loadImage()
-            // again, so a still-running gif decode must be cancelled here explicitly,
-            // otherwise it finishes later and clobbers whatever mode we switched to.
-            CHAMS_TEXTURE.cancelPendingDecode();
-        }
-
+        
         if (mode == FillMode.Image) {
             String savedName = com.example.addon.AddonConfig.get("betterchams_image", "");
             if (!savedName.isEmpty()) {
@@ -198,16 +153,6 @@ public class BetterChams extends AddonModule {
         lastFillMode = (FillMode) fillMode.getValue();
     }
 
-    public void loadFlareMask(Path path) {
-        com.example.addon.AddonConfig.set("betterchams_flare", path.getFileName().toString());
-        FLARE_TEXTURE.loadImage(path);
-    }
-
-    public void loadGlowTexture(Path path) {
-        com.example.addon.AddonConfig.set("betterchams_glowtex", path.getFileName().toString());
-        GLOW_TEXTURE.loadImage(path);
-    }
-
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
         FillMode currentMode = (FillMode) fillMode.getValue();
@@ -231,17 +176,7 @@ public class BetterChams extends AddonModule {
             Minecraft mc = Minecraft.getInstance();
             mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/shaders", "Select Shader", "(?i).*\\.frag$", this::loadImage)));
         }
-        if (selectFlareMask.getValue()) {
-            selectFlareMask.setValue(false);
-            Minecraft mc = Minecraft.getInstance();
-            mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/flares", "Select Flare Mask", "(?i).*\\.(png|jpg|jpeg)$", this::loadFlareMask)));
-        }
-        if (selectGlowTexture.getValue()) {
-            selectGlowTexture.setValue(false);
-            Minecraft mc = Minecraft.getInstance();
-            mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/glowtextures", "Select Glow Texture", "(?i).*\\.(png|jpg|jpeg)$", this::loadGlowTexture)));
-        }
-
+        
         if (currentMode == FillMode.Gif) {
             CHAMS_TEXTURE.tick(frameDelay.getValue());
         }
@@ -284,26 +219,12 @@ public class BetterChams extends AddonModule {
         int intensityPacked = Math.round((float)(glowIntensity.getValue() * 255.0)) & 0xFF;
         int flipAbgr = (255 << 24) | (intensityPacked << 16) | (stepPacked << 8) | flipY;
 
-        // Flare: only meaningful while Glow is also on (see flareToggle description).
-        // No target/center needed anymore -- glow_resolve.fsh derives an outward
-        // direction per-pixel from the blurred glow's own screen-space gradient
-        // (dFdx/dFdy), so the mask hugs each glowing silhouette's actual edge instead of
-        // radiating from one single projected world point.
-        boolean flareOn = glowOn && flareToggle.getValue() && FLARE_TEXTURE.hasImage();
-        int flareSizePacked = Math.round((float)(Math.min(2.0, flareSize.getValue()) / 2.0 * 255.0)) & 0xFF;
-        int flareAbgr = ((flareSizePacked & 0xFF) << 24) | (flareOn ? 255 : 0);
-
-        boolean glowTexOn = glowOn && glowTextureToggle.getValue() && GLOW_TEXTURE.hasImage();
-        int glowTexAbgr = (255 << 24) | (glowTexOn ? 255 : 0);
-
         NativeImage pixels = paramsTexture.getPixels();
         if (pixels != null) {
             pixels.setPixelABGR(0, 0, abgr);
             pixels.setPixelABGR(1, 0, fillAbgr);
             pixels.setPixelABGR(2, 0, glowAbgr);
             pixels.setPixelABGR(3, 0, flipAbgr);
-            pixels.setPixelABGR(4, 0, flareAbgr);
-            pixels.setPixelABGR(5, 0, glowTexAbgr);
             paramsTexture.upload();
         }
     }

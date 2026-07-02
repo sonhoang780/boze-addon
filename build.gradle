@@ -58,6 +58,7 @@ dependencies {
 
     // Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    include "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
     // Boze Dependencies
     compileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"
