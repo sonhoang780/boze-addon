@@ -9,141 +9,63 @@ import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
-import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.protocol.game.ServerboundAttackPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
 
 /**
- * MaceAura — Cách 4 (two-tick fold → strike). Verified against decompiled MC 26.1.2.
+ * MaceAura v2 — pure flight hover + single-tick strike. Spec:
+ * docs/superpowers/specs/2026-07-02-maceaura-v2-design.md
  *
- * THE PROBLEM (canSmashAttack, MaceItem:148):
- *     return attacker.fallDistance > 1.5 && !attacker.isFallFlying();
- * Both must hold on the SERVER at the instant the attack packet is processed.
+ * canSmashAttack (server, 26.1.2): fallDistance > 1.5 && !isFallFlying().
+ * v2 NEVER glides server-side (no START_FALL_FLYING, no onGround spoof), so
+ * !isFallFlying() is permanently true and 6b6t's gliding-mace confiscation
+ * can't fire. fallDistance comes from the strike packet itself: handleMovePlayer
+ * credits (dy < 0) drops synchronously, before the attack packet in the same
+ * batch is processed. One PosRot does three jobs: reach, fallDistance, damage.
  *
- * WHY ONE-TICK SPOOFS FAIL (confirmed by video: mace confiscated, no damage):
- *   • fallDistance is updated SYNCHRONOUSLY during packet handling
- *     (ServerGamePacketListenerImpl.handleMovePlayer → doCheckFallDamage →
- *      checkFallDamage: `if (ya < 0) fallDistance -= ya`, Entity:1487).
- *   • isFallFlying (shared flag 7) is updated ONLY in aiStep → updateFallFlying
- *     (LivingEntity:3034), which runs AFTER the whole packet batch each server tick.
- *   • So if StatusOnly(onGround=true) and the attack are in the SAME tick/batch,
- *     updateFallFlying hasn't run yet → isFallFlying is still true at attack time →
- *     canSmashAttack=false AND 6b6t confiscates the mace.
- *
- * THE FIX — split across two server ticks:
- *   FOLD tick:  send StatusOnly(onGround=true) as the LAST packet of the tick
- *               (EventTick.Post fires after the vanilla move packet, so onGround=true
- *               is the value the server keeps for this tick).
- *               → end-of-tick aiStep: updateFallFlying sees onGround=true →
- *                 canGlide()=false (LivingEntity:3122 needs !onGround) →
- *                 setSharedFlag(7,false). isFallFlying is now FALSE server-side and
- *                 will NOT auto-restart (updateFallFlying never sets it true; only the
- *                 START_FALL_FLYING command does).
- *   wait foldDelay ticks  (guards against packet bunching under latency, so the
- *               server definitely runs aiStep between FOLD and STRIKE).
- *   STRIKE tick: send PosRot dropping Y by (threshold+0.2), onGround=false →
- *               doCheckFallDamage adds (threshold+0.2) to fallDistance synchronously,
- *               isFallFlying still false → attack → canSmashAttack TRUE → SMASH.
- *               Then START_FALL_FLYING to resync the server's glide state to the client
- *               (which never stopped gliding) so altitude is kept and no fall damage.
- *
- * The CLIENT never moves — only fake packets are sent — so ElytraFly holds altitude.
- * Y is exempt from the server "moved wrongly" check (SGPLI:1139, yDist always zeroed),
- * so the Y-spoof never rubber-bands. XZSpoof additionally fakes X/Z to the target so the
- * reach gate (isWithinEntityInteractionRange, SGPLI:1824) trivially passes.
+ * Attack is a hand-crafted ServerboundAttackPacket — mc.gameMode.attack would
+ * call ensureHasSentCarriedItem and re-sync the real hotbar slot, defeating
+ * SwapType.Silent (hit would land with the wrong item).
  */
 public class MaceAura extends AddonModule {
     public static final MaceAura INSTANCE = new MaceAura();
 
-    public final SliderOption range          = new SliderOption(this, "Range",          "Horizontal attack range (blocks).", 4.0, 1.0, 8.0, 0.5);
-    public final SliderOption approachRange  = new SliderOption(this, "ApproachRange",  "Horizontal acquisition radius.", 24.0, 6.0, 50.0, 1.0);
-    public final SliderOption vertRange      = new SliderOption(this, "VerticalRange",  "Max Y-delta above a target.", 20.0, 5.0, 30.0, 1.0);
-    public final SliderOption minHeight      = new SliderOption(this, "MinHeight",      "Min Y above target before folding.", 2.5, 1.0, 15.0, 0.5);
-    public final SliderOption smashThreshold = new SliderOption(this, "SmashThreshold", "Spoofed fall distance (server min = 1.5). Higher = more damage but reach drops.", 1.7, 1.6, 6.0, 0.1);
-    public final SliderOption foldDelay      = new SliderOption(this, "FoldDelay",      "Ticks to wait after the fold packet before striking (≥2 so server clears fall-flying). Raise if high ping.", 2.0, 1.0, 8.0, 1.0);
-    public final SliderOption attackDelay    = new SliderOption(this, "Delay",          "ms between attack cycles.", 250.0, 50.0, 2000.0, 50.0);
-    public final ToggleOption autoTarget     = new ToggleOption(this, "AutoTarget",     "Auto-pick nearest player in range (no LoS).", true);
-    public final ToggleOption silentSwap     = new ToggleOption(this, "SilentSwap",     "Swap to mace silently for the hit, swap back.", true);
-    public final ToggleOption attributeSwap  = new ToggleOption(this, "AttributeSwap",  "Pre-attack with sword for extended reach before mace smash.", false);
-    public final ToggleOption xzSpoof        = new ToggleOption(this, "XZSpoof",        "Fake X/Z to the target on the strike packet so the reach gate always passes.", true);
+    public final SliderOption range         = new SliderOption(this, "Range",         "Horizontal attack range (blocks).", 4.0, 1.0, 8.0, 0.5);
+    public final SliderOption approachRange = new SliderOption(this, "ApproachRange", "Horizontal acquisition radius.", 24.0, 6.0, 50.0, 1.0);
+    public final SliderOption vertRange     = new SliderOption(this, "VerticalRange", "Max Y-delta above a target.", 20.0, 5.0, 30.0, 1.0);
+    public final SliderOption minHeight     = new SliderOption(this, "MinHeight",     "Min Y above target to strike. 6b6t deals full smash pain above ~6.", 6.5, 1.0, 15.0, 0.5);
+    public final SliderOption hoverHeight   = new SliderOption(this, "HoverHeight",   "Auto-hover altitude above the target (blocks).", 7.0, 6.5, 10.0, 0.5);
+    public final SliderOption strikeGap     = new SliderOption(this, "StrikeGap",     "Server-side Y above the target on the strike packet. Lower = closer/safer reach, higher = less fallDistance.", 2.0, 1.5, 3.5, 0.1);
+    public final SliderOption attackDelay   = new SliderOption(this, "Delay",         "ms between attack cycles.", 250.0, 50.0, 2000.0, 50.0);
+    public final ToggleOption autoTarget    = new ToggleOption(this, "AutoTarget",    "Auto-pick nearest player in range (no LoS).", true);
+    public final ToggleOption silentSwap    = new ToggleOption(this, "SilentSwap",    "Swap to mace silently (packet-only) for the hit.", true);
+    public final ToggleOption attributeSwap = new ToggleOption(this, "AttributeSwap", "Pre-attack with sword for base damage before the mace smash.", false);
 
-    public final ToggleOption elytraFly = new ToggleOption(this, "ElytraFly", "Velocity-based elytra flight. Needs elytra deployed.", true);
     public final SliderOption flySpeed  = new SliderOption(this, "FlySpeed",  "Horizontal cruise speed (blocks/tick).", 1.0, 0.2, 2.5, 0.1);
-    public final SliderOption vertSpeed = new SliderOption(this, "VertSpeed", "Up/Down speed with Space/Shift (blocks/tick).", 0.8, 0.2, 2.0, 0.1);
+    public final SliderOption vertSpeed = new SliderOption(this, "VertSpeed", "Vertical speed (blocks/tick), also caps auto-hover correction.", 0.8, 0.2, 2.0, 0.1);
 
     private long lastAttackMs = 0;
 
-    private enum DipState { IDLE, APPROACH, FOLD, STRIKE }
-    private DipState dipState  = DipState.IDLE;
-    private int      stateTicks;
-    private AbstractClientPlayer dipTarget;
-
     public MaceAura() {
-        super("MaceAura", "Mace smash via two-tick fold→strike spoof. Server-side fallDistance+!isFallFlying, altitude kept.");
+        super("MaceAura", "Flight hover + single-tick strike. Never glides server-side, so the mace never gets confiscated.");
     }
 
-    @Override public void onEnable()  { lastAttackMs = System.currentTimeMillis(); resetIdle(); }
-    @Override public void onDisable() { resetIdle(); }
-
-    private void resetIdle() {
-        dipState   = DipState.IDLE;
-        dipTarget  = null;
-        stateTicks = 0;
-    }
+    @Override public void onEnable()  { lastAttackMs = System.currentTimeMillis(); }
+    @Override public void onDisable() {}
 
     @EventHandler
     private void onTick(EventTick.Post event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.gameMode == null) return;
-        if (mc.getConnection() == null) return;
+        if (mc.player == null || mc.level == null || mc.getConnection() == null) return;
 
-        // Abort the cycle if the client wings close unexpectedly (we rely on the client
-        // still gliding to hold altitude through FOLD/STRIKE).
-        if (!mc.player.isFallFlying() && (dipState == DipState.APPROACH || dipState == DipState.FOLD)) {
-            resetIdle();
-            return;
-        }
-
-        // ── APPROACH ──────────────────────────────────────────────────────────
-        if (dipState == DipState.APPROACH) {
-            steer(mc);
-            stateTicks++;
-            if (dipTarget == null || dipTarget.isRemoved()) { resetIdle(); return; }
-            double dy = mc.player.getY() - dipTarget.getY();
-            if (dy < minHeight.getValue() || dy > vertRange.getValue() || stateTicks > 200) { resetIdle(); return; }
-            if (hDist(mc.player, dipTarget) <= range.getValue()) beginFold(mc);
-            return;
-        }
-
-        // ── FOLD ─ wait foldDelay ticks for the server to clear fall-flying ──────
-        if (dipState == DipState.FOLD) {
-            steer(mc);                       // keep gliding so altitude holds
-            stateTicks++;
-            if (dipTarget == null || dipTarget.isRemoved()) { resetIdle(); return; }
-            if (stateTicks >= (int)(double) foldDelay.getValue()) {
-                dipState   = DipState.STRIKE;
-                stateTicks = 0;
-            }
-            return;
-        }
-
-        // ── STRIKE ─ one tick: fake the fall, attack, resync ─────────────────────
-        if (dipState == DipState.STRIKE) {
-            if (dipTarget != null && !dipTarget.isRemoved()) {
-                doStrike(mc, dipTarget);
-                lastAttackMs = System.currentTimeMillis();
-            }
-            resetIdle();
-            return;
-        }
-
-        // ── IDLE ─────────────────────────────────────────────────────────────
-        steer(mc);
+        AbstractClientPlayer target = findTarget(mc);
+        steer(mc, target);
 
         if (silentSwap.getValue()) {
             if (InvHelper.findInHotbar(Items.MACE) == -1) return;
@@ -153,103 +75,72 @@ public class MaceAura extends AddonModule {
 
         long now = System.currentTimeMillis();
         if (now - lastAttackMs < attackDelay.getValue().longValue()) return;
-
-        AbstractClientPlayer target = findTarget(mc);
         if (target == null) return;
 
         double dy = mc.player.getY() - target.getY();
         double hd = hDist(mc.player, target);
 
-        // Passive: grounded + natural fall already enough → straight hit.
-        if (!mc.player.isFallFlying() && hd <= range.getValue() && dy >= 0
-                && mc.player.fallDistance >= smashThreshold.getValue()) {
+        // Passive path: naturally falling with real fallDistance already qualifying —
+        // plain hit, no spoof needed.
+        if (!mc.player.onGround() && mc.player.fallDistance > 1.5
+                && hd <= range.getValue() && dy >= 0 && dy < minHeight.getValue()) {
             doAttack(mc, target);
             lastAttackMs = now;
             return;
         }
 
-        if (!elytraFly.getValue() || !mc.player.isFallFlying()) return;
-        if (dy < minHeight.getValue()) return;
+        if (dy < minHeight.getValue() || dy > vertRange.getValue()) return;
+        if (hd > range.getValue()) return; // steer() is still closing distance
 
-        dipTarget  = target;
-        stateTicks = 0;
-        if (hd <= range.getValue()) {
-            beginFold(mc);
-        } else {
-            dipState = DipState.APPROACH;
-        }
+        strike(mc, target);
+        lastAttackMs = now;
     }
 
-    // ── Spoof sequence ────────────────────────────────────────────────────────
+    // ── Strike: one tick, one spoofed PosRot, one attack packet ────────────────
 
     /**
-     * FOLD: send ONE StatusOnly(onGround=true) — the last movement packet of this
-     * client tick (EventTick.Post runs after player.tick() flushed the vanilla packet),
-     * so the server keeps onGround=true for the tick and clears fall-flying in aiStep.
+     * Server position drops to (target.x, target.y + strikeGap, target.z):
+     *  - reach gate passes (server pos is within interaction range of the target),
+     *  - fallDistance is credited (dy - strikeGap) synchronously by handleMovePlayer,
+     *  - smash damage scales with that credited fall.
+     * Y is exempt from the "moved wrongly" check; the next vanilla movement packet
+     * (real position) walks the server back up. Nothing else is sent — no
+     * START_FALL_FLYING, no StatusOnly.
      */
-    private void beginFold(Minecraft mc) {
-        mc.getConnection().send(new ServerboundMovePlayerPacket.StatusOnly(true, mc.player.horizontalCollision));
-        dipState   = DipState.FOLD;
-        stateTicks = 0;
-    }
-
-    /**
-     * STRIKE: drop the server-perceived position by (threshold+0.2) so doCheckFallDamage
-     * accumulates that as fallDistance this tick, then attack while isFallFlying is still
-     * false (cleared back in FOLD's aiStep). Finally re-enable gliding to resync.
-     */
-    private void doStrike(Minecraft mc, AbstractClientPlayer target) {
-        double realX = mc.player.getX();
-        double realY = mc.player.getY();
-        double realZ = mc.player.getZ();
-        float  yaw   = mc.player.getYRot();
-        float  pitch = mc.player.getXRot();
-
-        double drop  = smashThreshold.getValue() + 0.2;
-        double fakeY = realY - drop;
-        // XZSpoof: stand the server-perceived position right on the target → reach passes.
-        double fakeX = xzSpoof.getValue() ? target.getX() : realX;
-        double fakeZ = xzSpoof.getValue() ? target.getZ() : realZ;
-
-        // The downward (and optional horizontal) teleport. onGround=false so fallDistance
-        // accrues; Y is exempt from the "moved wrongly" check so this never rubber-bands.
-        mc.getConnection().send(new ServerboundMovePlayerPacket.PosRot(fakeX, fakeY, fakeZ, yaw, pitch, false, false));
-
-        // Attack — server now sees fallDistance>1.5 && !isFallFlying → SMASH.
+    private void strike(Minecraft mc, AbstractClientPlayer target) {
+        mc.getConnection().send(new ServerboundMovePlayerPacket.PosRot(
+            target.getX(), target.getY() + strikeGap.getValue(), target.getZ(),
+            mc.player.getYRot(), mc.player.getXRot(), false, false));
         doAttack(mc, target);
-
-        // Resync: client never stopped gliding, so tell the server to resume fall-flying.
-        // The next vanilla packet (real, higher Y) is then accepted as elytra climb and
-        // resets the server fallDistance — altitude is preserved, no fall damage.
-        mc.getConnection().send(new ServerboundPlayerCommandPacket(
-                mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
     }
 
-    // ── Attack ──────────────────────────────────────────────────────────────
-
+    /**
+     * Silent-swap + hand-crafted attack packet. NEVER route through
+     * mc.gameMode.attack here — ensureHasSentCarriedItem would re-sync the real
+     * hotbar slot and the hit would land with the wrong item.
+     */
     private void doAttack(Minecraft mc, AbstractClientPlayer target) {
         if (attributeSwap.getValue()) {
             int swordSlot = findSwordInHotbar(mc);
             if (swordSlot != -1) {
-                boolean needSwap = swordSlot != mc.player.getInventory().getSelectedSlot();
-                if (needSwap) InvHelper.swapToSlot(swordSlot, SwapType.Normal);
-                mc.gameMode.attack(mc.player, target);
+                boolean swapped = InvHelper.swapToSlot(swordSlot, SwapType.Silent);
+                mc.getConnection().send(new ServerboundAttackPacket(target.getId()));
                 mc.player.swing(InteractionHand.MAIN_HAND);
-                if (needSwap) InvHelper.swapBack();
+                if (swapped) InvHelper.swapBack();
             }
         }
 
-        boolean silent   = silentSwap.getValue();
-        int     maceSlot = silent ? InvHelper.findInHotbar(Items.MACE) : -1;
-        if (silent && maceSlot == -1) return;
-
-        boolean alreadySelected = maceSlot != -1 && maceSlot == mc.player.getInventory().getSelectedSlot();
-        boolean swapped = silent && !alreadySelected && InvHelper.swapToSlot(maceSlot, SwapType.Normal);
-
-        mc.gameMode.attack(mc.player, target);
-        mc.player.swing(InteractionHand.MAIN_HAND);
-
-        if (swapped) InvHelper.swapBack();
+        if (silentSwap.getValue()) {
+            int maceSlot = InvHelper.findInHotbar(Items.MACE);
+            if (maceSlot == -1) return;
+            boolean swapped = InvHelper.swapToSlot(maceSlot, SwapType.Silent);
+            mc.getConnection().send(new ServerboundAttackPacket(target.getId()));
+            mc.player.swing(InteractionHand.MAIN_HAND);
+            if (swapped) InvHelper.swapBack();
+        } else {
+            mc.getConnection().send(new ServerboundAttackPacket(target.getId()));
+            mc.player.swing(InteractionHand.MAIN_HAND);
+        }
     }
 
     private int findSwordInHotbar(Minecraft mc) {
@@ -263,20 +154,25 @@ public class MaceAura extends AddonModule {
         return -1;
     }
 
-    // ── ElytraFly steering ──────────────────────────────────────────────────
+    // ── Flight hover (no isFallFlying gate — this is NOT elytra flight) ────────
 
-    private void steer(Minecraft mc) {
-        if (!elytraFly.getValue() || !mc.player.isFallFlying()) return;
+    private void steer(Minecraft mc, AbstractClientPlayer target) {
+        // Only fly while airborne; on the ground vanilla movement stays untouched.
+        if (mc.player.onGround()) return;
 
-        boolean autoHoriz = dipTarget != null && (dipState == DipState.APPROACH || dipState == DipState.FOLD);
-        double vx = 0, vz = 0;
+        double vx = 0, vz = 0, vy;
         double speed = flySpeed.getValue();
 
-        if (autoHoriz) {
-            double dx = dipTarget.getX() - mc.player.getX();
-            double dz = dipTarget.getZ() - mc.player.getZ();
+        boolean auto = target != null;
+        if (auto) {
+            double dx = target.getX() - mc.player.getX();
+            double dz = target.getZ() - mc.player.getZ();
             double len = Math.sqrt(dx * dx + dz * dz);
-            if (len > 0.01) { vx = dx / len * speed; vz = dz / len * speed; }
+            // Close horizontal distance until well inside attack range, then hold.
+            if (len > range.getValue() * 0.6) { vx = dx / len * speed; vz = dz / len * speed; }
+            // Hold player.y = target.y + hoverHeight (correction capped at vertSpeed).
+            double err = (target.getY() + hoverHeight.getValue()) - mc.player.getY();
+            vy = Math.max(-vertSpeed.getValue(), Math.min(vertSpeed.getValue(), err));
         } else {
             double yaw = Math.toRadians(mc.player.getYRot());
             double sin = Math.sin(yaw), cos = Math.cos(yaw);
@@ -287,14 +183,11 @@ public class MaceAura extends AddonModule {
             if (mc.options.keyRight.isDown()) { dx -= cos; dz -= sin; }
             double len = Math.sqrt(dx * dx + dz * dz);
             if (len > 0.01) { vx = dx / len * speed; vz = dz / len * speed; }
-        }
 
-        // Hold altitude during the auto cycle so the spoof keeps a stable reference Y.
-        double vy;
-        if (dipState == DipState.APPROACH || dipState == DipState.FOLD) vy = 0.0;
-        else if (mc.options.keyJump.isDown())  vy =  vertSpeed.getValue();
-        else if (mc.options.keyShift.isDown()) vy = -vertSpeed.getValue();
-        else                                    vy = 0.0;
+            if (mc.options.keyJump.isDown())       vy =  vertSpeed.getValue();
+            else if (mc.options.keyShift.isDown()) vy = -vertSpeed.getValue();
+            else                                    vy = 0.0;
+        }
 
         mc.player.setDeltaMovement(vx, vy, vz);
     }
@@ -317,6 +210,7 @@ public class MaceAura extends AddonModule {
         double               bestDist = Double.MAX_VALUE;
         for (AbstractClientPlayer p : mc.level.players()) {
             if (p == mc.player) continue;
+            if (p.isRemoved()) continue;
             double dy = mc.player.getY() - p.getY();
             if (dy < 0 || dy > vr) continue;
             double hd = hDist(mc.player, p);
