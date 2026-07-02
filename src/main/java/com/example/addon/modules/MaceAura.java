@@ -1,6 +1,7 @@
 package com.example.addon.modules;
 
 import dev.boze.api.addon.AddonModule;
+import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
@@ -10,6 +11,7 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.network.protocol.game.ServerboundAttackPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.InteractionHand;
@@ -51,18 +53,26 @@ public class MaceAura extends AddonModule {
     public final SliderOption vertSpeed = new SliderOption(this, "VertSpeed", "Vertical speed (blocks/tick), also caps auto-hover correction.", 0.8, 0.2, 2.0, 0.1);
 
     private long lastAttackMs = 0;
+    // Server position correction = we got flagged; cool off before re-engaging.
+    private int backoffTicks = 0;
 
     public MaceAura() {
         super("MaceAura", "Flight hover + single-tick strike. Never glides server-side, so the mace never gets confiscated.");
     }
 
-    @Override public void onEnable()  { lastAttackMs = System.currentTimeMillis(); }
+    @Override public void onEnable()  { lastAttackMs = System.currentTimeMillis(); backoffTicks = 0; }
     @Override public void onDisable() {}
 
     @EventHandler
     private void onTick(EventTick.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.getConnection() == null) return;
+
+        if (backoffTicks > 0) {
+            backoffTicks--;
+            steer(mc, null); // keep manual flight control, no auto-engage
+            return;
+        }
 
         AbstractClientPlayer target = findTarget(mc);
         steer(mc, target);
@@ -94,6 +104,13 @@ public class MaceAura extends AddonModule {
 
         strike(mc, target);
         lastAttackMs = now;
+    }
+
+    @EventHandler
+    private void onPacketReceive(EventPacket.Receive event) {
+        if (event.packet instanceof ClientboundPlayerPositionPacket) {
+            backoffTicks = 10;
+        }
     }
 
     // ── Strike: one tick, one spoofed PosRot, one attack packet ────────────────
