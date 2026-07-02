@@ -38,6 +38,10 @@ public class ChestScan extends AddonModule {
     private final ChestScanStore store = new ChestScanStore();
     private String lastWorldKey = null;
 
+    public ChestScanStore getStore() {
+        return store;
+    }
+
     private static final ClientColor EMPTY_COLOR = ColorMaker.staticColor(0, 200, 0);
     private static final ClientColor PARTIAL_COLOR = ColorMaker.staticColor(230, 200, 0);
     private static final ClientColor FULL_COLOR = ColorMaker.staticColor(220, 0, 0);
@@ -146,6 +150,11 @@ public class ChestScan extends AddonModule {
 
         for (BlockPos pos : new ArrayList<>(store.positions())) {
             if (center.distSqr(pos) > radiusSq) continue;
+            // Chunk not loaded yet (e.g. just reconnected) -> getBlockState falls back to
+            // air, which looks identical to "chest was actually broken". Only trust that
+            // read (and prune the persisted record) once the chunk has genuinely loaded;
+            // otherwise just skip rendering this tick without touching the store.
+            if (!mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) continue;
             if (!(mc.level.getBlockState(pos).getBlock() instanceof ChestBlock)) {
                 store.remove(pos);
                 continue;

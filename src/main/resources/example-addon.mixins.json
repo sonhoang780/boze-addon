@@ -28,6 +28,7 @@
     "LevelRendererAccessor",
     "MixinLevelRenderer",
     "MixinShaderManager",
-    "MixinOutlineBufferSource"
+    "MixinOutlineBufferSource",
+    "MixinLevel"
   ]
 }
