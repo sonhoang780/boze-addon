@@ -8,6 +8,7 @@ layout(std140) uniform SamplerInfo {
 uniform sampler2D InSampler;
 uniform sampler2D ImageSampler;
 uniform sampler2D ParamsSampler;
+uniform sampler2D FlareParamsSampler;
 
 in vec2 texCoord;
 out vec4 fragColor;
@@ -42,9 +43,9 @@ void main() {
     vec4 params = texelFetch(ParamsSampler, ivec2(0, 0), 0);
     vec4 fillTint = texelFetch(ParamsSampler, ivec2(1, 0), 0);
     vec4 flipData = texelFetch(ParamsSampler, ivec2(3, 0), 0);
-    vec4 flareData = texelFetch(ParamsSampler, ivec2(4, 0), 0);
-    vec4 flareTintData = texelFetch(ParamsSampler, ivec2(5, 0), 0);
-    vec4 flareTimeData = texelFetch(ParamsSampler, ivec2(6, 0), 0);
+    vec4 flareData = texelFetch(FlareParamsSampler, ivec2(0, 0), 0);
+    vec4 flareTintData = texelFetch(FlareParamsSampler, ivec2(1, 0), 0);
+    vec4 flareTimeData = texelFetch(FlareParamsSampler, ivec2(2, 0), 0);
 
     float fillEnabled = params.r;
     float fillOpacity = params.g;

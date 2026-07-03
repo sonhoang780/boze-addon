@@ -1,56 +1,16 @@
 {
     "targets": {
-        "swap": { "bilinear": true },
-        "swap2": { "bilinear": true }
+        "swap": { "bilinear": true }
     },
     "passes": [
         {
-            "fragment_shader": "example-addon:post/glow_pass",
-            "inputs": [
-                { "target": "minecraft:entity_outline", "sampler_name": "In" },
-                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 }
-            ],
-            "vertex_shader": "minecraft:core/screenquad",
-            "uniforms": { "GlowPassConfig": [ { "name": "PassScale", "type": "float", "value": 1.0 } ] },
-            "output": "swap"
-        },
-        {
-            "fragment_shader": "example-addon:post/glow_pass",
-            "inputs": [
-                { "target": "swap", "sampler_name": "In" },
-                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 }
-            ],
-            "vertex_shader": "minecraft:core/screenquad",
-            "uniforms": { "GlowPassConfig": [ { "name": "PassScale", "type": "float", "value": 2.0 } ] },
-            "output": "swap2"
-        },
-        {
-            "fragment_shader": "example-addon:post/glow_pass",
-            "inputs": [
-                { "target": "swap2", "sampler_name": "In" },
-                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 }
-            ],
-            "vertex_shader": "minecraft:core/screenquad",
-            "uniforms": { "GlowPassConfig": [ { "name": "PassScale", "type": "float", "value": 4.0 } ] },
-            "output": "swap"
-        },
-        {
-            "fragment_shader": "example-addon:post/glow_pass",
-            "inputs": [
-                { "target": "swap", "sampler_name": "In" },
-                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 }
-            ],
-            "vertex_shader": "minecraft:core/screenquad",
-            "uniforms": { "GlowPassConfig": [ { "name": "PassScale", "type": "float", "value": 8.0 } ] },
-            "output": "swap2"
-        },
-        {
             "fragment_shader": "example-addon:post/glow_resolve",
             "inputs": [
-                { "target": "swap2", "sampler_name": "In" },
+                { "width": 1, "sampler_name": "In", "location": "example-addon:chamsglow", "height": 1 },
                 { "target": "minecraft:entity_outline", "sampler_name": "Original" },
                 { "width": 1, "sampler_name": "Image", "location": "example-addon:betterchamsfill", "height": 1 },
-                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 }
+                { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 },
+                { "width": 3, "sampler_name": "FlareParams", "location": "example-addon:betterchamsflareparam", "height": 1 }
             ],
             "vertex_shader": "minecraft:core/screenquad",
             "output": "swap"

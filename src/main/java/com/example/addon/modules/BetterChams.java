@@ -31,6 +31,16 @@ public class BetterChams extends AddonModule {
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsoutline.png");
     public static final Identifier PARAMS_ID =
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsparam.png");
+    // Separate from PARAMS_ID/paramsTexture -- that one is declared with a hardcoded
+    // "width": 4 in FIVE different JSON post-effect files (entity_outline.json,
+    // hand_outline.json x5 passes, fill_only_outline.json, fill_only_hand_outline.json).
+    // Widening it in Java without updating every one of those broke Glow/outline
+    // entirely (verified in-game: only a bare unprocessed outline showed, no halo, no
+    // flare -- crash-2026-07-03-flare-black-outline). A dedicated texture avoids
+    // touching any of those existing declarations.
+    public static final Identifier FLARE_PARAMS_ID =
+        Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsflareparam.png");
+    private static DynamicTexture flareParamsTexture;
 
     private static DynamicTexture paramsTexture;
     private float flareLaggedYaw = 0f, flareLaggedPitch = 0f;
@@ -99,16 +109,20 @@ public class BetterChams extends AddonModule {
 
             mc.getTextureManager().register(TEX_ID, CHAMS_TEXTURE);
             mc.getTextureManager().register(OUTLINE_TEX_ID, OUTLINE_TEXTURE);
-            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 7, 1, false);
+            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 4, 1, false);
             img.setPixelABGR(0, 0, 0xFF0000FF); // glow on, fill off, opacity 0, thickness max
             img.setPixelABGR(1, 0, 0xFFFFFFFF); // fill color
             img.setPixelABGR(2, 0, 0xFFFFFFFF); // outline color
             img.setPixelABGR(3, 0, 0xFFFFFFFF); // flipY (255 = flip, 0 = no flip)
-            img.setPixelABGR(4, 0, 0xFF000000); // flare enabled/yaw/pitch/size, filled in by updateParamsTexture()
-            img.setPixelABGR(5, 0, 0xFFFFFFFF); // flare tint
-            img.setPixelABGR(6, 0, 0xFF0000FF); // flare time
             paramsTexture = new DynamicTexture(() -> "chams-params", img);
             mc.getTextureManager().register(PARAMS_ID, paramsTexture);
+
+            NativeImage flareImg = new NativeImage(NativeImage.Format.RGBA, 3, 1, false);
+            flareImg.setPixelABGR(0, 0, 0xFF000000); // flare enabled/yaw/pitch/size
+            flareImg.setPixelABGR(1, 0, 0xFFFFFFFF); // flare tint
+            flareImg.setPixelABGR(2, 0, 0xFF0000FF); // flare time
+            flareParamsTexture = new DynamicTexture(() -> "chams-flare-params", flareImg);
+            mc.getTextureManager().register(FLARE_PARAMS_ID, flareParamsTexture);
         });
     }
 
@@ -248,30 +262,39 @@ public class BetterChams extends AddonModule {
             pixels.setPixelABGR(1, 0, fillAbgr);
             pixels.setPixelABGR(2, 0, glowAbgr);
             pixels.setPixelABGR(3, 0, flipAbgr);
-
-            float realYaw = mc.player != null ? mc.player.getYRot() : 0f;
-            float realPitch = mc.player != null ? mc.player.getXRot() : 0f;
-            if (!flareLagInitialized) { flareLaggedYaw = realYaw; flareLaggedPitch = realPitch; flareLagInitialized = true; }
-            flareLaggedYaw += net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw) * 0.15f;
-            flareLaggedPitch += (realPitch - flareLaggedPitch) * 0.15f;
-            float yawOffset = net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw);
-            float pitchOffset = realPitch - flareLaggedPitch;
-
-            boolean flareOn = on && flareToggle.getValue();
-            int flareR = flareOn ? 255 : 0;
-            int flareG = Math.round((Math.max(-90f, Math.min(90f, yawOffset)) + 90f) / 180f * 255f) & 0xFF;
-            int flareB = Math.round((Math.max(-90f, Math.min(90f, pitchOffset)) + 90f) / 180f * 255f) & 0xFF;
-            int flareA = Math.round((float)(Math.max(8.0, Math.min(128.0, flareSize.getValue())) / 128.0 * 255.0)) & 0xFF;
-            pixels.setPixelABGR(4, 0, (flareA << 24) | (flareB << 16) | (flareG << 8) | flareR);
-
-            int flareTintC = flareTint.getValue().color.getPacked();
-            int flareTintAbgr = (flareTintC & 0xFF000000) | ((flareTintC & 0xFF) << 16) | (flareTintC & 0xFF00) | ((flareTintC >> 16) & 0xFF);
-            pixels.setPixelABGR(5, 0, flareTintAbgr);
-
-            int flareTimeR = (int) ((System.currentTimeMillis() % 10000L) / 10000.0 * 255.0) & 0xFF;
-            pixels.setPixelABGR(6, 0, (0xFF << 24) | flareTimeR);
-
             paramsTexture.upload();
         }
+
+        updateFlareParamsTexture(mc, on);
+    }
+
+    private void updateFlareParamsTexture(Minecraft mc, boolean on) {
+        if (flareParamsTexture == null) return;
+        NativeImage pixels = flareParamsTexture.getPixels();
+        if (pixels == null) return;
+
+        float realYaw = mc.player != null ? mc.player.getYRot() : 0f;
+        float realPitch = mc.player != null ? mc.player.getXRot() : 0f;
+        if (!flareLagInitialized) { flareLaggedYaw = realYaw; flareLaggedPitch = realPitch; flareLagInitialized = true; }
+        flareLaggedYaw += net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw) * 0.15f;
+        flareLaggedPitch += (realPitch - flareLaggedPitch) * 0.15f;
+        float yawOffset = net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw);
+        float pitchOffset = realPitch - flareLaggedPitch;
+
+        boolean flareOn = on && flareToggle.getValue();
+        int flareR = flareOn ? 255 : 0;
+        int flareG = Math.round((Math.max(-90f, Math.min(90f, yawOffset)) + 90f) / 180f * 255f) & 0xFF;
+        int flareB = Math.round((Math.max(-90f, Math.min(90f, pitchOffset)) + 90f) / 180f * 255f) & 0xFF;
+        int flareA = Math.round((float)(Math.max(8.0, Math.min(128.0, flareSize.getValue())) / 128.0 * 255.0)) & 0xFF;
+        pixels.setPixelABGR(0, 0, (flareA << 24) | (flareB << 16) | (flareG << 8) | flareR);
+
+        int flareTintC = flareTint.getValue().color.getPacked();
+        int flareTintAbgr = (flareTintC & 0xFF000000) | ((flareTintC & 0xFF) << 16) | (flareTintC & 0xFF00) | ((flareTintC >> 16) & 0xFF);
+        pixels.setPixelABGR(1, 0, flareTintAbgr);
+
+        int flareTimeR = (int) ((System.currentTimeMillis() % 10000L) / 10000.0 * 255.0) & 0xFF;
+        pixels.setPixelABGR(2, 0, (0xFF << 24) | flareTimeR);
+
+        flareParamsTexture.upload();
     }
 }
