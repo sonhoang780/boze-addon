@@ -44,6 +44,10 @@ public abstract class MixinAvatarRenderer {
             if (!bc.isInRange(player)) return;
         }
 
+        // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
+        // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
+        if (!bc.glowToggle.getValue() && !bc.flareToggle.getValue() && bc.fillMode.getValue() == BetterChams.FillMode.Off) return;
+
         state.outlineColor = 0xFFFFFFFF;
     }
 

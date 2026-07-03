@@ -23,7 +23,11 @@ out vec4 fragColor;
 // is under it without needing to know which/how many entities are on screen.
 vec3 flareFire(vec2 localFragCoord, vec2 localResolution, float time, vec3 tint) {
     vec4 O = vec4(0.0);
-    float i = 0.0, z = 0.0, d;
+    // z starts at 3.0 (not the reference's 0): at 10 iterations the march advances by
+    // small turbulence-perturbed steps and never reaches the flame surface at depth ~5
+    // -- verified numerically: from z=0 the accumulated color tanh()s to ~(0.06,0.03,0.01)
+    // i.e. black. Skipping the empty space in front restores reference-level brightness.
+    float i = 0.0, z = 3.0, d;
 
     for (i = 0.0; i < 10.0; i++) {
         vec3 p = z * normalize(vec3(localFragCoord + localFragCoord, 0.0) - localResolution.xyy);
@@ -40,7 +44,10 @@ vec3 flareFire(vec2 localFragCoord, vec2 localResolution, float time, vec3 tint)
         O += (sin(z / 3.0 + vec4(7.0, 2.0, 3.0, 0.0)) + 1.1) / d;
     }
 
-    O = tanh(O / 1e3);
+    // Reference divides by 1e3 across 50 samples; with 10 samples the sum is ~5x
+    // smaller, so normalize by 1e2 to land in the same tanh() range (tuned numerically
+    // alongside the z=3.0 start above).
+    O = tanh(O / 1e2);
     return O.rgb * tint;
 }
 
@@ -72,23 +79,27 @@ void main() {
     vec2 flippedUv = vec2(texCoord.x, finalY);
 
     vec4 orig = texture(OriginalSampler, texCoord);
+    vec4 glow = texture(InSampler, texCoord); // blurred silhouette field (glow_pass pyramid)
 
-    // Flare: independent of Glow (evaluated regardless of glowEnabled). Computed once
-    // here and added onto whatever this pixel's other branches decide below -- a
-    // manual 4-tap gradient of the RAW (unblurred) silhouette alpha finds the "outward"
-    // direction at any pixel near ANY silhouette edge, which is what lets this work for
-    // every simultaneously-glowing entity without per-entity data, and without needing
-    // Glow's blur to have run.
+    // Flare: independent of Glow (glow_pass always runs in this chain, and Java widens
+    // its blur radius to flareSize/2 whenever Flare is on, so the blurred field exists
+    // even with Glow toggled off). The field serves two roles at once: its gradient
+    // gives the smooth "outward" direction at every pixel of the halo band (works for
+    // every simultaneously-glowing silhouette, no per-entity data), and its falloff
+    // (1 at the silhouette edge -> 0 at the blur's outer reach) is the flame-height
+    // coordinate -- flame base sits on the silhouette, tips reach the field's edge.
+    // The previous approach (4-tap gradient of RAW alpha) only produced a ~2px shell,
+    // which is why Flare looked like a thin outline instead of fire.
     vec3 flareContribution = vec3(0.0);
-    if (flareEnabled) {
+    if (flareEnabled && orig.a <= 0.0 && glow.a > 0.004) {
         float eps = 2.0 / OutSize.x;
-        float aR = texture(OriginalSampler, texCoord + vec2(eps, 0.0)).a;
-        float aL = texture(OriginalSampler, texCoord - vec2(eps, 0.0)).a;
-        float aU = texture(OriginalSampler, texCoord + vec2(0.0, eps)).a;
-        float aD = texture(OriginalSampler, texCoord - vec2(0.0, eps)).a;
+        float aR = texture(InSampler, texCoord + vec2(eps, 0.0)).a;
+        float aL = texture(InSampler, texCoord - vec2(eps, 0.0)).a;
+        float aU = texture(InSampler, texCoord + vec2(0.0, eps)).a;
+        float aD = texture(InSampler, texCoord - vec2(0.0, eps)).a;
         vec2 gradDir = vec2(aR - aL, aU - aD);
         float gradLen = length(gradDir);
-        if (gradLen > 0.01) {
+        if (gradLen > 1e-5) {
             vec2 outward = -gradDir / gradLen;
             // Momentum: rotate the local (tangent, outward) basis by the smoothed
             // camera-lag angle, so the flame's own local "up" twists with a camera
@@ -98,16 +109,16 @@ void main() {
             vec2 outwardLagged = mat2(ca, -sa, sa, ca) * outward;
             vec2 tangentLagged = vec2(-outwardLagged.y, outwardLagged.x);
 
-            // mod() folds the absolute screen position into a repeating flareSizePx-wide
-            // window -- without this, dot() still carries the full screen-space magnitude
-            // (hundreds/thousands of px) while the raymarch expects a fragCoord already
-            // scaled to its own resolution (flareSizePx, ~48px); left unfolded, the noise
-            // field gets sampled ~40x past its detail range and aliases to near-black
-            // (this was the "only a black outline, no fire" bug).
+            // Local flame canvas: x = tangent position folded into a repeating
+            // flareSizePx window (mod keeps the raymarch's fragCoord in the range it
+            // expects instead of the full screen-pixel magnitude); y = flame height
+            // from the blurred field's falloff, base (glow.a~1) at the bottom.
             vec2 screenPx = texCoord * OutSize;
-            vec2 localAxis = vec2(dot(screenPx, tangentLagged), dot(screenPx, outwardLagged));
-            vec2 localFragCoord = mod(localAxis, flareSizePx);
-            flareContribution = flareFire(localFragCoord, vec2(flareSizePx), flareTime, flareTint);
+            float localX = mod(dot(screenPx, tangentLagged), flareSizePx);
+            float localY = (1.0 - glow.a) * flareSizePx;
+            flareContribution = flareFire(vec2(localX, localY), vec2(flareSizePx), flareTime, flareTint);
+            // Soften the field's outer cutoff so flame tips fade instead of clipping.
+            flareContribution *= smoothstep(0.004, 0.05, glow.a);
         }
     }
 
@@ -146,36 +157,24 @@ void main() {
         if (edgeFactor > 0.0) {
             vec4 rimColor = vec4(glowTint.rgb, edgeFactor * glowIntensity * glowTint.a);
             fragColor = hasFill ? mix(fillResult, rimColor, rimColor.a) : rimColor;
-            fragColor.rgb += flareContribution;
             return;
         }
 
         if (hasFill) {
             fragColor = fillResult;
-            fragColor.rgb += flareContribution;
             return;
         }
 
-        if (length(flareContribution) > 0.001) { fragColor = vec4(flareContribution, 1.0); return; }
         discard;
     }
 
-    if (glowEnabled < 0.5) {
-        if (length(flareContribution) > 0.001) { fragColor = vec4(flareContribution, 1.0); return; }
-        discard;
-    }
+    // Outside the silhouette: halo (if Glow on) plus flame, additively. Where only the
+    // flame exists, its own luminance drives alpha so the dark parts of the fire stay
+    // transparent instead of stamping opaque black over the scene.
+    float flareLum = max(max(flareContribution.r, flareContribution.g), flareContribution.b);
+    bool haloOn = glowEnabled > 0.5 && glow.a > 0.0;
+    if (!haloOn && flareLum <= 0.003) discard;
 
-    vec4 glow = texture(InSampler, texCoord);
-    if (glow.a <= 0.0) {
-        if (length(flareContribution) > 0.001) { fragColor = vec4(flareContribution, 1.0); return; }
-        discard;
-    }
-
-    // NOTE (known v1 limitation): GlowBlur's bright-pass reads minecraft:entity_outline's
-    // raw texture BEFORE this resolve pass adds flareContribution, so Glow's bloom does
-    // not pick up the flame's own bright pixels. Fixing this needs a pipeline reorder
-    // (running the raymarch earlier, or restructuring compositing order) -- out of scope
-    // for v1.
-    fragColor = vec4(glowTint.rgb, glow.a * glowIntensity * glowTint.a);
-    fragColor.rgb += flareContribution;
+    vec4 halo = haloOn ? vec4(glowTint.rgb, glow.a * glowIntensity * glowTint.a) : vec4(0.0);
+    fragColor = vec4(halo.rgb + flareContribution, max(halo.a, flareLum));
 }

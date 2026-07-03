@@ -52,7 +52,9 @@ public class MixinLevelRenderer {
         java.util.Set<net.minecraft.resources.Identifier> externalTargets
     ) {
         if (id.getPath().equals("entity_outline") && com.example.addon.modules.BetterChams.INSTANCE.getState()) {
-            if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
+            // Flare rides the glow-style chain (it needs the blurred silhouette field as
+            // its flame canvas), so the cheap fill_only route only applies when flare is off.
+            if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
                 return instance.getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_outline"), externalTargets);
             }
         }
@@ -67,12 +69,43 @@ public class MixinLevelRenderer {
         )
     )
     private void betterchams$addSmokePostChain(CallbackInfo ci, @com.llamalad7.mixinextras.sugar.Local com.mojang.blaze3d.framegraph.FrameGraphBuilder builder) {
+        // Real dual-Kawase glow: refresh GlowBlur.GLOW_TEXTURE (down/upsampled
+        // entity_outline silhouette) before entity_outline.json's own PostChain node
+        // (also part of this same frame-graph execute() call) reads it as an external
+        // "location" input. NOTE: if this runs before vanilla's OWN entity-outline
+        // silhouette render for the current frame (also just a graph node timed within
+        // this same execute()), the blur would read last frame's silhouette --
+        // one frame of lag, likely imperceptible except on fast-moving glow targets.
+        // Verify in-game; if the glow visibly trails a fast-moving silhouette, this
+        // needs a hook later in the same frame instead.
+        if (com.example.addon.modules.BetterChams.INSTANCE.getState() && com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue()) {
+            com.mojang.blaze3d.pipeline.RenderTarget outlineTarget = ((LevelRendererAccessor)(Object)this).getEntityOutlineTarget();
+            if (outlineTarget != null) {
+                com.example.addon.rendering.GlowBlur.render(outlineTarget);
+            }
+        }
+
         if (com.example.addon.modules.TungTungSahur.INSTANCE.fadingOut && com.example.addon.modules.TungTungSahur.INSTANCE.smokeFadeAlpha > 0) {
             Minecraft mc = Minecraft.getInstance();
             net.minecraft.client.renderer.PostChain smokeChain = mc.getShaderManager().getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "tung_smoke"), net.minecraft.client.renderer.LevelTargetBundle.MAIN_TARGETS);
             if (smokeChain != null) {
                 com.example.addon.modules.TungTungSahur.INSTANCE.updateSmokeParams(mc, smokeChain);
                 smokeChain.addToFrame(builder, mc.getWindow().getWidth(), mc.getWindow().getHeight(), this.targets);
+            }
+        }
+
+        // CustomSky compositing: the actual sky pixels were already rendered offscreen
+        // into CustomSky.SKY_TEXTURE by CustomSkyRenderer.tick() (raw-GL, same proven
+        // pattern as ChamsCustomShader) -- this PostChain pass just blends that texture
+        // over minecraft:main wherever MainDepth reads far/no-geometry (true sky pixels
+        // only, terrain untouched).
+        if (com.example.addon.modules.CustomSky.INSTANCE.getState()
+                && com.example.addon.modules.CustomSky.INSTANCE.mode.getValue() != com.example.addon.modules.CustomSky.Mode.Off) {
+            Minecraft mc = Minecraft.getInstance();
+            net.minecraft.client.renderer.PostChain skyChain = mc.getShaderManager().getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "custom_sky"), net.minecraft.client.renderer.LevelTargetBundle.MAIN_TARGETS);
+            com.example.addon.rendering.CustomSkyRenderer.debugChainSeen = skyChain != null;
+            if (skyChain != null) {
+                skyChain.addToFrame(builder, mc.getWindow().getWidth(), mc.getWindow().getHeight(), this.targets);
             }
         }
     }

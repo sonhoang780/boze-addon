@@ -27,12 +27,6 @@
                     "sampler_name": "OutlineImage",
                     "location": "example-addon:betterchamsoutline",
                     "height": 1
-                },
-                {
-                    "width": 3,
-                    "sampler_name": "FlareParams",
-                    "location": "example-addon:betterchamsflareparam",
-                    "height": 1
                 }
             ],
             "vertex_shader": "minecraft:core/screenquad",

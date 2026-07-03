@@ -3,7 +3,9 @@ package com.example.addon.mixin;
 import com.example.addon.modules.FakeFly;
 import com.example.addon.modules.LiquidGlassHud;
 import com.example.addon.modules.SkijaBackdropBlur;
-import com.example.addon.screens.SkiaPipRenderer;
+import com.example.addon.screens.MusicHudPipRenderer;
+import com.example.addon.screens.GifShadowPipRenderer;
+import com.example.addon.screens.EbookPagePipRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.GameRenderer;
@@ -29,7 +31,13 @@ public abstract class MixinGameRenderer {
         MultiBufferSource.BufferSource bufferSource = args.get(1);
         List<PictureInPictureRenderer<?>> original = args.get(4);
         List<PictureInPictureRenderer<?>> modified = new ArrayList<>(original);
-        modified.add(new SkiaPipRenderer(bufferSource));
+        // Each consumer gets its own renderer instance + state-record type: sharing one
+        // PictureInPictureRenderer instance/state class across multiple simultaneously-
+        // visible elements makes them stomp each other's shared offscreen texture --
+        // see AbstractSkiaPipRenderer's class doc for the full mechanism.
+        modified.add(new MusicHudPipRenderer(bufferSource));
+        modified.add(new GifShadowPipRenderer(bufferSource));
+        modified.add(new EbookPagePipRenderer(bufferSource));
         args.set(4, modified);
     }
 
@@ -62,14 +70,17 @@ public abstract class MixinGameRenderer {
         )
     )
     private void betterchams$reprocessHandOutline(net.minecraft.client.DeltaTracker deltaTracker, boolean tick, CallbackInfo ci) {
-        if (!com.example.addon.modules.BetterChams.INSTANCE.getState() || !com.example.addon.modules.BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        // No handToggle guard here: this resolves ALL entity outlines currently in
+        // entityOutlineTarget (world entities always; hand too if it has already
+        // been drawn into the same target by the time this fires this frame).
+        if (!com.example.addon.modules.BetterChams.INSTANCE.getState()) return;
+        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) return;
 
         net.minecraft.resources.Identifier handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "hand_outline");
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
+        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
             handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_hand_outline");
         }
         net.minecraft.client.renderer.ShaderManager shaderManager = mc.getShaderManager();
@@ -96,7 +107,7 @@ public abstract class MixinGameRenderer {
     )
     private void betterchams$flushHandOutline(net.minecraft.client.renderer.state.level.CameraRenderState state, float tickDelta, org.joml.Matrix4fc projMat, CallbackInfo ci) {
         if (!com.example.addon.modules.BetterChams.INSTANCE.getState() || !com.example.addon.modules.BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.renderBuffers() == null || mc.renderBuffers().outlineBufferSource() == null) return;

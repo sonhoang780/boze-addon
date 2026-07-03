@@ -237,10 +237,17 @@ public class BetterChams extends AddonModule {
         boolean on = getState();
         boolean fillOn = on && (fillMode.getValue() != FillMode.Off) && CHAMS_TEXTURE.hasImage();
         boolean glowOn = on && glowToggle.getValue();
+        boolean flareOn = on && flareToggle.getValue();
         int r = fillOn ? 255 : 0;
         int g = Math.round((float)(fillOpacity.getValue() * 255)) & 0xFF;
         int b = glowOn ? 255 : 0;
-        int a = Math.round((float)(double)glowThickness.getValue()) & 0xFF; // raw pixel radius, unpacked via *255 in shader
+        // Raw pixel radius, unpacked via *255 in shader. The same blurred field doubles
+        // as Flare's flame canvas, so when Flare is on the blur must reach at least
+        // flareSize/2 px even if Glow Thickness is small (or Glow is off entirely) --
+        // tradeoff: with both on, the glow halo stretches to the flame's reach.
+        double blurRadius = glowThickness.getValue();
+        if (flareOn) blurRadius = Math.max(blurRadius, flareSize.getValue() / 2.0);
+        int a = Math.min(255, Math.round((float)blurRadius)) & 0xFF;
 
         // NativeImage ABGR packing: (alpha << 24) | (blue << 16) | (green << 8) | red
         int abgr = (a << 24) | (b << 16) | (g << 8) | r;

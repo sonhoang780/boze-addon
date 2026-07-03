@@ -23,8 +23,10 @@ public abstract class MixinEndCrystalRenderer {
         CallbackInfo ci
     ) {
         BetterChams bc = BetterChams.INSTANCE;
-        if (bc.getState() && bc.crystalToggle.getValue() && bc.isInRange(crystal)) {
-            state.outlineColor = 0xFFFFFFFF;
-        }
+        if (!bc.getState() || !bc.crystalToggle.getValue() || !bc.isInRange(crystal)) return;
+        // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
+        // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
+        if (!bc.glowToggle.getValue() && !bc.flareToggle.getValue() && bc.fillMode.getValue() == BetterChams.FillMode.Off) return;
+        state.outlineColor = 0xFFFFFFFF;
     }
 }

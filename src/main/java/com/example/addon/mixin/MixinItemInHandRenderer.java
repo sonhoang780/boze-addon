@@ -16,7 +16,7 @@ public abstract class MixinItemInHandRenderer {
     @Inject(method = "renderHandsWithItems", at = @At("HEAD"))
     private void betterchams$startHand(float tickDelta, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, LocalPlayer localPlayer, int light, CallbackInfo ci) {
         if (!BetterChams.INSTANCE.getState() || !BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!BetterChams.INSTANCE.glowToggle.getValue() && BetterChams.INSTANCE.fillMode.getValue() == BetterChams.FillMode.Off) return;
+        if (!BetterChams.INSTANCE.glowToggle.getValue() && !BetterChams.INSTANCE.flareToggle.getValue() && BetterChams.INSTANCE.fillMode.getValue() == BetterChams.FillMode.Off) return;
 
         BetterChams.isRenderingHand = true;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
