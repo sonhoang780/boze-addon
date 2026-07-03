@@ -35,7 +35,14 @@ vec3 flareAura(vec2 screenPx, float h, float scale, float time, vec3 tint) {
     float turb = (p.x - p0.x) + (p.y - p0.y);
     // Tongues: noise pushes the falloff line outward/inward.
     float hh = max(h * (1.3 + 0.5 * turb) + 0.25 * turb, 0.0);
-    float intensity = pow(clamp(1.0 - hh, 0.0, 1.0), 2.0);
+    // edgeFade forces intensity to 0 right at h=0 (the silhouette edge) instead of
+    // letting pow(clamp(1-hh,0,1),2) saturate to ~1 there regardless of turbulence --
+    // that saturation was a flat, un-animated, full-brightness band tracing the exact
+    // silhouette shape (looked like a rigid diamond outline on a rotating end crystal).
+    // Fading it in over the first bit of h lets the turbulence actually modulate
+    // brightness from the very first visible pixel instead of starting solid.
+    float edgeFade = smoothstep(0.0, 0.18, h);
+    float intensity = pow(clamp(1.0 - hh, 0.0, 1.0), 2.0) * edgeFade;
     vec4 col = (sin(hh * 5.0 - time * 2.0 + vec4(7.0, 2.0, 3.0, 0.0)) + 1.1) * intensity * 2.0;
     return tanh(col).rgb * tint;
 }
