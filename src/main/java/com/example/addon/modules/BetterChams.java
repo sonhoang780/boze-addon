@@ -229,6 +229,12 @@ public class BetterChams extends AddonModule {
         if ((FillMode) fillMode.getValue() == FillMode.Gif) {
             CHAMS_TEXTURE.tick(frameDelay.getValue(), bounce.getValue());
         }
+
+        // Flare animation params must refresh per render frame, not per 20Hz logic
+        // tick -- tick-rate updates made the fire visibly step at ~20-25fps.
+        if (flareToggle.getValue()) {
+            updateFlareParamsTexture(Minecraft.getInstance(), getState());
+        }
     }
 
     private void updateParamsTexture() {
@@ -275,6 +281,8 @@ public class BetterChams extends AddonModule {
         updateFlareParamsTexture(mc, on);
     }
 
+    private long flareLastNanos = 0L;
+
     private void updateFlareParamsTexture(Minecraft mc, boolean on) {
         if (flareParamsTexture == null) return;
         NativeImage pixels = flareParamsTexture.getPixels();
@@ -283,8 +291,15 @@ public class BetterChams extends AddonModule {
         float realYaw = mc.player != null ? mc.player.getYRot() : 0f;
         float realPitch = mc.player != null ? mc.player.getXRot() : 0f;
         if (!flareLagInitialized) { flareLaggedYaw = realYaw; flareLaggedPitch = realPitch; flareLagInitialized = true; }
-        flareLaggedYaw += net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw) * 0.15f;
-        flareLaggedPitch += (realPitch - flareLaggedPitch) * 0.15f;
+        // Time-based smoothing (rate 6/s) instead of a fixed per-call factor: this now
+        // runs per render frame AND per logic tick, so a fixed factor would make the
+        // lag speed depend on framerate.
+        long now = System.nanoTime();
+        float dt = flareLastNanos == 0L ? 0.016f : Math.min((now - flareLastNanos) / 1_000_000_000f, 0.25f);
+        flareLastNanos = now;
+        float k = 1.0f - (float) Math.exp(-6.0 * dt);
+        flareLaggedYaw += net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw) * k;
+        flareLaggedPitch += (realPitch - flareLaggedPitch) * k;
         float yawOffset = net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw);
         float pitchOffset = realPitch - flareLaggedPitch;
 
@@ -299,8 +314,11 @@ public class BetterChams extends AddonModule {
         int flareTintAbgr = (flareTintC & 0xFF000000) | ((flareTintC & 0xFF) << 16) | (flareTintC & 0xFF00) | ((flareTintC >> 16) & 0xFF);
         pixels.setPixelABGR(1, 0, flareTintAbgr);
 
-        int flareTimeR = (int) ((System.currentTimeMillis() % 10000L) / 10000.0 * 255.0) & 0xFF;
-        pixels.setPixelABGR(2, 0, (0xFF << 24) | flareTimeR);
+        // 16-bit time over the 10s loop (R = high byte, G = low byte): a single byte
+        // gave 256 steps / 10s, i.e. the fire animated in visible ~25fps increments.
+        int t16 = (int) ((System.currentTimeMillis() % 10000L) / 10000.0 * 65535.0) & 0xFFFF;
+        int tHi = (t16 >> 8) & 0xFF, tLo = t16 & 0xFF;
+        pixels.setPixelABGR(2, 0, (0xFF << 24) | (tLo << 8) | tHi);
 
         flareParamsTexture.upload();
     }

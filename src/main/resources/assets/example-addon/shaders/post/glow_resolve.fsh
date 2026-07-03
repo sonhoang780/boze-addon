@@ -14,41 +14,30 @@ uniform sampler2D FlareParamsSampler; // separate from ParamsSampler -- see Bett
 in vec2 texCoord;
 out vec4 fragColor;
 
-// Ported from Xor's "3D Fire" (https://www.shadertoy.com/view/3XXSWS), iteration
-// counts cut to 10 outer / 5 inner (from the reference's 50/5) per the approved
-// spec -- pure ALU (trig+noise, no texture reads), tunable if perf needs it.
-// localFragCoord/localResolution are NOT a real screen-space region -- they're the
-// pixel's own position projected onto a per-pixel local (tangent, outward) basis (see
-// the gradient computation below), so this "canvas" follows whatever silhouette shape
-// is under it without needing to know which/how many entities are on screen.
-vec3 flareFire(vec2 localFragCoord, vec2 localResolution, float time, vec3 tint) {
-    vec4 O = vec4(0.0);
-    // z starts at 3.0 (not the reference's 0): at 10 iterations the march advances by
-    // small turbulence-perturbed steps and never reaches the flame surface at depth ~5
-    // -- verified numerically: from z=0 the accumulated color tanh()s to ~(0.06,0.03,0.01)
-    // i.e. black. Skipping the empty space in front restores reference-level brightness.
-    float i = 0.0, z = 3.0, d;
-
-    for (i = 0.0; i < 10.0; i++) {
-        vec3 p = z * normalize(vec3(localFragCoord + localFragCoord, 0.0) - localResolution.xyy);
-        p.z += 5.0 + cos(time);
-        float rot = p.y * 0.5;
-        mat2 twist = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
-        p.xz *= twist / max(p.y * 0.1 + 1.0, 0.1);
-
-        for (d = 2.0; d < 15.0; d /= 0.6) {
-            p += cos((p.yzx - vec3(time / 0.1, time, d)) * d) / d;
-        }
-        d = 0.01 + abs(length(p.xz) + p.y * 0.3 - 0.5) / 7.0;
-        z += d;
-        O += (sin(z / 3.0 + vec4(7.0, 2.0, 3.0, 0.0)) + 1.1) / d;
+// Continuous screen-space aura, built from Xor's "3D Fire" DNA (the 5-octave
+// cos-turbulence loop, sin() palette, tanh() tonemap -- shadertoy.com/view/3XXSWS)
+// but WITHOUT the reference's cone raymarch. The cone renders exactly one flame
+// centered on its own canvas; tiling that canvas around a silhouette produced
+// disjoint mini-flames with visible seams. Here the turbulence field is evaluated
+// directly at the pixel's screen position (continuous everywhere, no tiles), and
+// the flame's "height" coordinate h comes from the blurred silhouette falloff
+// (0 at the body edge -> 1 at the blur's outer reach): the noise displaces that
+// falloff line in and out, which is what makes licking tongues that wrap around
+// every silhouette on screen at once.
+vec3 flareAura(vec2 screenPx, float h, float scale, float time, vec3 tint) {
+    // xy continuous across the screen; z drifts with time so the swirl evolves.
+    vec3 p = vec3(screenPx / scale, 0.4 * time);
+    vec3 p0 = p;
+    for (float d = 2.0; d < 15.0; d /= 0.6) {
+        p += cos((p.yzx - vec3(time / 0.1, time, d)) * d) / d;
     }
-
-    // Reference divides by 1e3 across 50 samples; with 10 samples the sum is ~5x
-    // smaller, so normalize by 1e2 to land in the same tanh() range (tuned numerically
-    // alongside the z=3.0 start above).
-    O = tanh(O / 1e2);
-    return O.rgb * tint;
+    // Signed swirl displacement accumulated by the turbulence loop.
+    float turb = (p.x - p0.x) + (p.y - p0.y);
+    // Tongues: noise pushes the falloff line outward/inward.
+    float hh = max(h * (1.3 + 0.5 * turb) + 0.25 * turb, 0.0);
+    float intensity = pow(clamp(1.0 - hh, 0.0, 1.0), 2.0);
+    vec4 col = (sin(hh * 5.0 - time * 2.0 + vec4(7.0, 2.0, 3.0, 0.0)) + 1.1) * intensity * 2.0;
+    return tanh(col).rgb * tint;
 }
 
 void main() {
@@ -72,7 +61,10 @@ void main() {
     float flarePitchOffset = flareData.b * 180.0 - 90.0;
     float flareSizePx = flareData.a * 128.0;
     vec3 flareTint = flareTintData.rgb;
-    float flareTime = flareTimeData.r * 10.0;
+    // 16-bit time (R = high byte, G = low byte) over a 10s loop: the old single-byte
+    // packing quantized time to 256 steps / 10s = ~25 visible steps per second, which
+    // read as "the fire runs at 25fps" no matter the framerate.
+    float flareTime = (flareTimeData.r * 255.0 * 256.0 + flareTimeData.g * 255.0) / 65535.0 * 10.0;
 
     float doFlip  = flipData.r;
     float finalY  = doFlip > 0.5 ? (1.0 - texCoord.y) : texCoord.y;
@@ -83,43 +75,17 @@ void main() {
 
     // Flare: independent of Glow (glow_pass always runs in this chain, and Java widens
     // its blur radius to flareSize/2 whenever Flare is on, so the blurred field exists
-    // even with Glow toggled off). The field serves two roles at once: its gradient
-    // gives the smooth "outward" direction at every pixel of the halo band (works for
-    // every simultaneously-glowing silhouette, no per-entity data), and its falloff
-    // (1 at the silhouette edge -> 0 at the blur's outer reach) is the flame-height
-    // coordinate -- flame base sits on the silhouette, tips reach the field's edge.
-    // The previous approach (4-tap gradient of RAW alpha) only produced a ~2px shell,
-    // which is why Flare looked like a thin outline instead of fire.
+    // even with Glow toggled off).
     vec3 flareContribution = vec3(0.0);
     if (flareEnabled && orig.a <= 0.0 && glow.a > 0.004) {
-        float eps = 2.0 / OutSize.x;
-        float aR = texture(InSampler, texCoord + vec2(eps, 0.0)).a;
-        float aL = texture(InSampler, texCoord - vec2(eps, 0.0)).a;
-        float aU = texture(InSampler, texCoord + vec2(0.0, eps)).a;
-        float aD = texture(InSampler, texCoord - vec2(0.0, eps)).a;
-        vec2 gradDir = vec2(aR - aL, aU - aD);
-        float gradLen = length(gradDir);
-        if (gradLen > 1e-5) {
-            vec2 outward = -gradDir / gradLen;
-            // Momentum: rotate the local (tangent, outward) basis by the smoothed
-            // camera-lag angle, so the flame's own local "up" twists with a camera
-            // turn instead of sliding sideways.
-            float lagAngle = radians(flareYawOffset) + radians(flarePitchOffset) * 0.3;
-            float ca = cos(lagAngle), sa = sin(lagAngle);
-            vec2 outwardLagged = mat2(ca, -sa, sa, ca) * outward;
-            vec2 tangentLagged = vec2(-outwardLagged.y, outwardLagged.x);
-
-            // Local flame canvas: x = tangent position folded into a repeating
-            // flareSizePx window (mod keeps the raymarch's fragCoord in the range it
-            // expects instead of the full screen-pixel magnitude); y = flame height
-            // from the blurred field's falloff, base (glow.a~1) at the bottom.
-            vec2 screenPx = texCoord * OutSize;
-            float localX = mod(dot(screenPx, tangentLagged), flareSizePx);
-            float localY = (1.0 - glow.a) * flareSizePx;
-            flareContribution = flareFire(vec2(localX, localY), vec2(flareSizePx), flareTime, flareTint);
-            // Soften the field's outer cutoff so flame tips fade instead of clipping.
-            flareContribution *= smoothstep(0.004, 0.05, glow.a);
-        }
+        float h = 1.0 - glow.a; // 0 at silhouette edge -> 1 at blur's outer reach
+        vec2 screenPx = texCoord * OutSize;
+        // Momentum: shift the noise field by the smoothed camera-lag offset so the
+        // flames swirl behind a camera turn instead of being locked to the screen.
+        vec2 lagShift = vec2(flareYawOffset, -flarePitchOffset) * (flareSizePx / 90.0) * 4.0;
+        flareContribution = flareAura(screenPx + lagShift, h, flareSizePx, flareTime, flareTint);
+        // Soften the field's outer cutoff so flame tips fade instead of clipping.
+        flareContribution *= smoothstep(0.004, 0.05, glow.a);
     }
 
     if (orig.a > 0.0) {
@@ -165,7 +131,14 @@ void main() {
             return;
         }
 
-        discard;
+        // MUST write transparent black instead of discard: a discarded pixel keeps
+        // whatever the swap target held from the previous pass -- which in these
+        // chains is an intermediate glow_pass blur of the raw WHITE silhouette. With
+        // the blur radius widened for Flare, that stale content showed up as huge
+        // opaque white blobs over every entity (and the whole hand) whenever fill
+        // was off.
+        fragColor = vec4(0.0);
+        return;
     }
 
     // Outside the silhouette: halo (if Glow on) plus flame, additively. Where only the
@@ -173,7 +146,10 @@ void main() {
     // transparent instead of stamping opaque black over the scene.
     float flareLum = max(max(flareContribution.r, flareContribution.g), flareContribution.b);
     bool haloOn = glowEnabled > 0.5 && glow.a > 0.0;
-    if (!haloOn && flareLum <= 0.003) discard;
+    if (!haloOn && flareLum <= 0.003) {
+        fragColor = vec4(0.0); // not discard -- see the interior branch's comment
+        return;
+    }
 
     vec4 halo = haloOn ? vec4(glowTint.rgb, glow.a * glowIntensity * glowTint.a) : vec4(0.0);
     fragColor = vec4(halo.rgb + flareContribution, max(halo.a, flareLum));
