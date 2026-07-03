@@ -5,6 +5,7 @@ import com.example.addon.screens.ImagePickerScreen;
 import com.mojang.blaze3d.platform.NativeImage;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.event.EventWorldRender;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
@@ -32,6 +33,8 @@ public class BetterChams extends AddonModule {
         Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsparam.png");
 
     private static DynamicTexture paramsTexture;
+    private float flareLaggedYaw = 0f, flareLaggedPitch = 0f;
+    private boolean flareLagInitialized = false;
 
     public final ToggleOption crystalToggle = new ToggleOption(this, "Crystals",
         "Glow outline on End Crystals.", true);
@@ -47,10 +50,16 @@ public class BetterChams extends AddonModule {
         "Show Kawase glow halo around the silhouette.", true);
     public final SliderOption glowThickness = new SliderOption(this, "Glow Thickness",
         "Radius of the glow effect in pixels.", 12.0, 1.0, 64.0, 1.0);
-    public final SliderOption sampleStep    = new SliderOption(this, "Sample Step",
-        "Kawase tap-offset multiplier. Higher = cheaper/blockier, lower = smoother/costlier.", 1.0, 1.0, 4.0, 0.1);
+    public final ToggleOption innerGlow      = new ToggleOption(this, "InnerGlow",
+        "Glow for inside", false);
     public final SliderOption glowIntensity = new SliderOption(this, "Glow Intensity",
         "Strength of the glow halo.", 0.97, 0.0, 1.0, 0.01);
+    public final ToggleOption flareToggle = new ToggleOption(this, "Flare",
+        "Volumetric fire wrapping every currently-glowing silhouette. Independent of Glow -- Glow (if also on) adds bloom on top of the flame.", false);
+    public final dev.boze.api.option.ColorOption flareTint = new dev.boze.api.option.ColorOption(this, "FlareTint",
+        "Tint multiplied onto the flare's base fire palette.", dev.boze.api.render.ColorMaker.staticColor(255, 120, 30), 1.0f);
+    public final SliderOption flareSize = new SliderOption(this, "Flare Size",
+        "Size (px) of the local canvas each silhouette edge point's flame is rendered into.", 48.0, 8.0, 128.0, 1.0);
 
     public enum FillMode {
         Off, Image, Gif, Shader
@@ -58,21 +67,23 @@ public class BetterChams extends AddonModule {
     public final dev.boze.api.option.ModeOption fillMode = new dev.boze.api.option.ModeOption(this, "Image Fill",
         "Mode for fill image.", FillMode.Off);
 
-    public final SliderOption fillOpacity   = new SliderOption(this, "Fill Opacity",
+    public final SliderOption fillOpacity   = new SliderOption(this, "FillOpacity",
         "Opacity of image fill.", 0.8, 0.0, 1.0, 0.01);
-    public final ToggleOption selectImage   = new ToggleOption(this, "Select Image",
+    public final ToggleOption selectImage   = new ToggleOption(this, "SelectImage",
         "Open image picker from boze/images/.", false);
-    public final ToggleOption selectGif     = new ToggleOption(this, "Select GIF",
+    public final ToggleOption selectGif     = new ToggleOption(this, "SelectGIF",
         "Open gif picker from boze/gifs/.", false);
-    public final SliderOption frameDelay    = new SliderOption(this, "Frame Delay",
-        "Delay between GIF frames in ms.", 50.0, 10.0, 300.0, 1.0);
+    public final SliderOption frameDelay    = new SliderOption(this, "FrameDelay",
+        "Delay between GIF frames in ms.", 10.0, 0.0, 300.0, 1.0);
+    public final ToggleOption bounce        = new ToggleOption(this, "Bounce",
+        "Play the GIF forward then backward (ping-pong) instead of looping, to hide the jump-cut seam where it restarts.", false);
 
-    public final dev.boze.api.option.ColorOption fillColor = new dev.boze.api.option.ColorOption(this, "Fill Color", "Color for image, gif and shader fill.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
-    public final dev.boze.api.option.ColorOption outlineColor = new dev.boze.api.option.ColorOption(this, "Glow Color", "Color for the glow halo and shader outline.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
-    public final ToggleOption selectShader  = new ToggleOption(this, "Select Shader", "Open shader picker from boze/shaders/.", false);
+    public final dev.boze.api.option.ColorOption fillColor = new dev.boze.api.option.ColorOption(this, "FillColor", "Color for image, gif and shader fill.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
+    public final dev.boze.api.option.ColorOption outlineColor = new dev.boze.api.option.ColorOption(this, "GlowColor", "Color for the glow halo and shader outline.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
+    public final ToggleOption selectShader  = new ToggleOption(this, "SelectShader", "Open shader picker from boze/shaders/.", false);
 
     private BetterChams() {
-        super("BetterChams", "Glow outline + image fill for End Crystals and players.");
+        super("BetterChams", "Better Chams");
     }
 
     public static void registerTextures() {
@@ -88,11 +99,14 @@ public class BetterChams extends AddonModule {
 
             mc.getTextureManager().register(TEX_ID, CHAMS_TEXTURE);
             mc.getTextureManager().register(OUTLINE_TEX_ID, OUTLINE_TEXTURE);
-            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 4, 1, false);
+            NativeImage img = new NativeImage(NativeImage.Format.RGBA, 7, 1, false);
             img.setPixelABGR(0, 0, 0xFF0000FF); // glow on, fill off, opacity 0, thickness max
             img.setPixelABGR(1, 0, 0xFFFFFFFF); // fill color
             img.setPixelABGR(2, 0, 0xFFFFFFFF); // outline color
             img.setPixelABGR(3, 0, 0xFFFFFFFF); // flipY (255 = flip, 0 = no flip)
+            img.setPixelABGR(4, 0, 0xFF000000); // flare enabled/yaw/pitch/size, filled in by updateParamsTexture()
+            img.setPixelABGR(5, 0, 0xFFFFFFFF); // flare tint
+            img.setPixelABGR(6, 0, 0xFF0000FF); // flare time
             paramsTexture = new DynamicTexture(() -> "chams-params", img);
             mc.getTextureManager().register(PARAMS_ID, paramsTexture);
         });
@@ -177,10 +191,6 @@ public class BetterChams extends AddonModule {
             mc.execute(() -> mc.setScreen(new ImagePickerScreen("boze/shaders", "Select Shader", "(?i).*\\.frag$", this::loadImage)));
         }
         
-        if (currentMode == FillMode.Gif) {
-            CHAMS_TEXTURE.tick(frameDelay.getValue());
-        }
-        
         if (currentMode == FillMode.Shader) {
             com.example.addon.rendering.ChamsCustomShader.renderCustomShader();
             // CHAMS_TEXTURE and OUTLINE_TEXTURE are already updated directly by ChamsCustomShader
@@ -194,8 +204,22 @@ public class BetterChams extends AddonModule {
         updateParamsTexture();
     }
 
+    @EventHandler
+    private void onWorldRender(EventWorldRender event) {
+        // GIF playback was driven off EventTick.Pre (20 Hz logic tick), so it could
+        // advance at most one frame per ~50ms regardless of FrameDelay -- any delay
+        // below 50ms (including 0 and the default 10) hit that same 20fps ceiling and
+        // looked identical, since ChamsImageTexture.tick() only ever advances by one
+        // frame per call. Driving it from the per-render-frame event instead lets
+        // FrameDelay actually reach real framerate-limited speeds.
+        if ((FillMode) fillMode.getValue() == FillMode.Gif) {
+            CHAMS_TEXTURE.tick(frameDelay.getValue(), bounce.getValue());
+        }
+    }
+
     private void updateParamsTexture() {
         if (paramsTexture == null) return;
+        Minecraft mc = Minecraft.getInstance();
         boolean on = getState();
         boolean fillOn = on && (fillMode.getValue() != FillMode.Off) && CHAMS_TEXTURE.hasImage();
         boolean glowOn = on && glowToggle.getValue();
@@ -214,10 +238,9 @@ public class BetterChams extends AddonModule {
         int glowAbgr = (glowC & 0xFF000000) | ((glowC & 0xFF) << 16) | (glowC & 0xFF00) | ((glowC >> 16) & 0xFF);
 
         int flipY = (fillMode.getValue() == FillMode.Shader) ? 0 : 255;
-        // sampleStep in [1.0, 4.0] -> normalize to [0,1] range before packing so a plain texture() sample decodes as value/4.0
-        int stepPacked = Math.round((float)(sampleStep.getValue() / 4.0 * 255.0)) & 0xFF;
+        int innerGlowPacked = innerGlow.getValue() ? 255 : 0;
         int intensityPacked = Math.round((float)(glowIntensity.getValue() * 255.0)) & 0xFF;
-        int flipAbgr = (255 << 24) | (intensityPacked << 16) | (stepPacked << 8) | flipY;
+        int flipAbgr = (255 << 24) | (intensityPacked << 16) | (innerGlowPacked << 8) | flipY;
 
         NativeImage pixels = paramsTexture.getPixels();
         if (pixels != null) {
@@ -225,6 +248,29 @@ public class BetterChams extends AddonModule {
             pixels.setPixelABGR(1, 0, fillAbgr);
             pixels.setPixelABGR(2, 0, glowAbgr);
             pixels.setPixelABGR(3, 0, flipAbgr);
+
+            float realYaw = mc.player != null ? mc.player.getYRot() : 0f;
+            float realPitch = mc.player != null ? mc.player.getXRot() : 0f;
+            if (!flareLagInitialized) { flareLaggedYaw = realYaw; flareLaggedPitch = realPitch; flareLagInitialized = true; }
+            flareLaggedYaw += net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw) * 0.15f;
+            flareLaggedPitch += (realPitch - flareLaggedPitch) * 0.15f;
+            float yawOffset = net.minecraft.util.Mth.wrapDegrees(realYaw - flareLaggedYaw);
+            float pitchOffset = realPitch - flareLaggedPitch;
+
+            boolean flareOn = on && flareToggle.getValue();
+            int flareR = flareOn ? 255 : 0;
+            int flareG = Math.round((Math.max(-90f, Math.min(90f, yawOffset)) + 90f) / 180f * 255f) & 0xFF;
+            int flareB = Math.round((Math.max(-90f, Math.min(90f, pitchOffset)) + 90f) / 180f * 255f) & 0xFF;
+            int flareA = Math.round((float)(Math.max(8.0, Math.min(128.0, flareSize.getValue())) / 128.0 * 255.0)) & 0xFF;
+            pixels.setPixelABGR(4, 0, (flareA << 24) | (flareB << 16) | (flareG << 8) | flareR);
+
+            int flareTintC = flareTint.getValue().color.getPacked();
+            int flareTintAbgr = (flareTintC & 0xFF000000) | ((flareTintC & 0xFF) << 16) | (flareTintC & 0xFF00) | ((flareTintC >> 16) & 0xFF);
+            pixels.setPixelABGR(5, 0, flareTintAbgr);
+
+            int flareTimeR = (int) ((System.currentTimeMillis() % 10000L) / 10000.0 * 255.0) & 0xFF;
+            pixels.setPixelABGR(6, 0, (0xFF << 24) | flareTimeR);
+
             paramsTexture.upload();
         }
     }
