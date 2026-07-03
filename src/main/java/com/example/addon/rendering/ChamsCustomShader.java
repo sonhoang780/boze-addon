@@ -98,53 +98,66 @@ public class ChamsCustomShader {
                 fullFrag = FRAG_HEADER + userCode + footer;
             }
 
-            if (program != -1) {
-                GL20.glDeleteProgram(program);
-            }
-            
+            // Compile into a NEW program first; only delete the old one and swap the
+            // static `program` field on success. Deleting the old program up front (as
+            // this used to) then `return`-ing on a compile failure left `program`
+            // pointing at an already-deleted GL object -- using that stale handle for
+            // every subsequent draw is undefined behavior, observed as constant
+            // flicker in 3rd-person once an incompatible shader (e.g. a CustomSky-format
+            // file like vangogh_sky.frag, which needs u_InverseProj/u_InverseView that
+            // Chams doesn't provide) failed to compile.
             int vs = GL20.glCreateShader(GL20.GL_VERTEX_SHADER);
             GL20.glShaderSource(vs, VERTEX_SHADER);
             GL20.glCompileShader(vs);
             if (GL20.glGetShaderi(vs, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
                 LOGGER.error("Vertex shader compile error: " + GL20.glGetShaderInfoLog(vs));
+                dev.boze.api.utility.ChatHelper.sendMsg("BetterChams", "§cShader compile failed: " + path.getFileName() + " §7(see latest.log; previous shader kept)");
                 return;
             }
-            
+
             int fs = GL20.glCreateShader(GL20.GL_FRAGMENT_SHADER);
             GL20.glShaderSource(fs, fullFrag);
             GL20.glCompileShader(fs);
             if (GL20.glGetShaderi(fs, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
                 LOGGER.error("Fragment shader compile error: " + GL20.glGetShaderInfoLog(fs));
+                dev.boze.api.utility.ChatHelper.sendMsg("BetterChams", "§cShader compile failed: " + path.getFileName() + " §7(see latest.log; previous shader kept)");
                 return;
             }
-            
-            program = GL20.glCreateProgram();
-            GL20.glAttachShader(program, vs);
-            GL20.glAttachShader(program, fs);
-            GL20.glLinkProgram(program);
-            
-            if (GL20.glGetProgrami(program, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-                LOGGER.error("Shader link error: " + GL20.glGetProgramInfoLog(program));
+
+            int newProgram = GL20.glCreateProgram();
+            GL20.glAttachShader(newProgram, vs);
+            GL20.glAttachShader(newProgram, fs);
+            GL20.glLinkProgram(newProgram);
+
+            if (GL20.glGetProgrami(newProgram, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
+                LOGGER.error("Shader link error: " + GL20.glGetProgramInfoLog(newProgram));
+                dev.boze.api.utility.ChatHelper.sendMsg("BetterChams", "§cShader compile failed: " + path.getFileName() + " §7(see latest.log; previous shader kept)");
+                GL20.glDeleteProgram(newProgram);
                 return;
             }
-            
+
             GL20.glDeleteShader(vs);
             GL20.glDeleteShader(fs);
+
+            if (program != -1) GL20.glDeleteProgram(program);
+            program = newProgram;
 
             uSizeLoc = GL20.glGetUniformLocation(program, "u_Size");
             uTimeLoc = GL20.glGetUniformLocation(program, "u_Time");
             uFillColorLoc = GL20.glGetUniformLocation(program, "u_FillColor");
             uOutlineColorLoc = GL20.glGetUniformLocation(program, "u_OutlineColor");
             uIsOutlineLoc = GL20.glGetUniformLocation(program, "u_IsOutline");
-            
+
             uResolutionLoc = GL20.glGetUniformLocation(program, "u_Resolution");
             uColorLoc = GL20.glGetUniformLocation(program, "u_Color");
             uScaleLoc = GL20.glGetUniformLocation(program, "u_Scale");
             uMouseLoc = GL20.glGetUniformLocation(program, "u_Mouse");
-            
+
             LOGGER.info("Successfully compiled custom shader: " + path.getFileName());
+            dev.boze.api.utility.ChatHelper.sendMsg("BetterChams", "§aLoaded shader: " + path.getFileName());
         } catch (Exception e) {
             LOGGER.error("Failed to load shader file", e);
+            dev.boze.api.utility.ChatHelper.sendMsg("BetterChams", "§cFailed to read shader: " + path.getFileName());
         }
     }
 

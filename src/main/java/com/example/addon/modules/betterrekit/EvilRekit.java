@@ -93,7 +93,7 @@ public class EvilRekit extends AddonModule {
     public void saveKit(String name) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (mc.player.isCreative()) return;
+        if (mc.player.isCreative() || mc.player.isSpectator()) return;
         Map<Integer, KitItem> kitData = new HashMap<>();
         for (int i = 0; i < 36; i++) {
             int slot = getHandlerSlotPlayerOnly(i);
@@ -187,7 +187,7 @@ public class EvilRekit extends AddonModule {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || activeKit.isEmpty() || !(mc.screen instanceof AbstractContainerScreen)) return;
         if (mc.screen instanceof InventoryScreen) return; 
-
+        if (mc.player.isCreative() || mc.player.isSpectator()) return;
         if (ticks < delay.getValue()) { ticks++; return; }
         ticks = 0;
 

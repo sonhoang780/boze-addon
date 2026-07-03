@@ -1,19 +1,19 @@
 package com.example.addon.modules;
 
 import dev.boze.api.addon.AddonModule;
-import dev.boze.api.option.SliderOption;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.SliderOption;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.Slot;
-import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.Slot;
 
 public class ChestButtons extends AddonModule {
     public static final ChestButtons INSTANCE = new ChestButtons();

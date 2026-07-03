@@ -7,6 +7,7 @@ import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL33;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +28,13 @@ import java.nio.file.Path;
 public class CustomSkyRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger(CustomSkyRenderer.class);
 
+    // Debug instrumentation for the "image loads but sky stays black" report:
+    // one log line every ~10s answers (a) is the composite PostChain found+added,
+    // (b) is the offscreen FBO complete, (c) does the rendered texture actually
+    // contain non-black pixels. Remove once root cause confirmed.
+    public static volatile boolean debugChainSeen = false;
+    private static int debugCounter = 0;
+
     private static int customProgram = -1;
     private static int imageProgram = -1;
     private static int skyImageTexture = -1;
@@ -34,13 +42,20 @@ public class CustomSkyRenderer {
     private static int vao = -1;
     private static int vbo = -1;
 
+    // texCoord is standard normalized UV in [0,1] (matches what any shader author
+    // assumes from that name -- Shadertoy/GLSL convention). Do NOT hand out raw
+    // clip-space [-1,1] under this name: a custom shader (e.g. vangogh_sky.frag)
+    // that reasonably does its own "texCoord * 2.0 - 1.0" on top of an
+    // already-[-1,1] value doubles the range to [-3,1], warping/scaling the ray
+    // direction non-uniformly across the screen -- reported as nauseating
+    // scaling/distortion while turning the camera.
     private static final String VERTEX_SHADER =
         "#version 330 core\n" +
         "layout(location = 0) in vec3 Position;\n" +
         "out vec2 texCoord;\n" +
         "void main() {\n" +
         "    gl_Position = vec4(Position, 1.0);\n" +
-        "    texCoord = Position.xy;\n" +
+        "    texCoord = Position.xy * 0.5 + 0.5;\n" +
         "}\n";
 
     private static final String FRAG_HEADER =
@@ -55,22 +70,41 @@ public class CustomSkyRenderer {
     // Built-in equirectangular-sample shader for Image mode -- NOT user-provided, so
     // it can rely on the same u_InverseProj/u_InverseView ray reconstruction as the
     // custom-shader path without needing to process arbitrary user code.
+    // DEBUG (systematic-debugging Phase 3, single-variable test): when true, output the
+    // computed equirect UV as color instead of sampling u_SkyTexture -- isolates "UV math
+    // degenerate" from "texture sampling broken" for the CustomSky Image black-sky bug.
+    // Flip back to false once root cause confirmed.
+    private static final boolean DEBUG_UV_MODE = false;
+
     private static final String IMAGE_FRAG =
         FRAG_HEADER +
         "uniform sampler2D u_SkyTexture;\n" +
         "void main() {\n" +
-        "    vec4 clip = vec4(texCoord, 1.0, 1.0);\n" +
+        "    vec4 clip = vec4(texCoord * 2.0 - 1.0, 1.0, 1.0);\n" +
         "    vec4 viewPos = u_InverseProj * clip;\n" +
         "    viewPos = vec4(viewPos.xy, -1.0, 0.0);\n" +
         "    vec3 dir = normalize((u_InverseView * viewPos).xyz);\n" +
         "    float u = atan(dir.z, dir.x) / 6.28318530718 + 0.5;\n" +
         "    float v = acos(clamp(dir.y, -1.0, 1.0)) / 3.14159265359;\n" +
-        "    fragColor = texture(u_SkyTexture, vec2(u, v));\n" +
+        (DEBUG_UV_MODE ?
+        "    fragColor = vec4(u, v, 0.0, 1.0);\n" :
+        "    fragColor = texture(u_SkyTexture, vec2(u, v));\n") +
         "}\n";
 
     public static void loadCustomShader(Path path) {
         try {
             String userCode = new String(Files.readAllBytes(path));
+
+            // Bedrock Edition RenderDragon/BGFX shaderpacks (.sc sources renamed to
+            // .frag) use a completely different shading dialect -- "#include
+            // <bgfx_shader.sh>"/"$input"/"$output" directives desktop GLSL can't
+            // resolve at all. Not fixable by wrapping like Shadertoy dumps; fail with
+            // a clear reason instead of a cryptic "unexpected $undefined" GLSL parse error.
+            if (userCode.contains("bgfx_shader.sh") || userCode.matches("(?s).*\\$input\\b.*")) {
+                dev.boze.api.utility.ChatHelper.sendMsg("CustomSky", "§c" + path.getFileName() + " §7is a Bedrock Edition (BGFX) shaderpack file, not a desktop GLSL shader -- not supported.");
+                return;
+            }
+
             userCode = userCode.replaceAll("(?m)^[ \\t]*#version\\s+.*$", "");
 
             java.util.regex.Pattern outPattern = java.util.regex.Pattern.compile("(?m)^[ \\t]*out\\s+vec4\\s+(\\w+)\\s*;");
@@ -84,6 +118,17 @@ public class CustomSkyRenderer {
                 m = outPattern.matcher(userCode);
             }
 
+            // Legacy Boze/downloaded shaders often re-declare uniforms our FRAG_HEADER
+            // already provides (u_Resolution, u_Time, etc.) under the SAME name -- GLSL
+            // treats a second "uniform <type> name;" for an existing name as a hard
+            // "conflicts with previous declaration" compile error (e.g. "sky (2).frag").
+            // Strip the user's own declaration line for each reserved name; the
+            // header's copy still applies.
+            for (String reserved : new String[] { "u_InverseProj", "u_InverseView", "u_Resolution", "u_Time", "u_IsImage", "u_SkyTexture" }) {
+                userCode = userCode.replaceAll(
+                    "(?m)^[ \\t]*uniform\\s+\\w+\\s+" + java.util.regex.Pattern.quote(reserved) + "\\s*;[ \\t]*(//[^\\n]*)?$", "");
+            }
+
             // Shadertoy dumps (the most common .frag found online) define
             // mainImage(out vec4, in vec2) + iTime/iResolution instead of main().
             // Wrap them so they compile against our uniforms.
@@ -93,12 +138,20 @@ public class CustomSkyRenderer {
                     "#define iResolution vec3(u_Resolution, 1.0)\n" +
                     userCode +
                     "\nvoid main() {\n" +
-                    "    vec2 fragCoord = (texCoord * 0.5 + 0.5) * u_Resolution;\n" +
+                    "    vec2 fragCoord = texCoord * u_Resolution;\n" +
                     "    mainImage(fragColor, fragCoord);\n" +
                     "}\n";
             }
 
-            String fullFrag = FRAG_HEADER + userCode;
+            // Hybrid shaders (procedural-vs-background-photo, e.g. downloaded/AI-written
+            // "if (u_IsImage) sample photo else draw procedural sky" templates) expect
+            // these two names to exist regardless of mode -- declare them for every
+            // custom shader, not just the built-in IMAGE_FRAG, and bind whatever image
+            // is currently loaded (if any) so such shaders compile and can react to it.
+            String fullFrag = FRAG_HEADER +
+                "uniform bool u_IsImage;\n" +
+                "uniform sampler2D u_SkyTexture;\n" +
+                userCode;
             int newProg = compileProgram(VERTEX_SHADER, fullFrag);
             if (newProg != -1) {
                 if (customProgram != -1) GL20.glDeleteProgram(customProgram);
@@ -132,11 +185,41 @@ public class CustomSkyRenderer {
                     // cache desyncs subsequent vanilla draws.
                     int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
                     GL11.glBindTexture(GL11.GL_TEXTURE_2D, skyImageTexture);
+                    // Vanilla NativeImage uploads set GL_UNPACK_ROW_LENGTH/SKIP_* for
+                    // sub-region uploads and may leave them nonzero; stbi buffers are
+                    // tightly packed, so reset unpack state or rows read shifted.
+                    GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+                    GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+                    GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+                    GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
                     GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, w.get(0), h.get(0), 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, image);
-                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                    // The sky quad covers the whole screen from a source image seen at a
+                    // fraction of its 360x180 coverage (e.g. ~70deg FOV out of 360deg), so
+                    // many image texels map to one screen pixel -- classic minification.
+                    // A single mip level + bilinear-only MIN_FILTER aliases/shimmers on
+                    // high-frequency content (star points) as the camera turns, which read
+                    // as "pixelated/low-res" and janky despite a healthy frame rate.
+                    // Mipmapping + trilinear MIN_FILTER fixes both.
+                    GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
+                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
                     GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
                     GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
                     GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+                    if (org.lwjgl.opengl.GL.getCapabilities().GL_EXT_texture_filter_anisotropic) {
+                        float maxAniso = GL11.glGetFloat(org.lwjgl.opengl.EXTTextureFilterAnisotropic.GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+                        GL11.glTexParameterf(GL11.GL_TEXTURE_2D, org.lwjgl.opengl.EXTTextureFilterAnisotropic.GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+                    }
+
+                    // Debug: read the uploaded texture back so the log proves whether the
+                    // upload itself carried real pixel data (vs black/garbage from stale
+                    // GL_UNPACK_* state left behind by vanilla/Skija uploads).
+                    java.nio.ByteBuffer readback = org.lwjgl.BufferUtils.createByteBuffer(w.get(0) * h.get(0) * 4);
+                    GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, readback);
+                    int mid = (h.get(0) / 2 * w.get(0) + w.get(0) / 2) * 4;
+                    LOGGER.info("[CustomSky DEBUG] upload readback centerTexel=({},{},{},{}) glError=0x{}",
+                        readback.get(mid) & 0xFF, readback.get(mid + 1) & 0xFF, readback.get(mid + 2) & 0xFF, readback.get(mid + 3) & 0xFF,
+                        Integer.toHexString(GL11.glGetError()));
+
                     GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
 
                     org.lwjgl.stb.STBImage.stbi_image_free(image);
@@ -257,19 +340,85 @@ public class CustomSkyRenderer {
         int locTime = GL20.glGetUniformLocation(program, "u_Time");
         if (locTime != -1) GL20.glUniform1f(locTime, (System.currentTimeMillis() % 10000000L) / 1000.0f);
 
+        // This is the Mio client's documented "Skybox Custom Shaders" uniform set
+        // (uniform vec4 u_Color // SkyColor; vec2 u_Resolution; vec2 u_Mouse // yaw/pitch
+        // angles; float u_Scale; float u_Time) -- confirmed against Mio's own docs, not
+        // guessed. u_Color defaults to (0,0,0,0) if unset, so a shader that multiplies
+        // its final alpha by u_Color.a (like the reference 4sXfDj port) stayed fully
+        // transparent -- the compositor's mix(base, sky, sky.a) then kept 100% vanilla
+        // sky no matter what the shader drew. Default to opaque white so it's visible.
+        int locColor = GL20.glGetUniformLocation(program, "u_Color");
+        if (locColor != -1) GL20.glUniform4f(locColor, 1.0f, 1.0f, 1.0f, 1.0f);
+        int locMouse = GL20.glGetUniformLocation(program, "u_Mouse");
+        if (locMouse != -1) {
+            // "Yaw and pitch angles relative to Screen": these 2D-noise skybox shaders
+            // have no real 3D ray reconstruction (unlike our IMAGE_FRAG/BEDROCK_SHADER) --
+            // they fake camera rotation by offsetting a screen-space UV with this value.
+            // Mio's own source isn't available to us, and community ports disagree on
+            // scale: "sky (2).frag" ADDS u_Mouse directly into a [0,1] UV, so raw radians
+            // (up to +-pi) overshot it wildly -- reported as nauseating scroll speed.
+            // "shader (4).frag" instead divides by u_Resolution first, so it's insensitive
+            // to this scale either way. Using a heavily damped turn-fraction here as a
+            // best-effort compromise; report back if a specific shader still feels wrong
+            // and we can special-case or expose a sensitivity option.
+            float yawFrac = (mc.player != null ? mc.player.getYRot() : 0.0f) / 360.0f;
+            float pitchFrac = (mc.player != null ? mc.player.getXRot() : 0.0f) / 360.0f;
+            float sensitivity = 0.15f;
+            GL20.glUniform2f(locMouse, yawFrac * sensitivity, pitchFrac * sensitivity);
+        }
+        int locScale = GL20.glGetUniformLocation(program, "u_Scale");
+        if (locScale != -1) GL20.glUniform1f(locScale, 1.0f);
+
+        int locIsImage = GL20.glGetUniformLocation(program, "u_IsImage");
+        if (locIsImage != -1) GL20.glUniform1i(locIsImage, mode == CustomSky.Mode.Image ? 1 : 0);
+
         int prevActiveTex = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
         int prevBoundTex = -1;
-        if (mode == CustomSky.Mode.Image) {
+        int prevSampler = -1;
+        int debugLocTex = -2; // -2 = uniform not declared in this program
+        int debugBoundAtDraw = -1;
+        {
+            // Bind for BOTH modes now: hybrid custom shaders (mode==Shader) can declare
+            // u_SkyTexture/u_IsImage to react to whatever image is currently loaded, same
+            // as the built-in IMAGE_FRAG. glGetUniformLocation returns -1 harmlessly for
+            // shaders that don't reference it.
             int locTex = GL20.glGetUniformLocation(program, "u_SkyTexture");
+            debugLocTex = locTex;
             if (locTex != -1) {
                 GL20.glUniform1i(locTex, 0);
                 GL13.glActiveTexture(GL13.GL_TEXTURE0);
                 prevBoundTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, skyImageTexture != -1 ? skyImageTexture : 0);
+                // MC 26.1.2's GPU device abstraction pairs textures with separate
+                // GpuSampler objects (glBindSampler), which override a texture's own
+                // glTexParameteri filter/wrap/compare settings on that unit. Whatever
+                // sampler object vanilla last bound to unit 0 (e.g. a shadow/depth
+                // comparison sampler) silently governs our sample instead of the
+                // LINEAR/REPEAT params we set on skyImageTexture -- clear it so the
+                // texture object's own parameters apply, like legacy fixed-function GL.
+                prevSampler = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
+                GL33.glBindSampler(0, 0);
+                // Confirm the bind actually stuck right before the draw consumes it.
+                debugBoundAtDraw = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
             }
         }
 
         drawQuad();
+
+        if (prevSampler != -1) GL33.glBindSampler(0, prevSampler);
+
+        if (++debugCounter % 200 == 0) {
+            int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
+            java.nio.ByteBuffer px = org.lwjgl.BufferUtils.createByteBuffer(4);
+            GL11.glReadPixels(width / 2, height / 2, 1, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, px);
+            int err = GL11.glGetError();
+            LOGGER.info("[CustomSky DEBUG] mode={} fboStatus=0x{} glError=0x{} tex={} {}x{} centerPx=({},{},{},{}) chainSeen={} scissor={} blend={} depthTest={} cull={} stencil={} locTex={} skyImageTexture={} boundAtDraw={}",
+                mode, Integer.toHexString(status), Integer.toHexString(err), outTexId, width, height,
+                px.get(0) & 0xFF, px.get(1) & 0xFF, px.get(2) & 0xFF, px.get(3) & 0xFF, debugChainSeen,
+                GL11.glIsEnabled(GL11.GL_SCISSOR_TEST), GL11.glIsEnabled(GL11.GL_BLEND),
+                GL11.glIsEnabled(GL11.GL_DEPTH_TEST), GL11.glIsEnabled(GL11.GL_CULL_FACE),
+                GL11.glIsEnabled(GL11.GL_STENCIL_TEST), debugLocTex, skyImageTexture, debugBoundAtDraw);
+        }
 
         // Restore texture state so blaze3d's cached bindings stay in sync
         if (prevBoundTex != -1) GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevBoundTex);

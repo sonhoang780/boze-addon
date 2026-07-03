@@ -6,39 +6,37 @@ import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
-import com.example.addon.commands.GoalCommand;
-import com.example.addon.commands.ElytraCommand;
 import com.example.addon.modules.AntiMace;
-import com.example.addon.modules.BetterBasePlace;
-import com.example.addon.modules.MaceAura;
 import com.example.addon.modules.AntiPiston;
-import com.example.addon.modules.Dummy;
 import com.example.addon.modules.AutoPortal;
-import com.example.addon.modules.betterrekit.EvilRekit;
-import com.example.addon.modules.ChestButtons;
+import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.BetterChams;
-import com.example.addon.modules.EbookReader;
-import com.example.addon.modules.EBounce;
-import com.example.addon.modules.VanillaEBounce;
+import com.example.addon.modules.ChestButtons;
+import com.example.addon.modules.CustomSky;
+import com.example.addon.modules.Dummy;
 import com.example.addon.modules.EBouncePlus;
+import com.example.addon.modules.EbookReader;
 import com.example.addon.modules.ElytraFix;
 import com.example.addon.modules.FakeFly;
 import com.example.addon.modules.GifHUD;
 import com.example.addon.modules.HUDEditor;
+import com.example.addon.modules.InvMovePlus;
 import com.example.addon.modules.InventoryCleaner;
 import com.example.addon.modules.InventorySorter;
-import com.example.addon.modules.InvMovePlus;
 import com.example.addon.modules.LoadingScreen;
+import com.example.addon.modules.MaceAura;
 import com.example.addon.modules.MusicHUD;
-import com.example.addon.modules.TungTungSahur;
-import com.example.addon.modules.PlayMusic;
-import com.example.addon.modules.SpotifyIntegration;
-import com.example.addon.modules.SelfWeb;
-import com.example.addon.modules.VersionHUD;
 import com.example.addon.modules.PathFinder;
+import com.example.addon.modules.PlayMusic;
+import com.example.addon.modules.SelfWeb;
+import com.example.addon.modules.SpotifyIntegration;
+import com.example.addon.modules.TungTungSahur;
+import com.example.addon.modules.VersionHUD;
+import com.example.addon.modules.betterrekit.EvilRekit;
 import com.example.addon.modules.chestscan.ChestScan;
-import dev.boze.api.addon.Addon;
+
 import dev.boze.api.BozeInstance;
+import dev.boze.api.addon.Addon;
 
 public class ExampleAddon extends Addon {
 
@@ -68,20 +66,21 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(KitCommand.INSTANCE);
         dispatcher.registerCommand(PrintModuleCommand.INSTANCE);
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
-        dispatcher.registerCommand(GoalCommand.INSTANCE);
-        dispatcher.registerCommand(ElytraCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(MaceAura.INSTANCE);
         modules.add(Dummy.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
-        modules.add(EBounce.INSTANCE);
-        modules.add(VanillaEBounce.INSTANCE);
+        // modules.add(EBounce.INSTANCE);
+        // modules.add(VanillaEBounce.INSTANCE);
         modules.add(EBouncePlus.INSTANCE);
         modules.add(AutoPortal.INSTANCE);
         modules.add(ChestButtons.INSTANCE);
         BetterChams.registerTextures();
+        com.example.addon.rendering.GlowBlur.registerTextures();
         modules.add(BetterChams.INSTANCE);
+        TungTungSahur.registerTextures();
+        CustomSky.registerTextures();
         modules.add(EbookReader.INSTANCE);
         modules.add(ElytraFix.INSTANCE);
         modules.add(FakeFly.INSTANCE);
@@ -100,6 +99,14 @@ public class ExampleAddon extends Addon {
         modules.add(VersionHUD.INSTANCE);
         modules.add(PathFinder.INSTANCE);
         modules.add(ChestScan.INSTANCE);
+        modules.add(CustomSky.INSTANCE);
+
+        // Must run after every modules.add() above (needs the full list) and before
+        // Boze's own Addon#load() reads config.json — backfills any option missing from
+        // the saved file so Boze's loader never NPEs on a newly-added option and silently
+        // drops every module after it in load order. See ConfigMigrator.fillMissingOptions.
+        ConfigMigrator.fillMissingOptions(ID, modules);
+
         // Register client module extensions - demonstrate extension API
         extensions.add(new ExampleExtension());
 

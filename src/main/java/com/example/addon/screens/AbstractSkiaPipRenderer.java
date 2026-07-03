@@ -28,28 +28,31 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Renders {@link SkiaPipState} elements with GPU Skija, registered into Minecraft's own
- * Picture-in-Picture mechanism ({@code GuiRenderState.addPicturesInPictureState}).
+ * Shared GPU-Skija rendering logic for {@link SkiaPaintedState} elements, registered
+ * into Minecraft's own Picture-in-Picture mechanism ({@code GuiRenderState.addPicturesInPictureState}).
  *
- * <p>{@code prepare()} (in the base class) sets {@code RenderSystem.outputColorTextureOverride}
- * to this element's own private offscreen {@code GpuTextureView} before calling
- * {@link #renderToTexture}, then later blits that texture into the GUI batch at the
- * element's correctly-sorted Z position via the normal {@code BlitRenderState} path —
- * the SAME mechanism builtin renderers (entity heads, item previews, book pages) use.
- * That's what gives this Skija content correct Z-ordering relative to whatever Screen
- * is open, instead of the always-on-top behaviour of drawing at the literal end of frame.
+ * <p><b>Why one concrete subclass + one state record type PER CONSUMER, instead of a
+ * single shared renderer/state pair for everything:</b> {@code PictureInPictureRenderer}
+ * holds exactly ONE shared {@code texture}/{@code textureView} field per renderer
+ * INSTANCE (verified via javap on the 26.1.2 jar) -- {@code prepare()} renders the
+ * current state into that shared texture and immediately queues a {@code BlitRenderState}
+ * referencing that SAME texture VIEW OBJECT via {@code GuiRenderState.addBlitToCurrentLayer}.
+ * That queued blit is a deferred draw command (for Z-order sorting against the rest of
+ * the GUI), not an immediate pixel copy. When two DIFFERENT elements both dispatch
+ * through the same renderer instance in the same frame (MC dispatches states to
+ * renderers by matching {@code state.getClass()} to {@code renderer.getRenderStateClass()}),
+ * the second element's render overwrites the shared texture's pixels before the first
+ * element's already-queued blit is ever executed at draw time -- so both blits end up
+ * showing whichever element rendered LAST. This was reproduced exactly as predicted:
+ * MusicHUD (persistent HUD) and GifHUD's drop-shadow (also HUD, added later) both used
+ * the same shared {@code SkiaPipRenderer}/{@code SkiaPipState}, and whichever rendered
+ * second each frame stomped the other's content; EBookReader's page (screen-based,
+ * visible alongside the persistent MusicHUD) did the same to both.
  *
- * <p>We don't need access to the base class's private texture fields: we just read the
- * public {@code RenderSystem.outputColorTextureOverride} it already set, unwrap its GL
- * id (same {@code GlTexture.glId()} technique {@code SkijaBackdropBlur} uses), wrap our
- * own FBO + stencil renderbuffer around it, and draw with Skija exactly as before.
- * {@link #textureIsReadyToBlit} always returns false so every element redraws every
- * frame — there is no CPU raster step here to make caching worthwhile.
+ * <p>Each subclass below gets its own instance (own texture field) and its own state
+ * record type (so MC's dispatch never conflates two consumers into one instance).
  */
-public final class SkiaPipRenderer extends PictureInPictureRenderer<SkiaPipState> {
-
-    /** The single registered instance (see the GameRenderer constructor mixin). */
-    public static volatile SkiaPipRenderer ACTIVE;
+public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extends PictureInPictureRenderer<T> {
 
     private static final int GL_RGBA8 = 0x8058;
 
@@ -64,22 +67,15 @@ public final class SkiaPipRenderer extends PictureInPictureRenderer<SkiaPipState
     }
     private final Map<Identifier, BorrowedImage> borrowed = new HashMap<>();
 
-    public SkiaPipRenderer(MultiBufferSource.BufferSource bufferSource) {
+    protected AbstractSkiaPipRenderer(MultiBufferSource.BufferSource bufferSource) {
         super(bufferSource);
-        ACTIVE = this;
     }
 
     @Override
-    public Class<SkiaPipState> getRenderStateClass() { return SkiaPipState.class; }
+    protected boolean textureIsReadyToBlit(T state) { return false; }
 
     @Override
-    protected String getTextureLabel() { return "skia_pip"; }
-
-    @Override
-    protected boolean textureIsReadyToBlit(SkiaPipState state) { return false; }
-
-    @Override
-    protected void renderToTexture(SkiaPipState state, PoseStack matrices) {
+    protected void renderToTexture(T state, PoseStack matrices) {
         GpuTextureView colorView = RenderSystem.outputColorTextureOverride;
         if (colorView == null) return;
         GpuTexture colorTex = colorView.texture();
@@ -124,7 +120,7 @@ public final class SkiaPipRenderer extends PictureInPictureRenderer<SkiaPipState
                 ctx.flushAndSubmit(false);
             }
         } catch (Throwable t) {
-            System.err.println("[SkiaPipRenderer] paint error: " + t);
+            System.err.println("[" + getClass().getSimpleName() + "] paint error: " + t);
             t.printStackTrace();
         } finally {
             GL30C.glBindFramebuffer(GL30C.GL_FRAMEBUFFER, savedFbo);

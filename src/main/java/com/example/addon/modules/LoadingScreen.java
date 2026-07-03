@@ -34,8 +34,12 @@ public class LoadingScreen extends AddonModule {
     public boolean introPlayed = false;
 
     // DEFAULT values. These change dynamically when you select a video in the UI.
-    public String selectedBgName = "background.mp4";
-    public String selectedIntroName = "intro.mp4";
+    public String getBgName() {
+        return com.example.addon.AddonConfig.get("loadingscreen_bg", "background.mp4");
+    }
+    public String getIntroName() {
+        return com.example.addon.AddonConfig.get("loadingscreen_intro", "intro.mp4");
+    }
 
     private CachedSkiaTexture panelTex;
 
@@ -191,8 +195,11 @@ public class LoadingScreen extends AddonModule {
             if (mouseDown && !wasMouseDown) {
                 if (hoverOpen && selectedFile != null) { 
                     // REPLACES DEFAULT VARIABLE WITH THE NEW DYNAMIC NAME
-                    if (mode.equals("background")) selectedBgName = selectedFile.getName();
-                    else selectedIntroName = selectedFile.getName();
+                    if (mode.equals("background")) {
+                        com.example.addon.AddonConfig.set("loadingscreen_bg", selectedFile.getName());
+                    } else {
+                        com.example.addon.AddonConfig.set("loadingscreen_intro", selectedFile.getName());
+                    }
                     this.onClose();
                 }
                 else if (hoverClose) this.onClose();

@@ -30,9 +30,9 @@ import java.util.Set;
 public class ChestScan extends AddonModule {
     public static final ChestScan INSTANCE = new ChestScan();
 
-    public final SliderOption scanRadius = new SliderOption(this, "Scan Radius",
+    public final SliderOption scanRadius = new SliderOption(this, "ScanRadius",
         "How far (in blocks) to render tracked chests and consider hopper chains.", 64.0, 8.0, 128.0, 1.0);
-    public final ToggleOption hopperChain = new ToggleOption(this, "Hopper Chain",
+    public final ToggleOption hopperChain = new ToggleOption(this, "HopperChain",
         "Smart mode to check chests linked to the bottom chest by hoppers", false);
 
     private final ChestScanStore store = new ChestScanStore();

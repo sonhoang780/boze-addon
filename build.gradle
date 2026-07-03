@@ -70,8 +70,12 @@ dependencies {
     def ytSourceVersion = "9d4dbeeb51f16d53078486d69d27654d4acfa7fb-SNAPSHOT"
     def rhinoVersion = "1.7.14"
     
-    // ─── SKIJA DEPENDENCIES (BẢN MỚI NHẤT) ────────────────────────
-    def skijaVersion = "0.143.17" 
+    // ─── SKIJA DEPENDENCIES ───────────────────────────────────────
+    // Two release lines exist: 0.119.x (legacy Skia m119) and 0.143.x (main, Skia m143).
+    // BackendTexture/borrowTextureFrom (Skija PR #116, needed by SkijaBackdropBlur &
+    // SkiaPipRenderer) only exists in the 0.143.x line -- 0.119.6 has a NEWER publish
+    // date but does NOT contain it. Don't "upgrade" back to 0.119.x.
+    def skijaVersion = "0.143.17"
     def typesVersion = "0.2.0"
     
     implementation "io.github.humbleui:types:${typesVersion}"

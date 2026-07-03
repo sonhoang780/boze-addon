@@ -33,7 +33,7 @@ public class CustomLoadingScreen extends Screen {
         initMs = System.currentTimeMillis();
         
         // GRAB DYNAMIC NAME FROM MODULE
-        String targetIntroPath = "boze/intro/" + com.example.addon.modules.LoadingScreen.INSTANCE.selectedIntroName;
+        String targetIntroPath = "boze/intro/" + com.example.addon.modules.LoadingScreen.INSTANCE.getIntroName();
         File videoFile = FabricLoader.getInstance().getGameDir().resolve(targetIntroPath).toFile();
         
         if (!videoFile.exists()) {

@@ -27,6 +27,8 @@ public class ChamsImageTexture extends AbstractTexture {
     private DynamicTexture inner;
     private boolean hasImage = false;
     private boolean isLoading = false;
+
+    private volatile int loadGeneration = 0;
     
     private final List<DynamicTexture> gifFrames = new ArrayList<>();
     private boolean isGif = false;
@@ -42,6 +44,7 @@ public class ChamsImageTexture extends AbstractTexture {
     }
 
     public void loadImage(Path path) {
+        loadGeneration++; // cancel any gif decode still running from a previous loadImage call
         if (path.toString().toLowerCase().endsWith(".gif")) {
             loadGifAsync(path);
         } else {
@@ -70,7 +73,8 @@ public class ChamsImageTexture extends AbstractTexture {
         if (isLoading) return;
         isLoading = true;
         hasImage = false;
-        
+        final int myGeneration = loadGeneration;
+
         CompletableFuture.runAsync(() -> {
             try {
                 byte[] gifBytes = Files.readAllBytes(path);
@@ -85,6 +89,12 @@ public class ChamsImageTexture extends AbstractTexture {
 
                 List<byte[]> rawFrames = new ArrayList<>();
                 for (int i = 0; i < numFrames; i++) {
+                    if (myGeneration != loadGeneration) {
+                        // A newer loadImage()/mode switch superseded this decode; stop wasting work.
+                        g2.dispose(); reader.dispose(); iis.close();
+                        isLoading = false;
+                        return;
+                    }
                     g2.drawImage(reader.read(i), 0, 0, null);
                     BufferedImage baked = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
                     java.awt.Graphics2D gc = baked.createGraphics();
@@ -97,6 +107,12 @@ public class ChamsImageTexture extends AbstractTexture {
                 g2.dispose(); reader.dispose(); iis.close();
 
                 mcExecute(() -> {
+                    if (myGeneration != loadGeneration) {
+                        // Superseded while hopping back to the main thread -- discard, don't clobber
+                        // whatever the newer selection (image/shader/different gif) already set.
+                        isLoading = false;
+                        return;
+                    }
                     clearGif();
                     try {
                         for (int i = 0; i < rawFrames.size(); i++) {
@@ -107,6 +123,7 @@ public class ChamsImageTexture extends AbstractTexture {
                         }
                         isGif = true;
                         currentFrame = 0;
+                        playDirection = 1;
                         if (!gifFrames.isEmpty()) {
                             if (inner != null && !gifFrames.contains(inner)) inner.close();
                             inner = gifFrames.get(0);
@@ -126,15 +143,36 @@ public class ChamsImageTexture extends AbstractTexture {
         });
     }
     
+    private int playDirection = 1;
+
     public void tick(double frameDelayMs) {
+        tick(frameDelayMs, false);
+    }
+
+    public void tick(double frameDelayMs, boolean bounce) {
         if (!isGif || gifFrames.isEmpty() || !hasImage) return;
-        
+
         long now = System.currentTimeMillis();
         long delay = (long) frameDelayMs;
         if (now - lastFrameTime >= delay) {
-            currentFrame = (currentFrame + 1) % gifFrames.size();
             lastFrameTime = now;
-            
+
+            if (bounce && gifFrames.size() > 1) {
+                // Ping-pong instead of wrapping: hides the seam where a looping GIF
+                // visibly jump-cuts from its last frame back to its first.
+                int next = currentFrame + playDirection;
+                if (next >= gifFrames.size()) {
+                    playDirection = -1;
+                    next = gifFrames.size() - 2;
+                } else if (next < 0) {
+                    playDirection = 1;
+                    next = 1;
+                }
+                currentFrame = next;
+            } else {
+                currentFrame = (currentFrame + 1) % gifFrames.size();
+            }
+
             inner = gifFrames.get(currentFrame);
             syncFromInner();
         }
@@ -193,6 +231,10 @@ public class ChamsImageTexture extends AbstractTexture {
             this.textureView = inner.getTextureView();
             this.sampler     = inner.getSampler();
         }
+    }
+
+public void cancelPendingDecode() {
+        loadGeneration++;
     }
 
     public boolean hasImage() {

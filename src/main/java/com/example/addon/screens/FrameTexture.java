@@ -15,6 +15,7 @@ import net.minecraft.resources.Identifier;
  */
 public final class FrameTexture {
 
+    private static int counter = 0;
     private final Identifier id;
     private DynamicTexture tex;
     private NativeImage owned;   // the texture's backing image (texture owns/closes it)
@@ -22,7 +23,7 @@ public final class FrameTexture {
     private boolean registered = false;
 
     public FrameTexture(String key) {
-        this.id = Identifier.fromNamespaceAndPath("bozemenu", key);
+        this.id = Identifier.fromNamespaceAndPath("bozemenu", key + "_" + (counter++));
     }
 
     public int width()     { return width; }
@@ -40,11 +41,13 @@ public final class FrameTexture {
             if (tex == null || width != w || height != h) {
                 // (re)create at the new size; registering replaces+closes the old texture.
                 owned = new NativeImage(NativeImage.Format.RGBA, w, h, false);
+                owned.copyFrom(src);
                 tex = new DynamicTexture(() -> "bozemenu/" + id.getPath(), owned);
                 Minecraft.getInstance().getTextureManager().register(id, tex);
                 width = w; height = h; registered = true;
+            } else {
+                owned.copyFrom(src);
             }
-            owned.copyFrom(src);
             tex.upload();
             return true;
         } catch (Exception e) {
@@ -56,7 +59,7 @@ public final class FrameTexture {
     /** Stretches the full texture into the destination rect (GUI units). */
     public void blit(GuiGraphicsExtractor ctx, int x, int y, int w, int h) {
         if (!registered || width <= 0 || height <= 0) return;
-        ctx.blit(RenderPipelines.GUI_TEXTURED, id,
+        ctx.blit(RenderPipelines.GUI_TEXTURED_PREMULTIPLIED_ALPHA, id,
             x, y, 0f, 0f, w, h, width, height, width, height);
     }
 
@@ -65,7 +68,7 @@ public final class FrameTexture {
         if (!registered || width <= 0 || height <= 0 || alpha <= 0f) return;
         // 13-arg blit: last int is ARGB color tint (white + given alpha).
         int color = (Math.min(255, (int)(alpha * 255f)) << 24) | 0x00FFFFFF;
-        ctx.blit(RenderPipelines.GUI_TEXTURED, id,
+        ctx.blit(RenderPipelines.GUI_TEXTURED_PREMULTIPLIED_ALPHA, id,
             x, y, 0f, 0f, w, h, width, height, width, height, color);
     }
 

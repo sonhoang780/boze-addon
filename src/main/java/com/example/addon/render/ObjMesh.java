@@ -104,6 +104,26 @@ public class ObjMesh {
         }
     }
 
+    /**
+     * Same triangle data as render(), but emitted as plain triangles (3 verts each,
+     * no degenerate 4th padding vertex). Use for RenderTypes whose VertexFormat.Mode
+     * is TRIANGLES rather than QUADS -- padding a triangles-mode stream with a
+     * duplicated 4th vertex desyncs every subsequent triangle grouping by one vertex,
+     * stitching each face to unrelated vertices from neighboring faces. This showed up
+     * as a tall, thin, screen-spanning bright sliver replacing the model specifically
+     * during the translucent fade-out (getTranslucentLayer()), while the normal
+     * getCutoutLayer() render (which uses this class's other render() overload) always
+     * looked correct -- consistent with the two RenderTypes using different vertex
+     * format modes for the same VertexConsumer-based API.
+     */
+    public void renderTriangles(PoseStack.Pose pose, VertexConsumer consumer, int light, int overlay, int alpha) {
+        for (int tri = 0; tri < triangleCount; tri++) {
+            emit(pose, consumer, light, overlay, tri * 3,     alpha);
+            emit(pose, consumer, light, overlay, tri * 3 + 1, alpha);
+            emit(pose, consumer, light, overlay, tri * 3 + 2, alpha);
+        }
+    }
+
     private void emit(PoseStack.Pose pose, VertexConsumer c, int light, int overlay, int vi, int alpha) {
         int b = vi * 8;
         c.addVertex(pose, data[b], data[b+1], data[b+2])

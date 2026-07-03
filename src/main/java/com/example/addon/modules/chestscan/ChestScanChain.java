@@ -22,15 +22,24 @@ public final class ChestScanChain {
 
     /**
      * Direct chest-to-chest edges discovered through exactly one connecting hopper.
-     * Case 1: a hopper directly below a tracked chest pulls FROM it (chest is the source).
-     * Case 2: a hopper anywhere adjacent to a tracked chest, facing INTO it, feeds FROM
+     * Case 1: a hopper directly below a chest pulls FROM it (chest is the source).
+     * Case 2: a hopper anywhere adjacent to a chest, facing INTO it, feeds FROM
      * whatever chest sits directly above that hopper (chest is the destination).
+     *
+     * Explores outward from trackedChests (the chests the player has actually opened)
+     * by following hopper links in both directions, so the whole chain gets discovered
+     * even though only one chest in it was ever opened — not just the single edge
+     * touching a tracked chest directly.
      */
     public static Map<BlockPos, BlockPos> findEdges(Level level, Set<BlockPos> trackedChests, BlockPos center, int radiusBlocks) {
         Map<BlockPos, BlockPos> edges = new HashMap<>();
         double radiusSq = (double) radiusBlocks * radiusBlocks;
 
-        for (BlockPos chestPos : trackedChests) {
+        Deque<BlockPos> frontier = new ArrayDeque<>(trackedChests);
+        Set<BlockPos> visited = new HashSet<>(trackedChests);
+
+        while (!frontier.isEmpty()) {
+            BlockPos chestPos = frontier.poll();
             if (chestPos.distSqr(center) > radiusSq) continue;
 
             BlockPos belowPos = chestPos.below();
@@ -40,6 +49,7 @@ public final class ChestScanChain {
                 BlockPos dest = belowPos.relative(facing);
                 if (isChest(level.getBlockState(dest))) {
                     edges.put(chestPos, dest);
+                    if (visited.add(dest)) frontier.add(dest);
                 }
             }
 
@@ -51,6 +61,7 @@ public final class ChestScanChain {
                 BlockPos sourcePos = hopperPos.above();
                 if (isChest(level.getBlockState(sourcePos))) {
                     edges.put(sourcePos, chestPos);
+                    if (visited.add(sourcePos)) frontier.add(sourcePos);
                 }
             }
         }
@@ -64,34 +75,26 @@ public final class ChestScanChain {
     /**
      * Given source->dest edges and known real (opened) statuses, returns positions that
      * should render as "inferred empty": ancestors (via the edge graph, walked backward)
-     * of a sink chest (no outgoing edge) whose real status is known and not FULL, excluding
-     * any position that already has a real recorded status (real always wins over inference).
+     * of ANY chest whose real status is known and not FULL — not just chain sinks. Opening
+     * a chest in the middle of a stack (which still has its own outgoing edge further down)
+     * must still propagate "empty" upward to its ancestors. Excludes any position that
+     * already has a real recorded status (real always wins over inference).
      */
     public static Set<BlockPos> inferEmpty(Map<BlockPos, BlockPos> edges, Map<BlockPos, ChestScanStore.ChestStatus> realStatuses) {
-        Set<BlockPos> hasOutgoing = edges.keySet();
-        Set<BlockPos> allChests = new HashSet<>();
-        allChests.addAll(edges.keySet());
-        allChests.addAll(edges.values());
-
-        Set<BlockPos> sinks = new HashSet<>();
-        for (BlockPos c : allChests) {
-            if (!hasOutgoing.contains(c)) sinks.add(c);
-        }
-
         Map<BlockPos, List<BlockPos>> reverse = new HashMap<>();
         for (Map.Entry<BlockPos, BlockPos> e : edges.entrySet()) {
             reverse.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
         }
 
         Set<BlockPos> inferred = new HashSet<>();
-        for (BlockPos sink : sinks) {
-            ChestScanStore.ChestStatus sinkStatus = realStatuses.get(sink);
-            if (sinkStatus == null || sinkStatus == ChestScanStore.ChestStatus.FULL) continue;
+        Set<BlockPos> visited = new HashSet<>();
+        for (Map.Entry<BlockPos, ChestScanStore.ChestStatus> e : realStatuses.entrySet()) {
+            if (e.getValue() == ChestScanStore.ChestStatus.FULL) continue;
+            BlockPos start = e.getKey();
+            if (!visited.add(start)) continue;
 
             Deque<BlockPos> queue = new ArrayDeque<>();
-            Set<BlockPos> visited = new HashSet<>();
-            queue.add(sink);
-            visited.add(sink);
+            queue.add(start);
             while (!queue.isEmpty()) {
                 BlockPos cur = queue.poll();
                 for (BlockPos parent : reverse.getOrDefault(cur, List.of())) {

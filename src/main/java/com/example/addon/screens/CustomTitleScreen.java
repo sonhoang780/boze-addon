@@ -29,7 +29,7 @@ public class CustomTitleScreen extends Screen {
 
     public static volatile VideoPlayer activeBgVideo = null;
     private VideoPlayer bgVideo;
-    private final FrameTexture bgTex = new FrameTexture("bg");
+    private static final FrameTexture bgTex = new FrameTexture("bg");
     private int lastBgIdx = -1;
     private long lastBgFrameMs = -1;
     
@@ -48,13 +48,13 @@ public class CustomTitleScreen extends Screen {
     private volatile boolean helloBuildCancelled = false;
     private long helloFinishedMs  = -1; 
     private long helloBuildDoneMs = -1; 
-    private final FrameTexture helloTex = new FrameTexture("hello");
+    private static final FrameTexture helloTex = new FrameTexture("hello");
     private int lastHelloIdx = -1;
     private float ss = 2f;                       
     private int helloImgWGui, helloImgHGui;      
     private int helloBaselineInImg;              
 
-    private final FrameTexture dateTex = new FrameTexture("datetime");
+    private static final FrameTexture dateTex = new FrameTexture("datetime");
     private String lastClock = "";
     private int dateImgWGui, dateImgHGui;
 
@@ -93,7 +93,7 @@ public class CustomTitleScreen extends Screen {
         if (ss < 1f) ss = 1f;
 
         // GRAB DYNAMIC NAME FROM MODULE
-        String targetBgName = LoadingScreen.INSTANCE.selectedBgName;
+        String targetBgName = LoadingScreen.INSTANCE.getBgName();
         
         // KILL OLD VIDEO IF TARGET WAS CHANGED VIA UI
         if (bgVideo != null && !currentLoadedBgName.equals(targetBgName)) {
@@ -258,7 +258,7 @@ public class CustomTitleScreen extends Screen {
         if (dateTex.ready()) {
             int dx = (width - dateImgWGui) / 2;
             int dy = (int)(height * 0.10f);
-            dateTex.blit(context, dx, dy, dateImgWGui, dateImgHGui);
+            dateTex.blit(context, dx, dy, dateImgWGui, dateImgHGui, 1.0f);
         }
 
         drawHello(context, nowMs);
@@ -476,9 +476,7 @@ public class CustomTitleScreen extends Screen {
         }
         if (bgVideo != null) { bgVideo.dispose(); bgVideo = null; }
         activeBgVideo = null;
-        bgTex.dispose();
-        helloTex.dispose();
-        dateTex.dispose();
+        // Do not dispose static textures
         clearHelloFrames();
         closeFonts();
         lastBgIdx     = -1;

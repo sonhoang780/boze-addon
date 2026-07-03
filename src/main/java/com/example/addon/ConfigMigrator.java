@@ -1,10 +1,13 @@
 package com.example.addon;
 
 import com.google.gson.*;
+import dev.boze.api.addon.AddonModule;
+import dev.boze.api.option.Option;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,6 +57,60 @@ public class ConfigMigrator {
             }
         } catch (Exception ignored) {
             // If migration fails, Boze falls back to defaults — acceptable over a crash.
+        }
+    }
+
+    /**
+     * Boze's AddonModule#fromJson does {@code object.get(setting.name).getAsJsonObject()}
+     * with no {@code .has()} check — an option added in a code update that isn't yet in
+     * the user's saved config.json throws NullPointerException. Addon#fromJson's loop over
+     * modules has no per-module try/catch, so that NPE aborts the WHOLE loop: every module
+     * that would have been restored AFTER the broken one in iteration order is silently
+     * left at defaults too, even though its own saved settings on disk are perfectly fine.
+     * <br>
+     * Call once at the end of ExampleAddon.initialize(), after every modules.add(...) —
+     * by then each module's Option instances already exist (constructed in the module's
+     * own constructor at class-init time) with their compiled-in default values, so we can
+     * fill any option missing from the saved JSON with a fresh {@code toJson()} snapshot
+     * of that default, guaranteeing Boze's own loader never hits a missing key.
+     */
+    public static void fillMissingOptions(String addonId, List<AddonModule> modules) {
+        Path configPath = FabricLoader.getInstance().getGameDir()
+                .resolve("boze").resolve("addons").resolve(addonId).resolve("config.json");
+
+        if (!Files.exists(configPath)) return;
+
+        try {
+            String raw = Files.readString(configPath, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(raw).getAsJsonObject();
+
+            if (!root.has("modules")) return;
+            JsonObject modulesObject = root.getAsJsonObject("modules");
+
+            boolean changed = false;
+            for (AddonModule module : modules) {
+                // Module not in the saved file at all (brand new, or currently
+                // unregistered when last saved) — Addon#fromJson's own .has() guard
+                // already skips it safely; nothing to backfill.
+                if (!modulesObject.has(module.getName())) continue;
+
+                JsonObject moduleObj = modulesObject.getAsJsonObject(module.getName());
+                for (Option<?> option : module.options) {
+                    if (!moduleObj.has(option.name)) {
+                        moduleObj.add(option.name, option.toJson());
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed) {
+                String filled = new GsonBuilder().setPrettyPrinting().create().toJson(root);
+                Files.writeString(configPath, filled, StandardCharsets.UTF_8);
+            }
+        } catch (Exception ignored) {
+            // Same tradeoff as migrate(): a failure here just means Boze's own loader
+            // hits its original NPE-on-missing-key behavior again — no worse than before
+            // this method existed.
         }
     }
 }

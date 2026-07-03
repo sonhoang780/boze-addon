@@ -1,9 +1,7 @@
 package com.example.addon.mixin;
 
-import com.example.addon.modules.EBounce;
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.FakeFly;
-import com.example.addon.modules.VanillaEBounce;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -30,8 +28,6 @@ public abstract class MixinEntity {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null || mc.player != (Object) this) return;
         if (FakeFly.cameraOverrideActive)       { cir.setReturnValue(FakeFly.savedCameraPitch);       return; }
-        if (EBounce.pitchOverrideActive)         { cir.setReturnValue(EBounce.savedCameraPitch);       return; }
-        if (VanillaEBounce.pitchOverrideActive)  { cir.setReturnValue(VanillaEBounce.savedCameraPitch); return; }
         if (EBouncePlus.pitchOverrideActive)     { cir.setReturnValue(EBouncePlus.savedCameraPitch);   return; }
     }
     

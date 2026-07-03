@@ -56,6 +56,8 @@ public class FakeFly extends AddonModule {
             "Swap elytra in/out each tick so server sees elytra, you wear armour.", false);
     public final ToggleOption autoTakeoff = new ToggleOption(this, "AutoTakeoff",
             "ChestplateMode only: auto-jump off ground.", false);
+    public final SliderOption swapTickDelay = new SliderOption(this, "SwapTickDelay",
+            "ChestplateMode: ticks between swap cycles. 1 = every tick; higher = fewer container clicks (kinder to ViaVersion remapping), but server may see fall-flying lapse.", 1.0, 1.0, 10.0, 1.0);
     public final ModeOption<FlySwapMode> swap = new ModeOption<>(this, "Swap",
             "Normal: hotbar. Silent: instant swap. Alt: full inventory.", FlySwapMode.Silent);
 
@@ -71,6 +73,8 @@ public class FakeFly extends AddonModule {
     private boolean didSwapIn               = false;
     // tracks last known value of chestplateMode to detect in-flight toggles
     private boolean lastChestplateModeValue = false;
+    // counts ticks since last chestplate swap cycle (gated by swapTickDelay)
+    private int     cpSwapTicks             = 0;
 
     // Pre → Post communication for rocket firing + camera restore
     private boolean pendingFire                      = false;
@@ -207,7 +211,10 @@ public class FakeFly extends AddonModule {
         if (equipPending) { handleEquipSequence(mc); return; }
 
         if (cpModeActive) {
-            doChestplateSwap(mc);
+            if (++cpSwapTicks >= swapTickDelay.getValue().intValue()) {
+                cpSwapTicks = 0;
+                doChestplateSwap(mc);
+            }
         } else if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
             return;
         }

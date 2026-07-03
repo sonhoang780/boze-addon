@@ -105,6 +105,8 @@ public class PlayMusic extends AddonModule {
     
     private boolean wasMouseDown = false;
     private boolean wasTabDown = false;
+    private boolean wasLeftArrowDown = false;
+    private boolean wasRightArrowDown = false;
     
     // Biến theo dõi Animation (Lerp) của khung Suggestion
     private double animSuggestHeight = 0.0;
@@ -368,6 +370,31 @@ public class PlayMusic extends AddonModule {
         
         wasMouseDown = mouseDown;
         wasTabDown = tabDown;
+
+        // Keyboard media controls: Up/Down = volume, Left/Right = previous/next track.
+        // Gated on mc.screen == null so these don't fight arrow-key cursor movement while
+        // typing in chat/any GUI edit box -- only active during normal gameplay.
+        if (this.active && mc.screen == null) {
+            boolean upDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS;
+            boolean downDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS;
+            boolean leftDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS;
+            boolean rightDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS;
+
+            // Volume: continuous while held (small step per tick at 20 ticks/sec reads as
+            // a smooth ramp, not a jump), clamped to the slider's own 0-100 range.
+            if (upDown) volume.setValue(Math.min(100.0, volume.getValue() + 2.0));
+            if (downDown) volume.setValue(Math.max(0.0, volume.getValue() - 2.0));
+
+            // Track skip: edge-triggered (once per press), not continuous -- holding the
+            // key shouldn't skip through the whole queue.
+            boolean justLeftArrow = leftDown && !wasLeftArrowDown;
+            boolean justRightArrow = rightDown && !wasRightArrowDown;
+            if (justRightArrow && scheduler != null) scheduler.nextTrack();
+            if (justLeftArrow && scheduler != null) scheduler.previousTrack();
+
+            wasLeftArrowDown = leftDown;
+            wasRightArrowDown = rightDown;
+        }
 
         if (this.active && chatSearch.getValue() && mc.screen instanceof ChatScreen) {
             EditBox chatField = null;

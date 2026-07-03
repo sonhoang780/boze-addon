@@ -22,6 +22,7 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
+import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ImageFilter;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.types.Rect;
@@ -31,7 +32,9 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.example.addon.mixin.GuiGraphicsExtractorAccessor;
 import com.example.addon.screens.CachedSkiaTexture;
+import com.example.addon.screens.GifShadowPipState;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
@@ -74,8 +77,6 @@ public class GifHUD extends AddonModule {
     private float prevYaw = 0f;
     private float prevPitch = 0f;
 
-    private CachedSkiaTexture shadowTex;
-
     private final List<String> gifHistory = new ArrayList<>();
     private int historyIndex = -1;
     // Auto-load GIF gần nhất bị hoãn tới onTick (khi đã vào thế giới, render sẵn sàng).
@@ -108,7 +109,6 @@ public class GifHUD extends AddonModule {
 
     @Override public void onDisable() {
         this.active = false;
-        if (shadowTex != null) { shadowTex.dispose(); shadowTex = null; }
     }
 
     private void drawOutline(GuiGraphicsExtractor context, int x, int y, int w, int h, int color) {
@@ -119,34 +119,32 @@ public class GifHUD extends AddonModule {
     }
 
     /**
-     * Renders the drop shadow offscreen (CPU raster, no live GL framebuffer access)
-     * and composites it via the normal GuiGraphicsExtractor.blit path. The raw-GL FBO
-     * hack this used to use gets silently overwritten by the GUI submission phase in
-     * 26.1.2's extraction/submission render pipeline — this is immune to that.
+     * Renders the drop shadow GPU-side via SkiaPipRenderer (same mechanism MusicHUD
+     * uses), instead of the CachedSkiaTexture CPU-raster path this used to use. That
+     * path keyed its cache on the GIF panel's pixel size, so during a live
+     * click-drag resize ("stretch") the key changed every single frame the mouse
+     * moved -- a full CPU Skija raster (with an actual DropShadow blur filter, not
+     * cheap) ran every frame of the drag, which is what dropped fps. GPU Skija
+     * redraws every frame too, but a direct GPU draw call is far cheaper than CPU
+     * raster + pixel readback + texture upload, so redrawing every frame is fine.
      */
     private void drawSkiaShadow(GuiGraphicsExtractor context, double x, double y, double w, double h, float blurRadius, int colorRgb) {
-        Minecraft mc = Minecraft.getInstance();
-        float scale = (float) mc.getWindow().getGuiScale();
         float margin = blurRadius * 3f;
-        int pw = Math.round((float)(w + margin * 2) * scale);
-        int ph = Math.round((float)(h + margin * 2) * scale);
-        if (pw <= 0 || ph <= 0) return;
+        int x0 = (int) Math.floor(x - margin), y0 = (int) Math.floor(y - margin);
+        int x1 = (int) Math.ceil(x + w + margin), y1 = (int) Math.ceil(y + h + margin);
+        ((GuiGraphicsExtractorAccessor) context).getGuiRenderState()
+            .addPicturesInPictureState(new GifShadowPipState(
+                canvas -> paintSkiaShadow(canvas, x, y, w, h, blurRadius, colorRgb), x0, y0, x1, y1));
+    }
 
-        if (shadowTex == null) shadowTex = new CachedSkiaTexture("gifhud_shadow");
-        // Shadow shape depends only on size/blur/colour/scale (NOT the GIF frames),
-        // so this rasters once and is reused every frame thereafter.
-        String key = pw + "x" + ph + "|" + blurRadius + "|" + colorRgb;
-        shadowTex.render(pw, ph, key, canvas -> {
-            canvas.scale(scale, scale);
-            try (Paint paint = new Paint();
-                 ImageFilter shadowFilter = ImageFilter.makeDropShadowOnly(0, 0, blurRadius, blurRadius, colorRgb)) {
-                paint.setImageFilter(shadowFilter);
-                paint.setAntiAlias(true);
-                canvas.drawRect(Rect.makeXYWH(margin, margin, (float)w, (float)h), paint);
-            }
-        });
-        shadowTex.blit(context, (int)Math.round(x - margin), (int)Math.round(y - margin),
-            (int)Math.round(w + margin * 2), (int)Math.round(h + margin * 2));
+    /** Painter for drawSkiaShadow's SkiaPipState -- canvas is already in absolute GUI-logical coordinates. */
+    private void paintSkiaShadow(Canvas canvas, double x, double y, double w, double h, float blurRadius, int colorRgb) {
+        try (Paint paint = new Paint();
+             ImageFilter shadowFilter = ImageFilter.makeDropShadowOnly(0, 0, blurRadius, blurRadius, colorRgb)) {
+            paint.setImageFilter(shadowFilter);
+            paint.setAntiAlias(true);
+            canvas.drawRect(Rect.makeXYWH((float) x, (float) y, (float) w, (float) h), paint);
+        }
     }
 
     private void render(GuiGraphicsExtractor context) {

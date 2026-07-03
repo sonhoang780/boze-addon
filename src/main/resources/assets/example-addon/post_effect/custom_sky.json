@@ -1,0 +1,15 @@
+{
+    "passes": [
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "example-addon:post/custom_sky",
+            "inputs": [
+                { "sampler_name": "Main", "target": "minecraft:main" },
+                { "sampler_name": "MainDepth", "target": "minecraft:main", "use_depth_buffer": true },
+                { "width": 1, "sampler_name": "Sky", "location": "example-addon:customsky", "height": 1 },
+                { "width": 1, "sampler_name": "Params", "location": "example-addon:customskyparams", "height": 1 }
+            ],
+            "output": "minecraft:main"
+        }
+    ]
+}

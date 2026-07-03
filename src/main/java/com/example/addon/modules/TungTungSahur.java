@@ -261,7 +261,11 @@ public class TungTungSahur extends AddonModule {
 
         RenderType rt = isFading ? getTranslucentLayer() : getCutoutLayer();
         VertexConsumer consumer = consumers.getBuffer(rt);
-        mesh.render(matrices.last(), consumer, light, overlay, alphaInt);
+        if (isFading) {
+            mesh.renderTriangles(matrices.last(), consumer, light, overlay, alphaInt);
+        } else {
+            mesh.render(matrices.last(), consumer, light, overlay, alphaInt);
+        }
 
         matrices.popPose();
     }
@@ -373,6 +377,15 @@ public class TungTungSahur extends AddonModule {
         setFloat(img, 14, (float)(renderZ - camPos.z), -64, 64);
         setFloat(img, 15, smokeFadeAlpha, 0, 1);
         setFloat(img, 16, (System.currentTimeMillis() % 1000000L) / 1000f, 0, 1000);
+
+        // Body yaw the mesh itself is rotated by when rendered normally (see
+        // onWorldRender: Axis.YP.rotationDegrees(180f - renderYaw)). The SDF atlas is
+        // baked in the mesh's OWN local space, but the raymarch below was sampling it
+        // in camera/world-aligned space with no yaw applied at all -- it only lined up
+        // with the visible model when renderYaw happened to be 0, so in practice the
+        // smoke almost never intersected the SDF's "surface" band and rendered nothing.
+        float renderYawInterp = prevBodyYaw + Mth.wrapDegrees(bodyYaw - prevBodyYaw) * tickDelta;
+        setFloat(img, 17, renderYawInterp, -180, 180);
 
         smokeParamsTexture.upload();
     }

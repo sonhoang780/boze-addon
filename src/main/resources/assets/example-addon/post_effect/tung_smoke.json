@@ -1,0 +1,27 @@
+{
+    "passes": [
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "example-addon:post/tung_smoke",
+            "inputs": [
+                {
+                    "sampler_name": "In",
+                    "target": "minecraft:main"
+                },
+                {
+                    "width": 8,
+                    "sampler_name": "Params",
+                    "location": "example-addon:tungsmokeparams",
+                    "height": 3
+                },
+                {
+                    "width": 256,
+                    "sampler_name": "SDF",
+                    "location": "example-addon:tungsmokesdf",
+                    "height": 128
+                }
+            ],
+            "output": "minecraft:main"
+        }
+    ]
+}

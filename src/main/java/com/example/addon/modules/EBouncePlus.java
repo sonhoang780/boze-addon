@@ -5,12 +5,13 @@ import dev.boze.api.event.EventInput;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
+import net.minecraft.network.chat.Component;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
-import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
-import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -29,8 +30,8 @@ import net.minecraft.world.phys.Vec3;
 public class EBouncePlus extends AddonModule {
     public static final EBouncePlus INSTANCE = new EBouncePlus();
 
-    public final SliderOption glidePitch = new SliderOption(this, "GlidePitch",
-        "Fixed pitch throughout the cycle. Reference: 72.4° (nearly vertical dive, fast cycle). Lower = slower build, higher altitude.", 72.4, 0.0, 90.0, 0.1);
+    public final SliderOption glidePitch = new SliderOption(this, "Pitch",
+        "", 90, 0.0, 90.0, 1.0);
 
     public final SliderOption groundThreshold = new SliderOption(this, "GroundThreshold",
         "Floor distance (blocks) to trigger recast. Reference triggers at alt ~0.01-0.15. Increase if recast misfires mid-air.", 0.15, 0.02, 1.0, 0.01);
@@ -38,16 +39,27 @@ public class EBouncePlus extends AddonModule {
     public final SliderOption recastVY = new SliderOption(this, "RecastVY",
         "Max vy (b/t) to allow recast. Reference triggers at vy ≈ 0. Positive = recast while still rising slightly.", 0.08, 0.0, 0.5, 0.01);
 
+    public final ToggleOption debug = new ToggleOption(this, "Debug",
+        "Print chat lines on every recast trigger, jump-hold fire, and unexpected glide-stop so the exact branch causing weird behaviour can be pinned down.", false);
+
     public static volatile boolean pitchOverrideActive = false;
     public static volatile float   savedCameraPitch    = 0f;
 
     // -1 = no recast pending; 1 = StatusOnly sent, waiting to send START_FALL_FLYING
-    private int     recastPhase = 0;
-    private boolean pendingFold = false;
-    private boolean doJump      = false;
+    private int     recastPhase         = 0;
+    private boolean pendingFold         = false;
+    private boolean doJump              = false;
+    // Initial-takeoff pacing: 0 = may send START_FALL_FLYING now; >0 = ticks left to
+    // wait for the glide flag echo before retrying. Bounded retry (every 5 ticks) --
+    // the meteor-style unconditional per-tick resend broke takeoff on this server,
+    // reverted back to the gated version.
+    private int takeoffCooldown = 0;
+    // Purely for --Debug logging (edge detection on isFallFlying); never read by
+    // behavior logic, so it can't reintroduce the earlier grace-period regression.
+    private boolean wasFlyingForLog = false;
 
     public EBouncePlus() {
-        super("EBounce+", "Recast ground-build: fake StatusOnly → sprint-jump → START_FALL_FLYING every ~6 ticks. 80+ b/s open air.");
+        super("EBounce+", "Infinite Durability for recast, Fuck your boze client.");
     }
 
     @Override
@@ -55,14 +67,12 @@ public class EBouncePlus extends AddonModule {
         recastPhase = 0;
         pendingFold = false;
         doJump      = false;
+        takeoffCooldown = 0;
+        wasFlyingForLog = false;
         pitchOverrideActive = false;
-        // Auto-start: if on ground with elytra equipped, trigger recast immediately
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null
-                && mc.player.onGround()
-                && mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-            pendingFold = true;
-        }
+        // No one-shot jump here anymore -- onTickPre now holds jump continuously every
+        // tick the player is genuinely on the ground (see below), which covers both the
+        // enable-while-grounded case AND any later real landing during the session.
     }
 
     @Override
@@ -70,6 +80,7 @@ public class EBouncePlus extends AddonModule {
         recastPhase = 0;
         pendingFold = false;
         doJump      = false;
+        takeoffCooldown = 0;
         if (pitchOverrideActive) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) mc.player.setXRot(savedCameraPitch);
@@ -101,6 +112,10 @@ public class EBouncePlus extends AddonModule {
             mc.getConnection().send(new ServerboundPlayerCommandPacket(
                 mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
             recastPhase = 0;
+            if (debug.getValue()) {
+                debugLog(mc, "RECAST resolve: START_FALL_FLYING resent (onGround="
+                    + mc.player.onGround() + " speed=" + horizontalSpeed(mc) + ")");
+            }
         }
 
         // Phase 0 + fold trigger: send StatusOnly(true) now, jump next tick.
@@ -110,6 +125,27 @@ public class EBouncePlus extends AddonModule {
             doJump      = true; // EventInput next tick will jump
             recastPhase = 1;    // EventTick.Post next tick sends START_FALL_FLYING
             pendingFold = false;
+        }
+
+        // Initial takeoff: airborne but not gliding and no recast dance in flight →
+        // ask the server to start fall flying. Post runs after this tick's movement
+        // packet, so the server already sees onGround=false and accepts the command.
+        // Retry every 5 ticks until the glide flag echoes back (covers a lost/early
+        // send under latency) — bounded, not per-tick spam. The meteor-client style
+        // unconditional per-tick resend (no cooldown) broke takeoff on this server;
+        // reverted back to this gated version.
+        if (!mc.player.isFallFlying() && !mc.player.onGround()
+                && recastPhase == 0 && !pendingFold
+                && mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+            if (takeoffCooldown == 0) {
+                mc.getConnection().send(new ServerboundPlayerCommandPacket(
+                    mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
+                takeoffCooldown = 5;
+            } else {
+                takeoffCooldown--;
+            }
+        } else if (mc.player.onGround()) {
+            takeoffCooldown = 0;
         }
 
         // Restore real camera pitch (was set to override in Pre for physics packet).
@@ -140,14 +176,52 @@ public class EBouncePlus extends AddonModule {
             pitchOverrideActive = true;
         }
 
-        // If not yet gliding, trigger elytra once we're airborne.
-        if (!mc.player.isFallFlying()) {
-            if (!mc.player.onGround()) {
-                mc.getConnection().send(new ServerboundPlayerCommandPacket(
-                    mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
+        // Genuinely standing on the ground with NO recast cycle in flight and NOT
+        // currently gliding: hold jump every tick, same as EBounce.java's JUMPING phase.
+        // Without this, a real landing (isFallFlying already cleared by the server) had
+        // nothing to trigger a fresh jump. Gated tightly on !isFallFlying/!recastPhase/
+        // !pendingFold: bounce height is only ~0.34 block, so the real client onGround
+        // flag routinely flickers true for a tick in the MIDDLE of an otherwise-healthy
+        // recast cycle (client physics briefly touches the floor even while the fake
+        // StatusOnly dance is still managing the server side). Without this guard the
+        // real jump fired here fights the recast state machine's own jump and permanently
+        // knocks the module out of gliding after the first bounce.
+        if (mc.player.onGround() && !mc.player.isFallFlying()
+                && recastPhase == 0 && !pendingFold) {
+            doJump = true;
+            if (debug.getValue()) {
+                debugLog(mc, "GROUND-JUMP-HOLD fired (onGround, not flying, idle state)");
             }
+        }
+
+        // Debug only: flag any tick where gliding stops WITHOUT us having initiated a
+        // recast (recastPhase==0, no pendingFold) -- this is exactly the "đứng dậy" event
+        // reported: something OTHER than our own fold/strike sequence is clearing
+        // isFallFlying (a real hard landing on terrain, a server-side rubber-band, or a
+        // rejection we're not accounting for).
+        if (debug.getValue()) {
+            boolean isFlyingNow = mc.player.isFallFlying();
+            if (wasFlyingForLog && !isFlyingNow && recastPhase == 0 && !pendingFold) {
+                debugLog(mc, "UNEXPECTED STOP: isFallFlying true->false with no recast in flight"
+                    + " (onGround=" + mc.player.onGround()
+                    + " hCollision=" + mc.player.horizontalCollision
+                    + " floor=" + floorClear(mc)
+                    + " vy=" + mc.player.getDeltaMovement().y
+                    + " speed=" + horizontalSpeed(mc) + ")");
+            }
+            wasFlyingForLog = isFlyingNow;
+        }
+
+        // Not yet gliding: nothing else to do in Pre. The initial-takeoff
+        // START_FALL_FLYING is sent from EventTick.Post — it MUST go out AFTER the
+        // tick's vanilla movement packet, otherwise the server still holds
+        // onGround=true from the previous move packet and silently rejects the
+        // command (canGlide needs !onGround). Sending from Pre was why takeoff
+        // never caught: the one gated send always arrived too early and died.
+        if (!mc.player.isFallFlying()) {
             return;
         }
+        takeoffCooldown = 0;
 
         // Don't queue another recast while one is already in flight.
         if (recastPhase != 0 || pendingFold) return;
@@ -159,15 +233,35 @@ public class EBouncePlus extends AddonModule {
         boolean nearGround = floor >= 0 && floor < groundThreshold.getValue();
         boolean vyOk       = vy <= recastVY.getValue();
 
-        if ((nearGround && vyOk) || mc.player.horizontalCollision) {
+        // horizontalCollision only counts as a recast trigger near ground — otherwise
+        // clipping a block edge mid-dive (far from floor) falsely re-triggers recast
+        // while still accelerating.
+        if (nearGround && (vyOk || mc.player.horizontalCollision)) {
             pendingFold = true;
+            if (debug.getValue()) {
+                debugLog(mc, "RECAST TRIGGER (floor=" + floor + " vy=" + vy
+                    + " vyOk=" + vyOk + " hCollision=" + mc.player.horizontalCollision
+                    + " speed=" + horizontalSpeed(mc) + ")");
+            }
         }
+    }
+
+    private void debugLog(Minecraft mc, String msg) {
+        if (mc.player != null) {
+            mc.player.sendSystemMessage(Component.literal("[EBounce+] " + msg));
+        }
+    }
+
+    private static double horizontalSpeed(Minecraft mc) {
+        var v = mc.player.getDeltaMovement();
+        return Math.sqrt(v.x * v.x + v.z * v.z) * 20.0; // b/t -> b/s
     }
 
     private void reset() {
         recastPhase = 0;
         pendingFold = false;
         doJump      = false;
+        takeoffCooldown = 0;
     }
 
     // 5-ray footprint downward scan (same as EBounce, returns distance to floor)

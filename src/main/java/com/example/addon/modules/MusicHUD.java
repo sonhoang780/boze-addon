@@ -30,8 +30,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import com.example.addon.mixin.GuiGraphicsExtractorAccessor;
-import com.example.addon.screens.SkiaPipRenderer;
-import com.example.addon.screens.SkiaPipState;
+import com.example.addon.screens.MusicHudPipState;
+import com.example.addon.screens.MusicHudPipRenderer;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
@@ -362,7 +362,16 @@ public class MusicHUD extends AddonModule {
         Minecraft mc = Minecraft.getInstance();
         float scale = (float) mc.getWindow().getGuiScale();
 
-        if (p.liquidGlass) {
+        // GuiRenderState allows exactly one blurBeforeThisStratum() call per frame.
+        // MusicHUD is a persistent HudElementRegistry element and keeps extracting while
+        // a Screen is open (e.g. paused); Screen.extractBlurredBackground() (PauseScreen,
+        // etc.) also calls it whenever Menu Background Blurriness > 0, and always runs
+        // after the HUD layer. Requesting our own blur too collides -> "Can only blur
+        // once per frame" crash. Skip our request whenever a screen owns the frame's
+        // blur budget instead; the panel falls back to its existing dark-fill path.
+        boolean screenOwnsBlur = mc.screen != null;
+
+        if (p.liquidGlass && !screenOwnsBlur) {
             int fbH = mc.getMainRenderTarget().height;
             // Mark the blur boundary: GuiRenderer only calls GameRenderer.processBlurEffect()
             // (which our mixin intercepts to run the GPU blur+refraction pass) if something
@@ -370,13 +379,15 @@ public class MusicHUD extends AddonModule {
             context.blurBeforeThisStratum();
             LiquidGlassHud.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, fbH);
             p.gpuBlur = true;
-        } else {
+        } else if (!screenOwnsBlur) {
             float blurVal = (float)(double) blurIntensity.getValue();
             p.gpuBlur = blurVal > 0.5f;
             if (p.gpuBlur) {
                 context.blurBeforeThisStratum();
                 SkijaBackdropBlur.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, blurVal, 0.35f);
             }
+        } else {
+            p.gpuBlur = false;
         }
     }
 
@@ -910,7 +921,7 @@ public class MusicHUD extends AddonModule {
         int x0 = (int) Math.floor(x - margin), y0 = (int) Math.floor(y - margin);
         int x1 = (int) Math.ceil(x + w + margin), y1 = (int) Math.ceil(y + h + margin);
         ((GuiGraphicsExtractorAccessor) context).getGuiRenderState()
-            .addPicturesInPictureState(new SkiaPipState(this::paintSkia, x0, y0, x1, y1));
+            .addPicturesInPictureState(new MusicHudPipState(this::paintSkia, x0, y0, x1, y1));
     }
 
     /**
@@ -982,7 +993,7 @@ public class MusicHUD extends AddonModule {
     }
 
     private void paintIcon(Canvas canvas, Identifier id, double x, double y, int size) {
-        SkiaPipRenderer r = SkiaPipRenderer.ACTIVE;
+        MusicHudPipRenderer r = MusicHudPipRenderer.ACTIVE;
         Image img = r != null ? r.borrowTexture(id) : null;
         if (img == null) return;
         try (Paint paint = new Paint()) {
@@ -1036,7 +1047,7 @@ public class MusicHUD extends AddonModule {
 
     private void paintThumbnail(Canvas canvas, boolean useDisk, Identifier activeThumbId,
                                 int tx, int ty, int tw, int th, float diskRotationDeg) {
-        SkiaPipRenderer r = SkiaPipRenderer.ACTIVE;
+        MusicHudPipRenderer r = MusicHudPipRenderer.ACTIVE;
         if (activeThumbId != null && r != null) {
             Image thumbImg = r.borrowTexture(activeThumbId);
             if (thumbImg == null) return;
