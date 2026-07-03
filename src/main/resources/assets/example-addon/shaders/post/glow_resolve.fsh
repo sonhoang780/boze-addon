@@ -98,8 +98,15 @@ void main() {
             vec2 outwardLagged = mat2(ca, -sa, sa, ca) * outward;
             vec2 tangentLagged = vec2(-outwardLagged.y, outwardLagged.x);
 
+            // mod() folds the absolute screen position into a repeating flareSizePx-wide
+            // window -- without this, dot() still carries the full screen-space magnitude
+            // (hundreds/thousands of px) while the raymarch expects a fragCoord already
+            // scaled to its own resolution (flareSizePx, ~48px); left unfolded, the noise
+            // field gets sampled ~40x past its detail range and aliases to near-black
+            // (this was the "only a black outline, no fire" bug).
             vec2 screenPx = texCoord * OutSize;
-            vec2 localFragCoord = vec2(dot(screenPx, tangentLagged), dot(screenPx, outwardLagged));
+            vec2 localAxis = vec2(dot(screenPx, tangentLagged), dot(screenPx, outwardLagged));
+            vec2 localFragCoord = mod(localAxis, flareSizePx);
             flareContribution = flareFire(localFragCoord, vec2(flareSizePx), flareTime, flareTint);
         }
     }

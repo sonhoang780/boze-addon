@@ -78,8 +78,11 @@ void main() {
             float ca = cos(lagAngle), sa = sin(lagAngle);
             vec2 outwardLagged = mat2(ca, -sa, sa, ca) * outward;
             vec2 tangentLagged = vec2(-outwardLagged.y, outwardLagged.x);
+            // mod() folds absolute screen position into a repeating flareSizePx window --
+            // see glow_resolve.fsh for why (otherwise the noise field aliases to near-black).
             vec2 screenPx = texCoord * OutSize;
-            vec2 localFragCoord = vec2(dot(screenPx, tangentLagged), dot(screenPx, outwardLagged));
+            vec2 localAxis = vec2(dot(screenPx, tangentLagged), dot(screenPx, outwardLagged));
+            vec2 localFragCoord = mod(localAxis, flareSizePx);
             flareContribution = flareFire(localFragCoord, vec2(flareSizePx), flareTime, flareTint);
         }
     }
