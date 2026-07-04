@@ -5,8 +5,8 @@ layout(std140) uniform SamplerInfo {
     vec2 InSize;
 };
 
-uniform sampler2D InSampler;        // final blurred glow buffer (after 4 glow_pass iterations)
-uniform sampler2D OriginalSampler;  // raw silhouette, pre-blur (interior/edge test)
+uniform sampler2D InSampler;        // dual JFA distance field (see JfaField.java): r=handDist/255px, g=handValid, b=entityDist/255px, a=entityValid
+uniform sampler2D OriginalSampler;  // raw silhouette, pre-field (interior/edge test)
 uniform sampler2D ImageSampler;     // BetterChams fill image
 uniform sampler2D ParamsSampler;
 uniform sampler2D FlareParamsSampler; // separate from ParamsSampler -- see BetterChams.FLARE_PARAMS_ID's comment
@@ -15,13 +15,45 @@ uniform sampler2D OutlineParamsSampler; // same dedicated-texture pattern, see B
 in vec2 texCoord;
 out vec4 fragColor;
 
-// Shared 8-direction set for the edge marches (Outline dilation + InnerGlow rim).
-// Deliberately UNNORMALIZED diagonals (Chebyshev/square metric): normalized euclidean
-// directions dilate into a disc and round every corner; the square metric keeps
-// corners sharp like vanilla's glowing outline.
+// Shared 8-direction set for the InnerGlow rim march (the only remaining march in
+// this file -- everything else now derives from the JFA distance field). Deliberately
+// UNNORMALIZED diagonals (Chebyshev/square metric): normalized euclidean directions
+// dilate into a disc and round every corner; the square metric keeps corners sharp
+// like vanilla's glowing outline.
 const vec2 EDGE_DIRS[8] = vec2[8](
     vec2( 1.0, 0.0), vec2( 1.0, 1.0), vec2( 0.0, 1.0), vec2(-1.0, 1.0),
     vec2(-1.0, 0.0), vec2(-1.0,-1.0), vec2( 0.0,-1.0), vec2( 1.0,-1.0));
+
+// TRUE only for silhouettes this addon drew itself: the green-250 entity marker
+// (ENTITY_OUTLINE_COLOR -- players/crystals/self) or the blue-250 hand marker
+// (HAND_OUTLINE_COLOR). The vanilla entityOutlineTarget is SHARED -- Boze's
+// BlockHighlight draws the crosshair block's outline into it (3rd person +
+// crosshair on a block), and with F3 open more foreign content lands there too.
+// That foreign content arrives as PURE WHITE, which the old ">0.95 threshold"
+// guard accepted -- it then seeded the JFA field and bloomed a giant soft halo
+// around the targeted block/debug content (the "glow nhoe" in 3rd person and F3,
+// 2026-07-04). Entities therefore moved OFF pure white to green-250, and this
+// guard now explicitly rejects exact white (g and b both at 255).
+// JfaField's seed pass applies this same guard (so foreign content never seeds
+// the distance field at all), but the interior branch below still needs it
+// directly against the raw silhouette.
+bool isOurs(vec4 c) {
+    return c.a > 0.0 && c.r > 0.97 && c.g > 0.95 && c.b > 0.95
+        && (c.g < 0.995 || c.b < 0.995);
+}
+
+// Exact distance (px) to the nearest addon-drawn silhouette pixel of EITHER class
+// (used only for the flare part-mask gradient, which is an approximate "which way
+// is the body" heuristic -- combining both classes here is fine, unlike the halo/
+// flare radius formulas below which must stay per-class exact), or a finite
+// stand-in (300px, well past any realistic glow reach) when neither class's field
+// found a seed within its search radius.
+float jfaDistAt(vec2 uv) {
+    vec4 s = texture(InSampler, uv);
+    float hd = (s.g > 0.5) ? s.r * 255.0 : 300.0;
+    float ed = (s.a > 0.5) ? s.b * 255.0 : 300.0;
+    return min(hd, ed);
+}
 
 // Continuous screen-space aura, built from Xor's "3D Fire" DNA (the 5-octave
 // cos-turbulence loop, sin() palette, tanh() tonemap -- shadertoy.com/view/3XXSWS)
@@ -29,10 +61,10 @@ const vec2 EDGE_DIRS[8] = vec2[8](
 // centered on its own canvas; tiling that canvas around a silhouette produced
 // disjoint mini-flames with visible seams. Here the turbulence field is evaluated
 // directly at the pixel's screen position (continuous everywhere, no tiles), and
-// the flame's "height" coordinate h comes from the blurred silhouette falloff
-// (0 at the body edge -> 1 at the blur's outer reach): the noise displaces that
-// falloff line in and out, which is what makes licking tongues that wrap around
-// every silhouette on screen at once.
+// the flame's "height" coordinate h comes from the exact JFA distance (0 at the
+// body edge -> 1 at the flare's reach): the noise displaces that falloff line in
+// and out, which is what makes licking tongues that wrap around every silhouette
+// on screen at once.
 vec3 flareAura(vec2 screenPx, float h, float scale, float time, vec3 tint) {
     // xy continuous across the screen; z drifts with time so the swirl evolves.
     vec3 p = vec3(screenPx / scale, 0.4 * time);
@@ -65,17 +97,22 @@ void main() {
     vec4 flareTintData = texelFetch(FlareParamsSampler, ivec2(1, 0), 0);
     vec4 flareTimeData = texelFetch(FlareParamsSampler, ivec2(2, 0), 0);
     vec4 flareNoiseData = texelFetch(FlareParamsSampler, ivec2(3, 0), 0);
+    vec4 outlineData     = texelFetch(OutlineParamsSampler, ivec2(0, 0), 0);
+    vec4 outlineTintData = texelFetch(OutlineParamsSampler, ivec2(1, 0), 0);
 
     float fillEnabled  = params.r;
     float fillOpacity  = params.g;
     // b = ratio of the DESIRED visible halo radius (Glow Thickness) to the ACTUAL
-    // blur-field radius, 0 = glow off. Flare widens the shared field to flareSize/2,
+    // field search radius, 0 = glow off. Flare widens the shared field to flareSize/2,
     // so the halo must be cut down to its own thickness instead of inheriting the
     // flame's full reach (see BetterChams.updateParamsTexture).
     float glowRatio    = params.b;
     bool  glowEnabled  = glowRatio > 0.0;
     float glowIntensity = flipData.b;
     bool innerGlowEnabled = flipData.g > 0.5;
+    // Blue byte of outline-params row 0 was unused -- carries the Glow ModeOption
+    // (BetterChams.GlowMode): 0 = Soft, 255 = Neon.
+    bool neonMode = outlineData.b > 0.5;
 
     bool flareEnabled = flareData.r > 0.5;
     float flareYawOffset = flareData.g * 180.0 - 90.0;
@@ -100,120 +137,85 @@ void main() {
     vec2 flippedUv = vec2(texCoord.x, finalY);
 
     vec4 orig = texture(OriginalSampler, texCoord);
-    vec4 glow = texture(InSampler, texCoord); // blurred silhouette field (glow_pass pyramid)
+    vec4 glow = texture(InSampler, texCoord); // dual JFA field at this pixel
 
-    // Per-pixel hand detection: ONE shared pass resolves both world entities and the
-    // hand (MixinShaderManager nulls the vanilla chain; reprocessHandOutline runs
-    // hand_outline.json over everything), so per-chain params can't separate them.
-    // Instead the hand silhouette is drawn with blue = 250/255 (HAND_OUTLINE_COLOR)
-    // while entities stay pure white; the blur carries that r-vs-b ratio into the
-    // field, giving a smooth 0(entity)..1(hand) weight everywhere the hand's field
-    // reaches. Used to (a) lift the distance scale for hand pixels (the hand never
-    // moves relative to the camera) and (b) exempt the hand from the flare part-mask.
-    float handness = clamp((glow.r - glow.b) / max(glow.r, 1e-4) * 60.0, 0.0, 1.0);
+    // Two INDEPENDENT nearest-seed distances (see JfaField.render's class doc):
+    // hand and entity each get their own exact distance, so each can use its own
+    // radius formula below without the other's ownership ever cutting it off at
+    // a Voronoi boundary (the "round bite out of the hand's halo near a far
+    // crystal" bug, 2026-07-04).
+    bool handValid = glow.g > 0.5;
+    bool entityValid = glow.a > 0.5;
+    float handDistPx = handValid ? glow.r * 255.0 : 1e6;
+    float entityDistPx = entityValid ? glow.b * 255.0 : 1e6;
+    bool distValid = handValid || entityValid;
+    float distPx = min(handValid ? handDistPx : 1e6, entityValid ? entityDistPx : 1e6);
+
     float scaleN   = flipData.a * 2.0;                 // packed distance scale, 0..2
     float invScale = 1.0 / max(scaleN, 0.05);
-    float unscale  = mix(1.0, invScale, handness);      // 1 for entities, 1/scale for hand
+    float unscaleHand   = invScale; // hand always un-scales back to its own on-screen size
+    float unscaleEntity = 1.0;      // entity uses the shared world-distance scale directly
 
-    // Shared blur-kernel radius actually applied to this buffer (BetterChams.
-    // updateParamsTexture: max(Glow Thickness, flareSize/2 whenever Flare is on)).
+    // Shared field search radius actually used this frame (BetterChams.
+    // updateParamsTexture: max(Glow Thickness, flareSize/2 whenever Flare is on,
+    // Outline Radius whenever Outline is on)).
     float fieldRadiusPx = params.a * 255.0;
 
-    // True distance to the NEAREST raw silhouette (coarse Chebyshev march, same
-    // 8-dir set as Outline/InnerGlow, 10 steps + one midpoint refine). Why: the
-    // chain draws every glowing silhouette (hand AND every world entity) into ONE
-    // buffer before the Kawase blur, so where two silhouettes sit close together on
-    // screen their blurred halos SUM -- the combined field reads "close to a body"
-    // in the empty space between them. Flare's periodic sin(hh*5) palette turned
-    // that into concentric "fingerprint" rings; Glow's ramp turned it into a merged
-    // over-bright bridge (user reports 2026-07-04). A min-distance can't do either:
-    // min(dA, dB) has no dips in empty space, so effects derived from it behave as
-    // if each pixel belonged to its nearest source only.
-    //
-    // (A previous attempt gated on the field's GRADIENT magnitude instead --
-    // fundamentally wrong: up close the field saturates to 1.0 over a wide band, so
-    // its gradient is ~0 exactly where the effects should be brightest, which nuked
-    // Glow/Flare at close range and left wave-shaped bands elsewhere. Reverted.)
-    float distPx = 1e6;
-    bool distKnown = false;
-    if (orig.a <= 0.0 && glow.a > 0.004) {
-        distKnown = true;
-        vec2 texelStep = 1.0 / OutSize;
-        float stepPx = max(fieldRadiusPx, 1.0) / 10.0;
-        for (int i = 0; i < 8; i++) {
-            for (int s = 1; s <= 10; s++) {
-                float dpx = stepPx * float(s);
-                if (dpx >= distPx) break;
-                if (texture(OriginalSampler, texCoord + EDGE_DIRS[i] * texelStep * dpx).a > 0.0) {
-                    // One midpoint refine halves the quantization step.
-                    float mid = dpx - stepPx * 0.5;
-                    if (texture(OriginalSampler, texCoord + EDGE_DIRS[i] * texelStep * mid).a > 0.0) dpx = mid;
-                    distPx = min(distPx, dpx);
-                    break;
-                }
-            }
+    // Flare: independent of Glow (the field is always computed in this chain, and
+    // Java widens its search radius to flareSize/2 whenever Flare is on, so the
+    // field covers the needed reach even with Glow toggled off). Computed per class
+    // then combined via max() -- NOT summed, so overlap between a hand flame and an
+    // entity flame doesn't double-brighten, and NEITHER class's flame gets cut off
+    // by the other's (smaller/larger) reach.
+    vec3 flareContribution = vec3(0.0);
+    if (flareEnabled && orig.a <= 0.0) {
+        vec2 screenPx = texCoord * OutSize;
+
+        if (handValid) {
+            float effFlareSizePx = flareSizePx * unscaleHand;
+            float effReach = max(effFlareSizePx * 0.5, 1.0);
+            float h = clamp(handDistPx / effReach, 0.0, 1.0);
+            vec2 lagShift = vec2(flareYawOffset, -flarePitchOffset) * (effFlareSizePx / 90.0) * 4.0;
+            vec3 handFlare = flareAura(screenPx + lagShift, h, flareNoiseScalePx, flareTime, flareTint);
+            handFlare *= 1.0 - smoothstep(effReach * 0.9, effReach * 1.15, handDistPx);
+            // Hand is exempt from the up-ness part-mask below (hugs screen bottom,
+            // its flames are meant to rise over its own top edge by design).
+            flareContribution = max(flareContribution, handFlare);
+        }
+
+        if (entityValid) {
+            float effFlareSizePx = flareSizePx * unscaleEntity;
+            float effReach = max(effFlareSizePx * 0.5, 1.0);
+            float h = clamp(entityDistPx / effReach, 0.0, 1.0);
+            vec2 lagShift = vec2(flareYawOffset, -flarePitchOffset) * (effFlareSizePx / 90.0) * 4.0;
+            vec3 entityFlare = flareAura(screenPx + lagShift, h, flareNoiseScalePx, flareTime, flareTint);
+            entityFlare *= 1.0 - smoothstep(effReach * 0.9, effReach * 1.15, entityDistPx);
+
+            // Part-mask heuristic (flames on the crystal's lower half, not over its
+            // tip / a player's head), via the DISTANCE FIELD GRADIENT: distance
+            // rises away from the body, so the gradient's direction is the local
+            // "away from body" normal. Where that normal points straight UP the
+            // pixel is hovering over an upward-facing top -> fade; sideways/down ->
+            // keep.
+            vec2 gStep = 3.0 / OutSize;
+            float gx = jfaDistAt(texCoord + vec2(gStep.x, 0.0)) - jfaDistAt(texCoord - vec2(gStep.x, 0.0));
+            float gy = jfaDistAt(texCoord + vec2(0.0, gStep.y)) - jfaDistAt(texCoord - vec2(0.0, gStep.y));
+            float upness = clamp(gy / (length(vec2(gx, gy)) + 1e-5), 0.0, 1.0);
+            float partMask = 1.0 - smoothstep(0.35, 0.85, upness);
+            entityFlare *= partMask;
+            flareContribution = max(flareContribution, entityFlare);
         }
     }
 
-    // Flare: independent of Glow (glow_pass always runs in this chain, and Java widens
-    // its blur radius to flareSize/2 whenever Flare is on, so the blurred field exists
-    // even with Glow toggled off).
-    vec3 flareContribution = vec3(0.0);
-    if (flareEnabled && orig.a <= 0.0 && glow.a > 0.004) {
-        // Packed size is the distance-scaled world value; hand pixels un-scale it.
-        float effFlareSizePx = flareSizePx * unscale;
-        // Flame height from the marched distance, not the blurred field: the field
-        // sums overlapping sources (fingerprint rings, see distPx's comment); true
-        // min-distance renders each pixel's flame as if from its nearest source only.
-        // The march's step quantization is fully masked by the turbulence (which
-        // displaces h by up to ~0.5 anyway).
-        float effReach = max(effFlareSizePx * 0.5, 1.0);
-        float h = clamp(distPx / effReach, 0.0, 1.0);
-        vec2 screenPx = texCoord * OutSize;
-        // Momentum: shift the noise field by the smoothed camera-lag offset so the
-        // flames swirl behind a camera turn instead of being locked to the screen.
-        vec2 lagShift = vec2(flareYawOffset, -flarePitchOffset) * (effFlareSizePx / 90.0) * 4.0;
-        flareContribution = flareAura(screenPx + lagShift, h, flareNoiseScalePx, flareTime, flareTint);
-        // Soften the field's outer cutoff so flame tips fade instead of clipping.
-        flareContribution *= smoothstep(0.004, 0.05, glow.a);
-        // Hard cutoff by the REAL marched distance, not h: h clamps to 1.0 for
-        // anything beyond effReach (including the march's 1e6 "nothing found"
-        // sentinel), but flareAura's hh = h*(1.3+0.5*turb)+0.25*turb can still dip
-        // below 1 there whenever turb swings negative -- intensity = pow(clamp(1-hh,
-        // 0,1),2) then fires even though h is fully saturated. Because the turbulence
-        // is periodic in screen space, this repainted the same false-ignition
-        // condition on a regular grid across the ENTIRE screen (sky included) once
-        // Kawase's blur tail let glow.a clear the lax 0.004 gate over a wide area --
-        // most visible in 3rd person, where the self-glow's larger field radius
-        // spreads that tail furthest (user report 2026-07-04, screenshot showed a
-        // grid of red patches over open sky). Fading out strictly by distPx (which
-        // has no such periodic revival) kills every one of these regardless of what
-        // turb does.
-        flareContribution *= 1.0 - smoothstep(effReach * 0.9, effReach * 1.15, distPx);
-
-        // Part-mask heuristic (flames on hands/arms/legs and the crystal's lower
-        // half, not over the top of the head / crystal tip), via the FIELD GRADIENT:
-        // the blurred field rises toward the body, so the gradient's direction is the
-        // local "toward body" normal. Where that normal points straight DOWN the pixel
-        // is hovering over an upward-facing top (head crown, crystal tip) -> fade;
-        // where it points sideways/up (beside limbs, under the body) -> keep. The
-        // previous version tested raw-silhouette occupancy N px above the pixel,
-        // which by construction lit a DOWN-SHIFTED COPY of the silhouette -- rendered
-        // as a ghost "texture" of the entity hanging under it (user report 2026-07-04).
-        // Hand pixels are exempted via handness: the hand hugs the screen bottom, so
-        // its flames rise over its own top edge by design.
-        vec2 gStep = 3.0 / OutSize;
-        float gx = texture(InSampler, texCoord + vec2(gStep.x, 0.0)).a
-                 - texture(InSampler, texCoord - vec2(gStep.x, 0.0)).a;
-        float gy = texture(InSampler, texCoord + vec2(0.0, gStep.y)).a
-                 - texture(InSampler, texCoord - vec2(0.0, gStep.y)).a;
-        // +y = screen-up: field growing downward (gy < 0) means the body is below.
-        float upness = clamp(-gy / (length(vec2(gx, gy)) + 1e-5), 0.0, 1.0);
-        float partMask = 1.0 - smoothstep(0.35, 0.85, upness);
-        flareContribution *= mix(partMask, 1.0, handness);
-    }
-
     if (orig.a > 0.0) {
+        // Foreign silhouette (Boze BlockHighlight, F3-era content): pass it through
+        // exactly as drawn -- no fill, no rim, and critically no vec4(0) overwrite,
+        // which would erase Boze's own highlight from the buffer.
+        if (!isOurs(orig)) {
+            fragColor = orig;
+            return;
+        }
+
         vec4 fillResult = vec4(0.0);
         bool hasFill = fillEnabled > 0.5;
         if (hasFill) {
@@ -221,36 +223,52 @@ void main() {
             fillResult = vec4(img.rgb * fillTint.rgb, img.a * fillOpacity * fillTint.a);
         }
 
-        // Inner-rim glow: a soft bleed of glowTint just inside the silhouette edge,
-        // derived from the BLURRED field so its width follows the blur radius (inside
-        // the silhouette the field reads ~0.5 at the boundary rising toward 1 deeper
-        // in, so (1 - glow.a) is a smooth edge-distance gradient). The falloff is
-        // tightened by the distance scale (flipData.a, 0..2): at range the rim would
-        // otherwise hold the same body-relative thickness as up close, which read as
-        // disproportionately thick -- shrinking the scale narrows the visible band to
-        // just the near-edge sliver. Capped at ~47% alpha (user-tuned "alpha ~120").
+        // Inner-rim glow: a soft bleed of glowTint just inside the silhouette edge.
+        // Still an exact inward march (same technique as before) rather than a field
+        // formula: on a silhouette SMALLER than the search radius, a field-based rim
+        // would flood the whole interior at range (the "inner glow fills like a fill"
+        // report, 2026-07-04). Marching real pixels can't flood: a pixel deeper than
+        // rimPx from the edge never finds outside. Width = half the pixel's
+        // effective glow radius (distance-scaled; hand un-scales), capped at 6px.
+        //
+        // The march only finds the nearest-edge PIXEL DISTANCE now (nearestEdgeDist);
+        // the actual falloff curve reuses the SAME Neon (exp core+halo) / Soft
+        // (gaussian) formulas as the outer halo, driven by neonMode -- previously a
+        // flat linear ramp capped at a fixed 0.47 alpha regardless of mode, which
+        // read as barely-there next to the outer halo's full-intensity Neon/Soft
+        // curves (user report, 2026-07-04: "gần như chả khác gì" with InnerGlow
+        // on/off). Same peak intensity as the outer halo now (both reach 1.0 at the
+        // edge before glowIntensity), just confined inward instead of outward.
         float edgeFactor = 0.0;
         if (glowEnabled && innerGlowEnabled) {
-            const float INNER_RIM_MAX_ALPHA = 0.47; // ~120/255
-            // Exact inward march (same technique as Outline) instead of any blurred-
-            // field formula: on a silhouette SMALLER than the blur radius the field
-            // reads "near edge" across the entire body, so every field-based rim
-            // floods the whole interior at range (the "inner glow fills like a fill"
-            // report, 2026-07-04). Marching real pixels can't flood: a pixel deeper
-            // than rimPx from the edge never finds outside. Width = half the pixel's
-            // effective glow radius (distance-scaled; hand un-scales), capped at 6px.
-            float rimPx = clamp(glowRatio * unscale * fieldRadiusPx * 0.5, 1.0, 6.0);
+            // Interior pixel: the raw marker itself already tells us hand vs entity
+            // (no field/boundary ambiguity possible here), see isOurs's comment.
+            float unscalePixel = (orig.b < 0.995) ? unscaleHand : unscaleEntity;
+            float rimPx = clamp(glowRatio * unscalePixel * fieldRadiusPx * 0.5, 1.0, 6.0);
             int rimSteps = int(ceil(rimPx));
             vec2 texelStep = 1.0 / OutSize;
+            float nearestEdgeDist = 1e6;
             for (int i = 0; i < 8; i++) {
                 for (int s = 1; s <= rimSteps; s++) {
                     if (texture(OriginalSampler, texCoord + EDGE_DIRS[i] * texelStep * float(s)).a <= 0.0) {
-                        edgeFactor = max(edgeFactor, 1.0 - (float(s) - 1.0) / float(rimSteps));
+                        nearestEdgeDist = min(nearestEdgeDist, float(s - 1));
                         break;
                     }
                 }
             }
-            edgeFactor *= INNER_RIM_MAX_ALPHA;
+            if (nearestEdgeDist < 1e5) {
+                float thicknessPxInner = max(rimPx, 0.5);
+                if (neonMode) {
+                    float coreWidthPx = max(1.0, thicknessPxInner * 0.4);
+                    float core = exp(-nearestEdgeDist / coreWidthPx);
+                    float haloWidthPx = max(thicknessPxInner * 0.9, 0.5);
+                    float outerHalo = 0.45 * exp(-nearestEdgeDist / haloWidthPx);
+                    edgeFactor = clamp(core + outerHalo, 0.0, 1.0);
+                } else {
+                    float sigma = max(thicknessPxInner * 0.6, 0.5);
+                    edgeFactor = exp(-(nearestEdgeDist * nearestEdgeDist) / (2.0 * sigma * sigma));
+                }
+            }
         }
 
         if (edgeFactor > 0.0) {
@@ -265,11 +283,8 @@ void main() {
         }
 
         // MUST write transparent black instead of discard: a discarded pixel keeps
-        // whatever the swap target held from the previous pass -- which in these
-        // chains is an intermediate glow_pass blur of the raw WHITE silhouette. With
-        // the blur radius widened for Flare, that stale content showed up as huge
-        // opaque white blobs over every entity (and the whole hand) whenever fill
-        // was off.
+        // whatever the swap target held from the previous pass. With fill off this
+        // must read as fully transparent, not stale content from a previous frame.
         fragColor = vec4(0.0);
         return;
     }
@@ -278,71 +293,77 @@ void main() {
     // flame exists, its own luminance drives alpha so the dark parts of the fire stay
     // transparent instead of stamping opaque black over the scene.
     float flareLum = max(max(flareContribution.r, flareContribution.g), flareContribution.b);
-    bool haloOn = glowEnabled && glow.a > 0.0;
 
     // Crisp Outline: independent of Glow/Flare, so it must still evaluate even when
-    // both are off. Ring-samples the RAW silhouette (not the blurred field), mirrored
-    // to test the opposite side of the InnerGlow rim above (does this outside pixel
-    // sit within outlineRadiusPx of an edge?).
-    //
-    // Multi-step march (not one probe at exactly R -- that skipped thin features and
-    // left a detached ring), with two deliberate choices to match the vanilla
-    // glowing-outline look the user asked for (side-by-side comparison 2026-07-03):
-    //  - FLAT alpha (any hit = 1.0): a per-step falloff rendered as a soft glow-like
-    //    band instead of a crisp line.
-    //  - CHEBYSHEV metric (diagonals step (±s,±s), unnormalized): normalized euclidean
-    //    directions dilate into a disc, rounding every corner; square dilation keeps
-    //    corners sharp like vanilla's outline.
-    vec4 outlineData     = texelFetch(OutlineParamsSampler, ivec2(0, 0), 0);
-    vec4 outlineTintData = texelFetch(OutlineParamsSampler, ivec2(1, 0), 0);
+    // both are off. Now reads the same exact JFA distance instead of its own 8-dir
+    // march -- BetterChams.writeMainParams widens the field's search radius to at
+    // least outlineRadius whenever Outline is on, so the field always reaches far
+    // enough. (Euclidean distance rounds corners slightly more than the old
+    // Chebyshev march; revisit if that reads wrong against vanilla's outline.)
     bool outlineEnabled  = outlineData.r > 0.5;
     float outlineRadiusPx = outlineData.g * 5.0;
-    float outlineEdge = 0.0;
-    if (outlineEnabled) {
-        vec2 texelStep = 1.0 / OutSize;
-        int steps = int(ceil(outlineRadiusPx));
-        for (int i = 0; i < 8; i++) {
-            if (outlineEdge >= 1.0) break;
-            for (int s = 1; s <= steps; s++) {
-                vec2 off = EDGE_DIRS[i] * texelStep * float(s);
-                if (texture(OriginalSampler, texCoord + off).a > 0.0) {
-                    outlineEdge = 1.0;
-                    break;
-                }
-            }
-        }
-    }
+    float outlineEdge = (outlineEnabled && distValid && distPx <= outlineRadiusPx) ? 1.0 : 0.0;
     vec4 outlineContribution = vec4(outlineTintData.rgb, outlineEdge);
 
-    if (!haloOn && flareLum <= 0.003 && outlineEdge <= 0.0) {
+    if (!glowEnabled && flareLum <= 0.003 && outlineEdge <= 0.0) {
         fragColor = vec4(0.0); // not discard -- see the interior branch's comment
         return;
     }
 
-    // Remap the shared blur field so the visible halo ends at Glow Thickness even when
-    // Flare widened the field: field values within the top glowRatio fraction map to
-    // 0..1 halo alpha, everything farther out clamps to 0. Hand pixels widen the
-    // ratio back to the raw (unscaled) thickness via unscale.
-    float effGlowRatio = clamp(glowRatio * unscale, 0.0, 1.0);
-    float haloA = haloOn ? clamp((glow.a - (1.0 - effGlowRatio)) / max(effGlowRatio, 1e-4), 0.0, 1.0) : 0.0;
-    // Cap the halo by the marched true distance so overlapping halos can't merge
-    // into an over-bright bridge (the summed field reads "in halo" in the empty
-    // space between two nearby silhouettes -- "Glow resonance", 2026-07-04). The
-    // +0.15 slack keeps the cap from biting on normal single-source halos (whose
-    // field ramp tracks the distance ramp closely), hiding the march's coarse-step
-    // staircase everywhere except inside the bridge zones being cut anyway.
-    if (haloA > 0.0 && distKnown) {
-        float effThicknessPx = max(effGlowRatio * fieldRadiusPx, 1.0);
-        haloA = min(haloA, clamp(1.0 - distPx / effThicknessPx, 0.0, 1.0) + 0.15);
+    // Halo alpha: a direct analytic function of the exact distance -- no remap, no
+    // banding, no "+slack" cap hack. Computed per class (own unscale/thickness) and
+    // combined via max() -- NOT a single combined-field formula, which is exactly
+    // what let one class's (e.g. a far, distance-shrunk entity's) small radius
+    // formula take over right at the Voronoi boundary and bite a notch out of the
+    // other class's (e.g. a close hand's) much larger halo (2026-07-04).
+    float effGlowRatioHand = clamp(glowRatio * unscaleHand, 0.0, 1.0);
+    float thicknessPxHand = max(effGlowRatioHand * fieldRadiusPx, 1.0);
+    float haloAHand = 0.0;
+    if (glowEnabled && handValid) {
+        if (neonMode) {
+            float coreWidthPx = max(1.5, thicknessPxHand * 0.15);
+            float core = exp(-handDistPx / coreWidthPx);
+            float haloWidthPx = max(thicknessPxHand * 0.5, 0.5);
+            float outerHalo = 0.45 * exp(-handDistPx / haloWidthPx);
+            haloAHand = clamp(core + outerHalo, 0.0, 1.0);
+        } else {
+            float sigma = max(thicknessPxHand * 0.5, 0.5);
+            haloAHand = exp(-(handDistPx * handDistPx) / (2.0 * sigma * sigma));
+        }
+        haloAHand *= glowIntensity;
     }
-    vec4 halo = vec4(glowTint.rgb, haloA * glowIntensity * glowTint.a);
+
+    float effGlowRatioEntity = clamp(glowRatio * unscaleEntity, 0.0, 1.0);
+    float thicknessPxEntity = max(effGlowRatioEntity * fieldRadiusPx, 1.0);
+    float haloAEntity = 0.0;
+    if (glowEnabled && entityValid) {
+        if (neonMode) {
+            // Neon: bright, tight core right at the edge + a wide, faint halo --
+            // both exp-of-distance, both using GlowColor (BetterChams design choice).
+            float coreWidthPx = max(1.5, thicknessPxEntity * 0.15);
+            float core = exp(-entityDistPx / coreWidthPx);
+            float haloWidthPx = max(thicknessPxEntity * 0.5, 0.5);
+            float outerHalo = 0.45 * exp(-entityDistPx / haloWidthPx);
+            haloAEntity = clamp(core + outerHalo, 0.0, 1.0);
+        } else {
+            // Soft: gaussian-of-distance. Band-free at any radius because it's a
+            // continuous function of a float distance, not a stretched 8-bit alpha
+            // slice (the old blur field's actual banding source).
+            float sigma = max(thicknessPxEntity * 0.5, 0.5);
+            haloAEntity = exp(-(entityDistPx * entityDistPx) / (2.0 * sigma * sigma));
+        }
+        haloAEntity *= glowIntensity;
+    }
+
+    float haloA = max(haloAHand, haloAEntity);
+    vec4 halo = vec4(glowTint.rgb, haloA * glowTint.a);
     vec4 haloFlare = vec4(halo.rgb + flareContribution, max(halo.a, flareLum));
 
     // Outline composites ON TOP of halo/flare. Drawing it underneath (the original
     // layering choice) meant the halo's near-edge alpha (~1 right at the silhouette)
     // completely masked the outline there, leaving it visible only where the halo had
     // faded -- which rendered as a detached ring floating a few px off the body with a
-    // clear gap, tracking the blur field's rounded shape instead of the silhouette
+    // clear gap, tracking the field's rounded shape instead of the silhouette
     // (user-verified 2026-07-03). On top, the outline hugs the edge in every combo and
     // Outline Radius reads as pure thickness again.
     vec3 finalRGB = mix(haloFlare.rgb, outlineContribution.rgb, outlineContribution.a);

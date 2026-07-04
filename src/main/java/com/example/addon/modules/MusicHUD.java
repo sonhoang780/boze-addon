@@ -105,9 +105,14 @@ public class MusicHUD extends AddonModule {
 
     private int    transPhase     = 0;
     private double animW          = 6.0; 
-    private static final double LERP_OPEN  = 0.05; 
+    private static final double LERP_OPEN  = 0.05;
     private static final double LERP_CLOSE = 0.07;
     private static final double WIDTH_MIN  = 6.0;
+    // Idle-state frame width: not playing must still show a real HUD (outer rounded
+    // panel + empty thumb placeholder square), not collapse to the near-invisible
+    // WIDTH_MIN sliver (2026-07-04, user sketch). Same formula as compact mode's
+    // target width -- a stable, compact idle size.
+    private static final double IDLE_WIDTH = THUMB_W + 10 + 130.0;
     
     private long   hudHoverStartTime = 0; 
     private long   lastRenderTime = 0;
@@ -673,13 +678,16 @@ public class MusicHUD extends AddonModule {
         p.x = x; p.y = y; p.hudW = hudW; p.hudH = hudH;
 
         if (isManuallyStopped) {
-            if (lerpMode.getValue() == LerpMode.Off) animW = WIDTH_MIN;
-            else                                      animW = lerp(animW, WIDTH_MIN, LERP_CLOSE);
+            if (lerpMode.getValue() == LerpMode.Off) animW = IDLE_WIDTH;
+            else                                      animW = lerp(animW, IDLE_WIDTH, LERP_CLOSE);
 
             if (!useUltra) {
                 p.hudH = HUD_HEIGHT;
+                p.hudW = animW;
                 drawBackground(context, x, y, animW, HUD_HEIGHT, 8f, accentColor, false);
                 p.notPlaying = true;
+                p.thumbX = (int) x + 5; p.thumbY = (int) y + 7;
+                p.thumbW = THUMB_W; p.thumbH = THUMB_H;
                 registerSkiaPip(context, x, y, animW, HUD_HEIGHT, 0);
             }
             return;
@@ -697,7 +705,7 @@ public class MusicHUD extends AddonModule {
             if (trackEmptyStartTime == 0) trackEmptyStartTime = System.currentTimeMillis();
             if (System.currentTimeMillis() - trackEmptyStartTime > 1000) {
                 if (lerpMode.getValue() == LerpMode.Off) {
-                    animW = WIDTH_MIN;
+                    animW = IDLE_WIDTH;
                     isManuallyStopped = true;
                 } else {
                     if (transPhase == 0) transPhase = 1;
@@ -734,13 +742,13 @@ public class MusicHUD extends AddonModule {
                 }
 
                 if (spotifyOverride) {
-                    displayTitle  = SpotifyIntegration.currentTitle;
-                    displayAuthor = SpotifyIntegration.currentArtist;
+                    displayTitle  = sanitizeText(SpotifyIntegration.currentTitle);
+                    displayAuthor = sanitizeText(SpotifyIntegration.currentArtist);
                     // Thumbnail and accent color are loaded by SpotifyIntegration when the track changes.
                 } else {
                     currentTrackId = track.getIdentifier();
-                    displayTitle   = track.getInfo().title;
-                    displayAuthor  = track.getInfo().author;
+                    displayTitle   = sanitizeText(track.getInfo().title);
+                    displayAuthor  = sanitizeText(track.getInfo().author);
                     extractCinematicColorsAsync(currentTrackId);
                     loadThumbnailAsync(currentTrackId);
                 }
@@ -936,11 +944,23 @@ public class MusicHUD extends AddonModule {
 
         if (p.notPlaying) {
             paintBackgroundPanel(canvas);
+
+            // Empty thumb placeholder: same size/position the real thumbnail uses
+            // when a track IS playing, so the idle frame reads as "the same HUD,
+            // just empty" instead of a different layout (2026-07-04, user sketch).
+            try (Paint sq = new Paint()) {
+                sq.setColor(new Color(255, 255, 255, 60).getRGB());
+                sq.setMode(PaintMode.STROKE);
+                sq.setStrokeWidth(1.0f);
+                sq.setAntiAlias(true);
+                canvas.drawRRect(RRect.makeXYWH(p.thumbX, p.thumbY, p.thumbW, p.thumbH, 6f), sq);
+            }
+
             if (skiaFontBody != null) {
                 try (Paint sh = new Paint(); Paint tp = new Paint()) {
                     sh.setColor(0x80000000); tp.setColor(0xFFFFFFFF);
                     sh.setAntiAlias(true); tp.setAntiAlias(true);
-                    float bx = (float) p.x + 15, by = (float) p.y + 28 + 7;
+                    float bx = (float) p.x + THUMB_W + 10 + 5, by = (float) (p.y + p.hudH / 2.0 + 4);
                     canvas.drawString("Not playing", bx + 1, by + 1, skiaFontBody, sh);
                     canvas.drawString("Not playing", bx, by, skiaFontBody, tp);
                 }
@@ -1194,8 +1214,40 @@ public class MusicHUD extends AddonModule {
     private String clipText(Font font, String text, float maxWidth) {
         if (font.measureTextWidth(text) <= maxWidth) return text;
         String ellipsis = "…";
-        while (text.length() > 1 && font.measureTextWidth(text + ellipsis) > maxWidth) text = text.substring(0, text.length() - 1);
+        // Trim by code point, not by char: chopping one UTF-16 char at a time can slice
+        // a surrogate pair (e.g. an emoji) in half, leaving a lone surrogate that then
+        // crashes Skija's native measureTextWidth on the very next loop iteration
+        // ("Invalid UTF-16 string (unpaired surrogate)", 2026-07-04 crash).
+        int cpCount = text.codePointCount(0, text.length());
+        while (cpCount > 1 && font.measureTextWidth(text + ellipsis) > maxWidth) {
+            cpCount--;
+            text = text.substring(0, text.offsetByCodePoints(0, cpCount));
+        }
         return text + ellipsis;
+    }
+
+    // Song titles/authors come from untrusted external sources (YouTube search,
+    // Spotify) and can contain a lone UTF-16 surrogate (a truncated/malformed emoji) --
+    // Skija's native measureTextWidth throws IllegalArgumentException on that and takes
+    // the whole render frame down with it (crash-2026-07-04-musichud-surrogate).
+    // Strip any surrogate that isn't part of a valid high+low pair.
+    private static String sanitizeText(String text) {
+        if (text == null) return "";
+        StringBuilder sb = null;
+        int i = 0;
+        while (i < text.length()) {
+            char c = text.charAt(i);
+            boolean validPair = Character.isHighSurrogate(c) && i + 1 < text.length() && Character.isLowSurrogate(text.charAt(i + 1));
+            boolean loneSurrogate = Character.isSurrogate(c) && !validPair && !(Character.isLowSurrogate(c) && i > 0 && Character.isHighSurrogate(text.charAt(i - 1)));
+            if (loneSurrogate) {
+                if (sb == null) sb = new StringBuilder(text.substring(0, i));
+                i++;
+                continue;
+            }
+            if (sb != null) sb.append(c);
+            i++;
+        }
+        return sb != null ? sb.toString() : text;
     }
 
 

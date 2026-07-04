@@ -31,7 +31,19 @@ void main() {
 
     vec4 orig = texture(InSampler, texCoord);
 
-    if (orig.a > 0.0 && fillEnabled > 0.5) {
+    // Same foreign-content guard as glow_resolve.fsh's isOurs(): the vanilla
+    // entityOutlineTarget is shared, and Boze's BlockHighlight (plus F3-era content)
+    // draws into it as PURE WHITE. Only silhouettes this addon drew (the green-250
+    // entity marker or the blue-250 hand marker) may receive fill/outline; exact
+    // pure white is rejected as foreign (see glow_resolve.fsh's isOurs comment).
+    bool ours = orig.a > 0.0 && orig.r > 0.97 && orig.g > 0.95 && orig.b > 0.95
+        && (orig.g < 0.995 || orig.b < 0.995);
+    if (orig.a > 0.0 && !ours) {
+        fragColor = orig;
+        return;
+    }
+
+    if (ours && fillEnabled > 0.5) {
         vec4 img = texture(ImageSampler, flippedUv);
         fragColor = vec4(img.rgb * fillTint.rgb, img.a * fillOpacity * fillTint.a);
         return;
@@ -57,7 +69,9 @@ void main() {
                 if (outlineEdge >= 1.0) break;
                 for (int s = 1; s <= steps; s++) {
                     vec2 off = OUTLINE_DIRS[i] * texelStep * float(s);
-                    if (texture(InSampler, texCoord + off).a > 0.0) {
+                    vec4 n = texture(InSampler, texCoord + off);
+                    if (n.a > 0.0 && n.r > 0.97 && n.g > 0.95 && n.b > 0.95
+                        && (n.g < 0.995 || n.b < 0.995)) {
                         outlineEdge = 1.0;
                         break;
                     }

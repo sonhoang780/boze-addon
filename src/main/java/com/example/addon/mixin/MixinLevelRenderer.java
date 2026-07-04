@@ -57,7 +57,7 @@ public class MixinLevelRenderer {
         )
     )
     private void betterchams$addSmokePostChain(CallbackInfo ci, @com.llamalad7.mixinextras.sugar.Local com.mojang.blaze3d.framegraph.FrameGraphBuilder builder) {
-        // GlowBlur now runs inside MixinGameRenderer.reprocessHandOutline, right
+        // JfaField now runs inside MixinGameRenderer.reprocessHandOutline, right
         // before the ONE chain that actually resolves everything -- doing it here fed
         // a chain (entity_outline.json) that MixinShaderManager nulls whenever the
         // module is on, and it ran before the hand was flushed into the target.

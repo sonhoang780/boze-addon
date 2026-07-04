@@ -56,6 +56,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class PlayMusic extends AddonModule {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(PlayMusic.class);
     public static final PlayMusic INSTANCE = new PlayMusic();
     public boolean active = false;
 
@@ -137,7 +138,13 @@ public class PlayMusic extends AddonModule {
                     safeInfo("§fOpening browser to §bhttps://www.google.com/device §f...");
                     try {
                         if (ytSourceManager != null) {
-                            ytSourceManager.useOauth2(null, true);
+                            // skipInitialization=false -- true tells YoutubeOauth2Handler to skip
+                            // initializeAccessToken()/fetchDeviceCode() entirely (per its own source:
+                            // setRefreshToken only calls initializeAccessToken() when !skipInitialization),
+                            // so no device code was ever requested and nothing was ever logged for the
+                            // Log4j2 hook to catch -- the >login command needs to actually kick off the
+                            // flow, not skip it.
+                            ytSourceManager.useOauth2(null, false);
                         }
                         net.minecraft.util.Util.getPlatform().openUri(new java.net.URI("https://www.google.com/device"));
                     } catch (Exception e) {
@@ -202,45 +209,50 @@ public class PlayMusic extends AddonModule {
         });
     }
 
-    // ── KẸP CONSOLE ĐỂ BẮT MÃ LOGIN HIỂN THỊ LÊN CHAT ──
+    // ── BẮT MÃ LOGIN QUA LOG4J2, KHÔNG QUA System.out ──
+    // youtube-source's YoutubeOauth2Handler logs the device code via SLF4J
+    // (log.info("... go to {} and enter code {}", url, code)) -- it never touches
+    // System.out, so the old System.out-hijack here never saw a single line (verified
+    // against the library's actual sources, common-*-sources.jar). Attach a Log4j2
+    // appender straight to that class's logger instead.
     private void hookConsoleForOauth() {
         if (consoleHooked) return;
         consoleHooked = true;
-        java.io.PrintStream originalOut = System.out;
-        System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
-            private final java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
-            @Override
-            public void write(int b) {
-                buffer.write(b);
-                if (b == '\n') {
-                    String line = buffer.toString();
-                    if (line.contains("https://www.google.com/device") && line.contains("code")) {
-                        Matcher m = Pattern.compile("code\\s+([A-Z0-9-]+)").matcher(line);
-                        if (m.find()) {
-                            String code = m.group(1);
-                            Minecraft mc = Minecraft.getInstance();
-                            if (mc.player != null) {
-                                mc.execute(() -> {
-                                    safeInfo("§e========================================");
-                                    safeInfo("§a[YouTube Auth] §fAction required!");
-                                    safeInfo("§fYour Login Code is: §b§l" + code);
-                                    safeInfo("§fPlease enter it in the opened browser window.");
-                                    safeInfo("§e========================================");
-                                });
-                            }
-                        }
-                    }
-                    if (line.toLowerCase().contains("refresh token has been successfully") || line.toLowerCase().contains("successfully updated")) {
-                        Minecraft mc = Minecraft.getInstance();
-                        if (mc.player != null) {
-                            mc.execute(() -> safeInfo("§a[YouTube Auth] §fLogin successful! You can now play any track."));
-                        }
-                    }
-                    originalOut.print(line);
-                    buffer.reset();
+        try {
+            org.apache.logging.log4j.core.Logger targetLogger =
+                (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getLogger(dev.lavalink.youtube.http.YoutubeOauth2Handler.class);
+            org.apache.logging.log4j.core.Appender appender = new org.apache.logging.log4j.core.appender.AbstractAppender(
+                    "PlayMusicOauthCapture", null,
+                    org.apache.logging.log4j.core.layout.PatternLayout.createDefaultLayout(), false, null) {
+                @Override
+                public void append(org.apache.logging.log4j.core.LogEvent event) {
+                    handleOauthLogLine(event.getMessage().getFormattedMessage());
                 }
-            }
-        }));
+            };
+            appender.start();
+            targetLogger.addAppender(appender);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to hook YouTube OAuth logger; login code won't auto-show in chat", e);
+        }
+    }
+
+    private void handleOauthLogLine(String line) {
+        Matcher m = Pattern.compile("enter code\\s+([A-Za-z0-9-]+)", Pattern.CASE_INSENSITIVE).matcher(line);
+        if (m.find()) {
+            String code = m.group(1);
+            Minecraft mc = Minecraft.getInstance();
+            mc.execute(() -> mc.keyboardHandler.setClipboard(code));
+            safeInfo("§e========================================");
+            safeInfo("§a[YouTube Auth] §fAction required!");
+            safeInfo("§fYour Login Code is: §b§l" + code + " §7(copied to clipboard)");
+            safeInfo("§fPlease enter it in the opened browser window.");
+            safeInfo("§e========================================");
+            return;
+        }
+        String lower = line.toLowerCase();
+        if (lower.contains("token retrieved successfully") || lower.contains("access token refreshed successfully")) {
+            safeInfo("§a[YouTube Auth] §fLogin successful! You can now play any track.");
+        }
     }
 
     public static AudioTrack getCurrentTrack() { return player != null ? player.getPlayingTrack() : null; }

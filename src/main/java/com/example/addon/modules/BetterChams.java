@@ -19,8 +19,6 @@ import java.nio.file.Path;
 
 public class BetterChams extends AddonModule {
 
-    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(BetterChams.class);
-
     public static boolean isRenderingHand = false;
 
     public static final BetterChams INSTANCE = new BetterChams();
@@ -61,8 +59,20 @@ public class BetterChams extends AddonModule {
     // mask for hand pixels only.
     public static final int HAND_OUTLINE_COLOR = 0xFFFFFFFA;
 
-    // Current frame's blur-field radius in px -- read by GlowBlur to pick its
-    // pyramid depth (deeper = wider smooth blur for big Glow Thickness / Flare Size).
+    // World entities (players/crystals/self) use their OWN marker too -- green 250
+    // instead of pure white. Pure white 0xFFFFFFFF is exactly what foreign content
+    // (Boze BlockHighlight in 3rd person with the crosshair on a block; extra
+    // F3-era buffer content) lands in the SHARED entityOutlineTarget as, so a pure
+    // white marker was indistinguishable from it: foreign silhouettes passed
+    // isOurs, seeded the JFA field, and bloomed a giant soft halo around the
+    // targeted block / debug content -- the "glow nhoe" in 3rd person and F3
+    // (both views), 2026-07-04. With green-250 the isOurs guard can now REJECT
+    // exact pure white as foreign.
+    public static final int ENTITY_OUTLINE_COLOR = 0xFFFFFAFF;
+
+    // Current frame's field radius in px -- read by JfaField to pick its jump-flood
+    // reach (more/bigger jump steps = wider distance search for big Glow Thickness /
+    // Flare Size).
     public static volatile double fieldRadiusPxForBlur = 12.0;
 
     private static DynamicTexture paramsTexture;
@@ -151,8 +161,17 @@ public class BetterChams extends AddonModule {
         "Glow outline on yourself in 3rd person.", true);
     public final SliderOption range         = new SliderOption(this, "Range",
         "Max range in blocks.", 16.0, 8.0, 64.0, 1.0);
-    public final ToggleOption glowToggle    = new ToggleOption(this, "Glow",
-        "Show Kawase glow halo around the silhouette.", true);
+    public enum GlowMode {
+        Off, Soft, Neon
+    }
+    // Named "GlowMode" (not "Glow") deliberately: the old option was a ToggleOption
+    // named "Glow" (boolean true/false). BetterChams has no fromJson override for
+    // null-safe loading (unlike MusicHUD/PlayMusic), so feeding old boolean-shaped
+    // saved data into a same-named ModeOption risked throwing mid-load and aborting
+    // every option after it. A new key sidesteps the type collision entirely --
+    // the stale "Glow" entry is just orphaned in old config files.
+    public final dev.boze.api.option.ModeOption glowMode = new dev.boze.api.option.ModeOption(this, "GlowMode",
+        "", GlowMode.Soft);
     public final SliderOption glowThickness = new SliderOption(this, "Glow Thickness",
         "Radius of the glow effect in pixels.", 12.0, 1.0, 64.0, 1.0);
     public final ToggleOption innerGlow      = new ToggleOption(this, "InnerGlow",
@@ -160,18 +179,18 @@ public class BetterChams extends AddonModule {
     public final SliderOption glowIntensity = new SliderOption(this, "Glow Intensity",
         "Strength of the glow halo.", 0.97, 0.0, 1.0, 0.01);
     public final ToggleOption flareToggle = new ToggleOption(this, "Flare",
-        "Volumetric fire wrapping every currently-glowing silhouette. Independent of Glow -- Glow (if also on) adds bloom on top of the flame.", false);
+        "KABOOM KABLAU", false);
     public final dev.boze.api.option.ColorOption flareTint = new dev.boze.api.option.ColorOption(this, "FlareTint",
-        "Tint multiplied onto the flare's base fire palette.", dev.boze.api.render.ColorMaker.staticColor(255, 120, 30), 1.0f);
+        "Flare tint", dev.boze.api.render.ColorMaker.staticColor(255, 120, 30), 1.0f);
     public final SliderOption flareSize = new SliderOption(this, "Flare Size",
-        "Size (px) of the local canvas each silhouette edge point's flame is rendered into.", 48.0, 8.0, 128.0, 1.0);
+        "", 48.0, 8.0, 128.0, 1.0);
 
     public final ToggleOption outlineToggle = new ToggleOption(this, "Outline",
-        "Crisp outline hugging the silhouette edge -- independent of Glow (a blurred halo) and works even with Glow/Flare/Fill all off.", false);
+        "", false);
     public final SliderOption outlineRadius = new SliderOption(this, "Outline Radius",
-        "Thickness (px) of the crisp outline.", 2.0, 1.0, 5.0, 1.0);
+        "Outline thickness", 2.0, 1.0, 5.0, 1.0);
     public final dev.boze.api.option.ColorOption outlineTint = new dev.boze.api.option.ColorOption(this, "OutlineColor",
-        "Color for the crisp Outline.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
+        "", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
 
     public enum FillMode {
         Off, Image, Gif, Shader
@@ -185,14 +204,16 @@ public class BetterChams extends AddonModule {
         "Open image picker from boze/images/.", false);
     public final ToggleOption selectGif     = new ToggleOption(this, "SelectGIF",
         "Open gif picker from boze/gifs/.", false);
+    public final ToggleOption selectShader  = new ToggleOption(this, "SelectShader",
+        "Open shader picker from boze/shaders/.", false);
+
     public final SliderOption frameDelay    = new SliderOption(this, "FrameDelay",
         "Delay between GIF frames in ms.", 10.0, 0.0, 300.0, 1.0);
     public final ToggleOption bounce        = new ToggleOption(this, "Bounce",
-        "Play the GIF forward then backward (ping-pong) instead of looping, to hide the jump-cut seam where it restarts.", false);
+        "Play back at the end of the GIF.", false);
 
     public final dev.boze.api.option.ColorOption fillColor = new dev.boze.api.option.ColorOption(this, "FillColor", "Color for image, gif and shader fill.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
     public final dev.boze.api.option.ColorOption outlineColor = new dev.boze.api.option.ColorOption(this, "GlowColor", "Color for the glow halo and shader outline.", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
-    public final ToggleOption selectShader  = new ToggleOption(this, "SelectShader", "Open shader picker from boze/shaders/.", false);
 
     private BetterChams() {
         super("BetterChams", "Better Chams");
@@ -241,6 +262,11 @@ public class BetterChams extends AddonModule {
         if (mc.player == null) return false;
         double r = range.getValue();
         return mc.player.distanceToSqr(entity) <= r * r;
+    }
+
+    /** True unless Glow mode is Off. Kept as a method (not a field) so every call site reads the current ModeOption value. */
+    public boolean glowOn() {
+        return glowMode.getValue() != GlowMode.Off;
     }
 
     private FillMode lastFillMode = FillMode.Off;
@@ -354,35 +380,10 @@ public class BetterChams extends AddonModule {
         }
     }
 
-    private long lastColorDebugMs = 0L;
-
-    // TEMP diagnostic for the "Gradient renders black" report -- getRed/Green/Blue
-    // are documented to return 0-255 for any ClientColor regardless of Static/
-    // Changing/Gradient mode, so if this still prints (0,0,0) for a Gradient
-    // selection, the zero is coming from inside Boze's own client color evaluation
-    // (outside this addon's control) rather than our packing/consumption code.
-    // Remove once root cause confirmed.
-    private void debugLogColors() {
-        long now = System.currentTimeMillis();
-        if (now - lastColorDebugMs < 3000L) return;
-        lastColorDebugMs = now;
-        logOneColor("FillColor", fillColor.getValue().color);
-        logOneColor("GlowColor", outlineColor.getValue().color);
-        logOneColor("OutlineColor", outlineTint.getValue().color);
-        logOneColor("FlareTint", flareTint.getValue().color);
-    }
-
-    private void logOneColor(String label, dev.boze.api.render.ClientColor c) {
-        LOGGER.info("[BetterChams DEBUG] {}: id={} class={} rgb=({},{},{}) packed=0x{}",
-            label, c.getIdentifier(), c.getClass().getName(), c.getRed(), c.getGreen(), c.getBlue(),
-            Integer.toHexString(c.getPacked()));
-    }
-
     private void updateParamsTexture() {
         if (paramsTexture == null) return;
         Minecraft mc = Minecraft.getInstance();
         boolean on = getState();
-        if (on) debugLogColors();
         writeMainParams(paramsTexture, on, effectScale());
 
         updateFlareParamsTexture(mc, on);
@@ -395,7 +396,7 @@ public class BetterChams extends AddonModule {
         if (pixels == null) return;
 
         boolean fillOn = on && (fillMode.getValue() != FillMode.Off) && CHAMS_TEXTURE.hasImage();
-        boolean glowOn = on && glowToggle.getValue();
+        boolean glowFxOn = on && glowOn();
         boolean flareOn = on && flareToggle.getValue();
         int r = fillOn ? 255 : 0;
         int g = Math.round((float)(fillOpacity.getValue() * 255)) & 0xFF;
@@ -410,6 +411,26 @@ public class BetterChams extends AddonModule {
         double glowRadius = Math.max(1.0, glowThickness.getValue() * scale);
         double blurRadius = Math.max(1.0, glowThickness.getValue() * fieldScale);
         if (flareOn) blurRadius = Math.max(blurRadius, (flareSize.getValue() * fieldScale) / 2.0);
+        // Crisp Outline's edge test now reads the SAME JFA distance field (see
+        // glow_resolve.fsh) instead of its own independent march -- the field must
+        // reach at least outlineRadius or a thin Glow Thickness + wide Outline Radius
+        // combo would falsely read "no edge found" past the field's search limit.
+        if (outlineToggle.getValue()) blurRadius = Math.max(blurRadius, outlineRadius.getValue());
+
+        // Hard ceiling: self up close in 3rd person can drive `scale` to its 2.0 cap
+        // while ALSO already filling most of the frame on its own -- the resulting
+        // blur/halo radius (still "correct" by the apparent-size formula) then reads
+        // as the glow flooding the whole screen (user report 2026-07-04, reproduced
+        // by switching to 3rd person; confirmed fixed by this cap). Clamp both the
+        // packed shader radius and the Java-side value below to a fixed fraction of
+        // screen height so neither the resolve shader nor JfaField's jump-flood
+        // reach (which used the unclamped value here, independent of the packed
+        // byte's own 255 clamp) can ever exceed a bounded portion of the screen
+        // regardless of how large scale gets.
+        double maxRadiusPx = Minecraft.getInstance().getWindow().getHeight() * 0.18;
+        blurRadius = Math.min(blurRadius, maxRadiusPx);
+        glowRadius = Math.min(glowRadius, blurRadius);
+
         int a = Math.min(255, Math.round((float)blurRadius)) & 0xFF;
         fieldRadiusPxForBlur = blurRadius;
         // b is no longer a plain on/off gate: it packs the ratio of the DESIRED visible
@@ -419,7 +440,7 @@ public class BetterChams extends AddonModule {
         // flame's full reach (raising Flare Size used to balloon the halo into a huge
         // rounded cloud around everything).
         int b = 0;
-        if (glowOn) {
+        if (glowFxOn) {
             double ratio = Math.min(1.0, glowRadius / Math.max(blurRadius, 1e-3));
             b = Math.max(1, (int)Math.round(ratio * 255.0));
         }
@@ -487,7 +508,11 @@ public class BetterChams extends AddonModule {
         // Outline is deliberately NOT distance-scaled: its radius is pure edge
         // thickness in pixels, and a 1-5px line reads fine at any distance.
         int radiusPacked = Math.round((float)(outlineRadius.getValue() / 5.0 * 255.0)) & 0xFF;
-        pixels.setPixelABGR(0, 0, (0xFF << 24) | (0 << 16) | (radiusPacked << 8) | enabled);
+        // Blue byte was unused (always 0) -- carries the Glow ModeOption now so
+        // glow_resolve.fsh can pick Soft (gaussian falloff) vs Neon (core + halo)
+        // without a new texture/JSON declaration. 0 = Soft/Off, 255 = Neon.
+        int glowModePacked = (glowMode.getValue() == GlowMode.Neon) ? 255 : 0;
+        pixels.setPixelABGR(0, 0, (0xFF << 24) | (glowModePacked << 16) | (radiusPacked << 8) | enabled);
 
         pixels.setPixelABGR(1, 0, packTint(outlineTint.getValue().color));
 

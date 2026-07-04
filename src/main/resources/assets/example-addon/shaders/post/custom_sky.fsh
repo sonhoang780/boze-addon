@@ -15,11 +15,22 @@ void main() {
     float depth = texture(MainDepthSampler, texCoord).r;
     vec4 base = texture(MainSampler, texCoord);
 
-    // Only true sky pixels (nothing rasterized there = far-plane depth) get replaced;
-    // terrain, entities, etc. pass through untouched. Threshold assumes standard
-    // (non-reversed) depth convention -- verify in-game; if the sky ends up replacing
-    // terrain instead of the sky, this comparison needs flipping (depth < 0.0001).
-    if (depth < 0.9999) {
+    // Only true sky pixels (nothing rasterized there = far-plane depth, exactly 1.0
+    // from the GL clear) get replaced; terrain, entities, etc. pass through
+    // untouched. Threshold assumes standard (non-reversed) depth convention --
+    // verify in-game; if the sky ends up replacing terrain instead of the sky,
+    // this comparison needs flipping (depth < 0.0001).
+    //
+    // MUST be a tight epsilon, not 0.9999 (4 nines): standard perspective depth is
+    // extremely compressed near the far plane, so REAL geometry right at the edge
+    // of render distance can legitimately read >=0.9999 while still being actual
+    // terrain (finite z never rounds to exactly 1.0; only the untouched GL-cleared
+    // background does). A loose threshold caught that edge terrain as "sky" and
+    // flipped in/out frame-to-frame as chunks streamed/camera moved -- Nether's
+    // dense cave/wall geometry sits hard against the render-distance edge far more
+    // often than the overworld's open horizon, so this flickered mainly there
+    // (2026-07-04).
+    if (depth < 0.99999) {
         fragColor = base;
         return;
     }

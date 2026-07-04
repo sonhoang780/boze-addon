@@ -12,6 +12,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * PathFinder — no longer a standalone pathfinder. The vendored native
@@ -77,8 +79,21 @@ public class PathFinder extends AddonModule {
     private ModeOption<?> flyModeOption = null;
     private String savedFlyModeName = null;
 
+    // Stuck detection + auto-escape: baritone's #elytra path can hug terrain closely
+    // enough to wedge the player inside a block (nether-ceiling flying especially),
+    // and grinding forward against solid ground never breaks free on its own --
+    // previously required manually pressing S + (A or D) to back out (2026-07-04).
+    private static final int STUCK_WINDOW_TICKS = 10;   // ~0.5s @ 20tps
+    private static final double STUCK_DIST_THRESHOLD = 0.3; // blocks of net movement expected per window
+    private static final int ESCAPE_TICKS = 14;          // ~0.7s of back+strafe
+
+    private Vec3 windowStartPos = null;
+    private int windowTicks = 0;
+    private int escapeTicksRemaining = 0;
+    private boolean escapeStrafeLeft = true;
+
     public PathFinder() {
-        super("PathFinder", "Steers along baritone's #goal/#elytra path: forces ElytraFly Creative, auto-holds forward, and auto-presses Space/Shift from baritone's own elytra destination Y. Also blocks baritone's firework use while enabled.");
+        super("PathFinder", "Use boze elytrafly so you dont waste fireworks (but still have to bring at least 5 fireworks to make baritone work.");
     }
 
     @Override
@@ -118,6 +133,9 @@ public class PathFinder extends AddonModule {
     @Override
     public void onDisable() {
         releaseKeys();
+        windowStartPos = null;
+        windowTicks = 0;
+        escapeTicksRemaining = 0;
         if (flyModeOption != null && savedFlyModeName != null) {
             try { flyModeOption.setValueByName(savedFlyModeName); } catch (Exception ignored) {}
         }
@@ -132,6 +150,9 @@ public class PathFinder extends AddonModule {
     private void releaseKeys() {
         Minecraft mc = Minecraft.getInstance();
         mc.options.keyUp.setDown(false);
+        mc.options.keyDown.setDown(false);
+        mc.options.keyLeft.setDown(false);
+        mc.options.keyRight.setDown(false);
         mc.options.keyJump.setDown(false);
         mc.options.keyShift.setDown(false);
     }
@@ -145,7 +166,53 @@ public class PathFinder extends AddonModule {
 
         if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA || mc.player.onGround()) {
             releaseKeys();
+            windowStartPos = null;
+            windowTicks = 0;
+            escapeTicksRemaining = 0;
             return;
+        }
+
+        Vec3 pos = mc.player.position();
+
+        // Escape maneuver in progress: back off + strafe away from the wall instead of
+        // grinding forward into it.
+        if (escapeTicksRemaining > 0) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyDown.setDown(true);
+            mc.options.keyLeft.setDown(escapeStrafeLeft);
+            mc.options.keyRight.setDown(!escapeStrafeLeft);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            escapeTicksRemaining--;
+            windowStartPos = pos;
+            windowTicks = 0;
+            return;
+        }
+        mc.options.keyDown.setDown(false);
+        mc.options.keyLeft.setDown(false);
+        mc.options.keyRight.setDown(false);
+
+        // Stuck detection: sample net displacement over a fixed tick window while
+        // airborne with an elytra equipped. Near-zero net movement despite forward
+        // being held means we're wedged against terrain, not just ascending/turning
+        // slowly. Pick whichever side (left/right of current facing) is actually open
+        // before committing to strafe there, so the escape doesn't just wedge deeper.
+        if (windowStartPos == null) {
+            windowStartPos = pos;
+            windowTicks = 0;
+        } else if (++windowTicks >= STUCK_WINDOW_TICKS) {
+            if (pos.distanceTo(windowStartPos) < STUCK_DIST_THRESHOLD) {
+                escapeStrafeLeft = clearerSideIsLeft(mc);
+                escapeTicksRemaining = ESCAPE_TICKS;
+                windowStartPos = pos;
+                windowTicks = 0;
+                mc.options.keyUp.setDown(false);
+                mc.options.keyJump.setDown(false);
+                mc.options.keyShift.setDown(false);
+                return;
+            }
+            windowStartPos = pos;
+            windowTicks = 0;
         }
 
         // Forward: hold it, advancing in whatever direction the player is currently
@@ -178,6 +245,26 @@ public class PathFinder extends AddonModule {
             mc.options.keyJump.setDown(false);
             mc.options.keyShift.setDown(false);
         }
+    }
+
+    /**
+     * True if strafing LEFT of the player's current facing has more open space than
+     * strafing right (tested via AABB collision against the world a couple blocks out
+     * to each side), so the escape maneuver picks the direction that doesn't just wedge
+     * the player into more terrain.
+     */
+    private static boolean clearerSideIsLeft(Minecraft mc) {
+        Vec3 look = mc.player.getLookAngle();
+        // up(0,1,0) x forward = (look.z, 0, -look.x): perpendicular, horizontal, "left".
+        Vec3 left = new Vec3(look.z, 0, -look.x).normalize();
+        double testDist = 1.5;
+        AABB box = mc.player.getBoundingBox();
+        AABB leftBox = box.move(left.x * testDist, 0, left.z * testDist);
+        AABB rightBox = box.move(-left.x * testDist, 0, -left.z * testDist);
+        boolean leftClear = mc.level.noCollision(mc.player, leftBox);
+        boolean rightClear = mc.level.noCollision(mc.player, rightBox);
+        if (leftClear != rightClear) return leftClear;
+        return mc.player.getRandom().nextBoolean();
     }
 
     /**
