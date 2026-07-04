@@ -124,11 +124,12 @@ public class BetterChams extends AddonModule {
         // the raw ratio crashed toward the 0.05 floor within a few blocks (user report
         // 2026-07-04: "4 blocks away and the player's flare/glow is already gone").
         // Square-rooting flattens that curve (a ratio of 0.09 becomes 0.3 instead of
-        // 0.09), and the floor is raised from 0.05 to 0.35 so a distant target keeps a
-        // visible sliver of glow instead of shrinking to near-nothing. Re-tune
-        // REF_APPARENT_PX itself (not this curve) if near-range still feels off.
+        // 0.09), and the floor is raised to 0.5 so a distant target always keeps at
+        // least half-size glow/flare (0.35 still read as "shrinks too fast", user
+        // 2026-07-04). Re-tune REF_APPARENT_PX itself (not this curve) if near-range
+        // still feels off.
         double ratio = lastSmallestApparentPx == Double.MAX_VALUE ? 1.0 : lastSmallestApparentPx / REF_APPARENT_PX;
-        double target = Math.max(0.35, Math.min(2.0, Math.sqrt(Math.max(0.0, ratio))));
+        double target = Math.max(0.5, Math.min(2.0, Math.sqrt(Math.max(0.0, ratio))));
         long now = System.nanoTime();
         float dt = scaleLastNanos == 0L ? 0.016f : Math.min((now - scaleLastNanos) / 1_000_000_000f, 0.25f);
         scaleLastNanos = now;
@@ -246,6 +247,7 @@ public class BetterChams extends AddonModule {
 
     public void reloadTextureForCurrentMode() {
         FillMode mode = (FillMode) fillMode.getValue();
+        lastFillMode = mode;
         if (mode != FillMode.Shader) {
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
         }

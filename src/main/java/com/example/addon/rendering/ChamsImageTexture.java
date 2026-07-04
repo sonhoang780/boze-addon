@@ -12,7 +12,6 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,22 +86,33 @@ public class ChamsImageTexture extends AbstractTexture {
                 BufferedImage canvas = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D g2 = canvas.createGraphics();
 
-                List<byte[]> rawFrames = new ArrayList<>();
+                // Skip the PNG encode/decode round-trip the old code did per frame
+                // (compositeFrame -> ImageIO.write PNG -> hop threads -> NativeImage.read
+                // PNG) -- DEFLATE compression of every frame was the actual cost behind
+                // ~1min loads for heavy GIFs. Copy composited pixels straight into a
+                // NativeImage instead; it's plain CPU pixel data, safe to build off the
+                // render thread, only the DynamicTexture/GL upload needs mcExecute.
+                List<NativeImage> decodedFrames = new ArrayList<>();
+                int[] row = new int[gifW];
                 for (int i = 0; i < numFrames; i++) {
                     if (myGeneration != loadGeneration) {
                         // A newer loadImage()/mode switch superseded this decode; stop wasting work.
                         g2.dispose(); reader.dispose(); iis.close();
+                        for (NativeImage ni : decodedFrames) ni.close();
                         isLoading = false;
                         return;
                     }
                     g2.drawImage(reader.read(i), 0, 0, null);
-                    BufferedImage baked = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
-                    java.awt.Graphics2D gc = baked.createGraphics();
-                    gc.drawImage(canvas, 0, 0, null);
-                    gc.dispose();
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(baked, "png", baos);
-                    rawFrames.add(baos.toByteArray());
+                    NativeImage img = new NativeImage(NativeImage.Format.RGBA, gifW, gifH, false);
+                    for (int y = 0; y < gifH; y++) {
+                        canvas.getRGB(0, y, gifW, 1, row, 0, gifW);
+                        for (int x = 0; x < gifW; x++) {
+                            int argb = row[x];
+                            int abgr = (argb & 0xFF000000) | ((argb & 0xFF) << 16) | (argb & 0x00FF00) | ((argb >> 16) & 0xFF);
+                            img.setPixelABGR(x, y, abgr);
+                        }
+                    }
+                    decodedFrames.add(img);
                 }
                 g2.dispose(); reader.dispose(); iis.close();
 
@@ -110,15 +120,15 @@ public class ChamsImageTexture extends AbstractTexture {
                     if (myGeneration != loadGeneration) {
                         // Superseded while hopping back to the main thread -- discard, don't clobber
                         // whatever the newer selection (image/shader/different gif) already set.
+                        for (NativeImage ni : decodedFrames) ni.close();
                         isLoading = false;
                         return;
                     }
                     clearGif();
                     try {
-                        for (int i = 0; i < rawFrames.size(); i++) {
+                        for (int i = 0; i < decodedFrames.size(); i++) {
                             final int fi = i;
-                            NativeImage img = NativeImage.read(new ByteArrayInputStream(rawFrames.get(i)));
-                            DynamicTexture tex = new DynamicTexture(() -> "betterchams_gif_" + fi, img);
+                            DynamicTexture tex = new DynamicTexture(() -> "betterchams_gif_" + fi, decodedFrames.get(i));
                             gifFrames.add(tex);
                         }
                         isGif = true;

@@ -39,28 +39,15 @@ public class MixinLevelRenderer {
         }
     }
 
-    @org.spongepowered.asm.mixin.injection.Redirect(
-        method = "renderLevel",
-        at = @At(
-            value = "INVOKE",
-            target = "Lnet/minecraft/client/renderer/ShaderManager;getPostChain(Lnet/minecraft/resources/Identifier;Ljava/util/Set;)Lnet/minecraft/client/renderer/PostChain;"
-        )
-    )
-    private net.minecraft.client.renderer.PostChain betterchams$redirectGetPostChain(
-        net.minecraft.client.renderer.ShaderManager instance,
-        net.minecraft.resources.Identifier id,
-        java.util.Set<net.minecraft.resources.Identifier> externalTargets
-    ) {
-        if (id.getPath().equals("entity_outline") && com.example.addon.modules.BetterChams.INSTANCE.getState()) {
-            // Flare rides the glow-style chain (it needs the blurred silhouette field as
-            // its flame canvas), so the cheap fill_only route only applies when flare is off.
-            if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue()
-                    && (com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off || com.example.addon.modules.BetterChams.INSTANCE.outlineToggle.getValue())) {
-                return instance.getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_outline"), externalTargets);
-            }
-        }
-        return instance.getPostChain(id, externalTargets);
-    }
+    // NOTE: there used to be a Redirect here that swapped renderLevel's
+    // entity_outline chain for fill_only_outline in the fill/outline-only combo.
+    // That made the silhouettes resolve TWICE: once in the FrameGraph via that
+    // redirect, then again in MixinGameRenderer.reprocessHandOutline -- whose
+    // second dilation traced the FIRST pass's ring (not the body) while the first
+    // ring's pixels were dropped as stale swap content, rendering the outline as a
+    // detached ring floating one radius off the body ("outline khong bam sat",
+    // 2026-07-04). MixinShaderManager already nulls the chain for every active
+    // combo, and reprocessHandOutline resolves everything exactly once.
 
     @Inject(
         method = "renderLevel",

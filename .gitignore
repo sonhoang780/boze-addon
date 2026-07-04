@@ -140,6 +140,12 @@ docs/superpowers/specs/
 docs/session-*.md
 sketch.md
 
+# CodeGraph index
+.codegraph/
+
+# local-only instructions, not build-relevant
+CLAUDE.md
+
 # scratch/dev notes
 CHANGES_EBOUNCE_MACEAURA.txt
 automace_prompt.txt

@@ -116,36 +116,44 @@ void main() {
     float unscale  = mix(1.0, invScale, handness);      // 1 for entities, 1/scale for hand
 
     // Shared blur-kernel radius actually applied to this buffer (BetterChams.
-    // updateParamsTexture: max(Glow Thickness, flareSize/2 whenever Flare is on)) --
-    // the correct reference for "how strong should this field's gradient be if it
-    // came from one clean source", used below by BOTH Flare and Glow.
+    // updateParamsTexture: max(Glow Thickness, flareSize/2 whenever Flare is on)).
     float fieldRadiusPx = params.a * 255.0;
 
-    // Field gradient, shared by three purposes below (Flare tongue coloring, Flare's
-    // part-mask, and Glow's halo). The chain draws every glowing silhouette (hand AND
-    // every world entity) into ONE buffer before the Kawase blur, so when two
-    // silhouettes sit close together on screen (hand near a player/crystal, or two
-    // world entities near each other) their blurred halos SUM into one buffer -- the
-    // combined field folds into a saddle between them instead of staying a single
-    // monotonic bump. Flare colors purely by the field's raw height via a periodic
-    // sin(hh*5), so every fold-crossing repaints the same band again (concentric
-    // "fingerprint" rings, user report 2026-07-04); Glow's halo is a monotonic ramp so
-    // a fold there instead reads as an over-bright merged patch ("resonance", same
-    // report). A real single-source edge keeps a healthy, consistent gradient almost
-    // everywhere; a saddle's gradient goes slack right at the fold. Gating both
-    // effects on gradient magnitude kills the fold artifacts while leaving genuine
-    // single-source halos/tongues (strong gradient nearly everywhere they're visible)
-    // untouched.
-    vec2 gStep = 3.0 / OutSize;
-    float gx = texture(InSampler, texCoord + vec2(gStep.x, 0.0)).a
-             - texture(InSampler, texCoord - vec2(gStep.x, 0.0)).a;
-    float gy = texture(InSampler, texCoord + vec2(0.0, gStep.y)).a
-             - texture(InSampler, texCoord - vec2(0.0, gStep.y)).a;
-    float gradMag = length(vec2(gx, gy));
-    // Reference: the gradient a clean single-source field would have over the same
-    // 2*gStep sample baseline if it ramped linearly across the shared blur radius.
-    float gradRef = (2.0 * gStep.x * OutSize.x) / max(fieldRadiusPx, 1.0);
-    float fieldCoherence = smoothstep(0.12, 0.35, gradMag / max(gradRef, 1e-4));
+    // True distance to the NEAREST raw silhouette (coarse Chebyshev march, same
+    // 8-dir set as Outline/InnerGlow, 10 steps + one midpoint refine). Why: the
+    // chain draws every glowing silhouette (hand AND every world entity) into ONE
+    // buffer before the Kawase blur, so where two silhouettes sit close together on
+    // screen their blurred halos SUM -- the combined field reads "close to a body"
+    // in the empty space between them. Flare's periodic sin(hh*5) palette turned
+    // that into concentric "fingerprint" rings; Glow's ramp turned it into a merged
+    // over-bright bridge (user reports 2026-07-04). A min-distance can't do either:
+    // min(dA, dB) has no dips in empty space, so effects derived from it behave as
+    // if each pixel belonged to its nearest source only.
+    //
+    // (A previous attempt gated on the field's GRADIENT magnitude instead --
+    // fundamentally wrong: up close the field saturates to 1.0 over a wide band, so
+    // its gradient is ~0 exactly where the effects should be brightest, which nuked
+    // Glow/Flare at close range and left wave-shaped bands elsewhere. Reverted.)
+    float distPx = 1e6;
+    bool distKnown = false;
+    if (orig.a <= 0.0 && glow.a > 0.004) {
+        distKnown = true;
+        vec2 texelStep = 1.0 / OutSize;
+        float stepPx = max(fieldRadiusPx, 1.0) / 10.0;
+        for (int i = 0; i < 8; i++) {
+            for (int s = 1; s <= 10; s++) {
+                float dpx = stepPx * float(s);
+                if (dpx >= distPx) break;
+                if (texture(OriginalSampler, texCoord + EDGE_DIRS[i] * texelStep * dpx).a > 0.0) {
+                    // One midpoint refine halves the quantization step.
+                    float mid = dpx - stepPx * 0.5;
+                    if (texture(OriginalSampler, texCoord + EDGE_DIRS[i] * texelStep * mid).a > 0.0) dpx = mid;
+                    distPx = min(distPx, dpx);
+                    break;
+                }
+            }
+        }
+    }
 
     // Flare: independent of Glow (glow_pass always runs in this chain, and Java widens
     // its blur radius to flareSize/2 whenever Flare is on, so the blurred field exists
@@ -154,7 +162,13 @@ void main() {
     if (flareEnabled && orig.a <= 0.0 && glow.a > 0.004) {
         // Packed size is the distance-scaled world value; hand pixels un-scale it.
         float effFlareSizePx = flareSizePx * unscale;
-        float h = 1.0 - glow.a; // 0 at silhouette edge -> 1 at blur's outer reach
+        // Flame height from the marched distance, not the blurred field: the field
+        // sums overlapping sources (fingerprint rings, see distPx's comment); true
+        // min-distance renders each pixel's flame as if from its nearest source only.
+        // The march's step quantization is fully masked by the turbulence (which
+        // displaces h by up to ~0.5 anyway).
+        float effReach = max(effFlareSizePx * 0.5, 1.0);
+        float h = clamp(distPx / effReach, 0.0, 1.0);
         vec2 screenPx = texCoord * OutSize;
         // Momentum: shift the noise field by the smoothed camera-lag offset so the
         // flames swirl behind a camera turn instead of being locked to the screen.
@@ -162,7 +176,20 @@ void main() {
         flareContribution = flareAura(screenPx + lagShift, h, flareNoiseScalePx, flareTime, flareTint);
         // Soften the field's outer cutoff so flame tips fade instead of clipping.
         flareContribution *= smoothstep(0.004, 0.05, glow.a);
-        flareContribution *= fieldCoherence;
+        // Hard cutoff by the REAL marched distance, not h: h clamps to 1.0 for
+        // anything beyond effReach (including the march's 1e6 "nothing found"
+        // sentinel), but flareAura's hh = h*(1.3+0.5*turb)+0.25*turb can still dip
+        // below 1 there whenever turb swings negative -- intensity = pow(clamp(1-hh,
+        // 0,1),2) then fires even though h is fully saturated. Because the turbulence
+        // is periodic in screen space, this repainted the same false-ignition
+        // condition on a regular grid across the ENTIRE screen (sky included) once
+        // Kawase's blur tail let glow.a clear the lax 0.004 gate over a wide area --
+        // most visible in 3rd person, where the self-glow's larger field radius
+        // spreads that tail furthest (user report 2026-07-04, screenshot showed a
+        // grid of red patches over open sky). Fading out strictly by distPx (which
+        // has no such periodic revival) kills every one of these regardless of what
+        // turb does.
+        flareContribution *= 1.0 - smoothstep(effReach * 0.9, effReach * 1.15, distPx);
 
         // Part-mask heuristic (flames on hands/arms/legs and the crystal's lower
         // half, not over the top of the head / crystal tip), via the FIELD GRADIENT:
@@ -175,6 +202,11 @@ void main() {
         // as a ghost "texture" of the entity hanging under it (user report 2026-07-04).
         // Hand pixels are exempted via handness: the hand hugs the screen bottom, so
         // its flames rise over its own top edge by design.
+        vec2 gStep = 3.0 / OutSize;
+        float gx = texture(InSampler, texCoord + vec2(gStep.x, 0.0)).a
+                 - texture(InSampler, texCoord - vec2(gStep.x, 0.0)).a;
+        float gy = texture(InSampler, texCoord + vec2(0.0, gStep.y)).a
+                 - texture(InSampler, texCoord - vec2(0.0, gStep.y)).a;
         // +y = screen-up: field growing downward (gy < 0) means the body is below.
         float upness = clamp(-gy / (length(vec2(gx, gy)) + 1e-5), 0.0, 1.0);
         float partMask = 1.0 - smoothstep(0.35, 0.85, upness);
@@ -292,7 +324,17 @@ void main() {
     // 0..1 halo alpha, everything farther out clamps to 0. Hand pixels widen the
     // ratio back to the raw (unscaled) thickness via unscale.
     float effGlowRatio = clamp(glowRatio * unscale, 0.0, 1.0);
-    float haloA = haloOn ? clamp((glow.a - (1.0 - effGlowRatio)) / max(effGlowRatio, 1e-4), 0.0, 1.0) * fieldCoherence : 0.0;
+    float haloA = haloOn ? clamp((glow.a - (1.0 - effGlowRatio)) / max(effGlowRatio, 1e-4), 0.0, 1.0) : 0.0;
+    // Cap the halo by the marched true distance so overlapping halos can't merge
+    // into an over-bright bridge (the summed field reads "in halo" in the empty
+    // space between two nearby silhouettes -- "Glow resonance", 2026-07-04). The
+    // +0.15 slack keeps the cap from biting on normal single-source halos (whose
+    // field ramp tracks the distance ramp closely), hiding the march's coarse-step
+    // staircase everywhere except inside the bridge zones being cut anyway.
+    if (haloA > 0.0 && distKnown) {
+        float effThicknessPx = max(effGlowRatio * fieldRadiusPx, 1.0);
+        haloA = min(haloA, clamp(1.0 - distPx / effThicknessPx, 0.0, 1.0) + 0.15);
+    }
     vec4 halo = vec4(glowTint.rgb, haloA * glowIntensity * glowTint.a);
     vec4 haloFlare = vec4(halo.rgb + flareContribution, max(halo.a, flareLum));
 

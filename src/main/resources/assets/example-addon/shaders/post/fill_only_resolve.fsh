@@ -70,5 +70,9 @@ void main() {
         }
     }
 
-    discard;
+    // MUST write transparent black instead of discard (same lesson as
+    // glow_resolve.fsh): a discarded pixel keeps whatever the swap target held from
+    // its previous use, and that stale content then gets blitted back over the
+    // outline target -- erasing/corrupting pixels this pass meant to leave alone.
+    fragColor = vec4(0.0);
 }
