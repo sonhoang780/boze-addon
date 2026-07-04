@@ -195,19 +195,21 @@ public class ChamsCustomShader {
         float time = (System.currentTimeMillis() % 1000000) / 1000f;
         GL20.glUniform1f(uTimeLoc, time);
         
-        int fillC = BetterChams.INSTANCE.fillColor.getValue().color.getPacked();
-        float fr = ((fillC >> 16) & 0xFF) / 255f;
-        float fg = ((fillC >> 8) & 0xFF) / 255f;
-        float fb = (fillC & 0xFF) / 255f;
-        float fa = ((fillC >> 24) & 0xFF) / 255f;
+        // getRed/Green/Blue rather than getPacked()'s top byte for alpha, with the
+        // Gradient-unsupported white fallback -- see BetterChams.tintAbgr's comment.
+        int fillAbgr = BetterChams.INSTANCE.packTint(BetterChams.INSTANCE.fillColor.getValue().color);
+        float fr = (fillAbgr & 0xFF) / 255f;
+        float fg = ((fillAbgr >> 8) & 0xFF) / 255f;
+        float fb = ((fillAbgr >> 16) & 0xFF) / 255f;
+        float fa = 1.0f;
         GL20.glUniform4f(uFillColorLoc, fr, fg, fb, fa);
         if (uColorLoc != -1) GL20.glUniform4f(uColorLoc, fr, fg, fb, fa);
-        
-        int outC = BetterChams.INSTANCE.outlineColor.getValue().color.getPacked();
-        float or = ((outC >> 16) & 0xFF) / 255f;
-        float og = ((outC >> 8) & 0xFF) / 255f;
-        float ob = (outC & 0xFF) / 255f;
-        float oa = ((outC >> 24) & 0xFF) / 255f;
+
+        int outAbgr = BetterChams.INSTANCE.packTint(BetterChams.INSTANCE.outlineColor.getValue().color);
+        float or = (outAbgr & 0xFF) / 255f;
+        float og = ((outAbgr >> 8) & 0xFF) / 255f;
+        float ob = ((outAbgr >> 16) & 0xFF) / 255f;
+        float oa = 1.0f;
         GL20.glUniform4f(uOutlineColorLoc, or, og, ob, oa);
         
         if (uResolutionLoc != -1) GL20.glUniform2f(uResolutionLoc, width, height);

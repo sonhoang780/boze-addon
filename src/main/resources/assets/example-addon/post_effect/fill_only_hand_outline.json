@@ -27,6 +27,12 @@
                     "sampler_name": "OutlineImage",
                     "location": "example-addon:betterchamsoutline",
                     "height": 1
+                },
+                {
+                    "width": 2,
+                    "sampler_name": "OutlineParams",
+                    "location": "example-addon:betterchamsoutlineparam",
+                    "height": 1
                 }
             ],
             "vertex_shader": "minecraft:core/screenquad",

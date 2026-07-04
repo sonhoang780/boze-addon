@@ -1,8 +1,7 @@
 
 # Example Addon
 
-Example 1.21.11 addon for the Boze Addon API.
+Boze-addon
 
-This could also be used as a template, although it's recommended you start from scratch (an empty fabric mod) and use this as a reference instead.
+An utility addon with unique features. Recommend using Window x64 only.
 
-Use the runBoze task to run Boze. If you use runClient, your game will crash.

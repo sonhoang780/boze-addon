@@ -54,7 +54,8 @@ public class MixinLevelRenderer {
         if (id.getPath().equals("entity_outline") && com.example.addon.modules.BetterChams.INSTANCE.getState()) {
             // Flare rides the glow-style chain (it needs the blurred silhouette field as
             // its flame canvas), so the cheap fill_only route only applies when flare is off.
-            if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off) {
+            if (!com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue()
+                    && (com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off || com.example.addon.modules.BetterChams.INSTANCE.outlineToggle.getValue())) {
                 return instance.getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_outline"), externalTargets);
             }
         }
@@ -69,21 +70,10 @@ public class MixinLevelRenderer {
         )
     )
     private void betterchams$addSmokePostChain(CallbackInfo ci, @com.llamalad7.mixinextras.sugar.Local com.mojang.blaze3d.framegraph.FrameGraphBuilder builder) {
-        // Real dual-Kawase glow: refresh GlowBlur.GLOW_TEXTURE (down/upsampled
-        // entity_outline silhouette) before entity_outline.json's own PostChain node
-        // (also part of this same frame-graph execute() call) reads it as an external
-        // "location" input. NOTE: if this runs before vanilla's OWN entity-outline
-        // silhouette render for the current frame (also just a graph node timed within
-        // this same execute()), the blur would read last frame's silhouette --
-        // one frame of lag, likely imperceptible except on fast-moving glow targets.
-        // Verify in-game; if the glow visibly trails a fast-moving silhouette, this
-        // needs a hook later in the same frame instead.
-        if (com.example.addon.modules.BetterChams.INSTANCE.getState() && com.example.addon.modules.BetterChams.INSTANCE.glowToggle.getValue()) {
-            com.mojang.blaze3d.pipeline.RenderTarget outlineTarget = ((LevelRendererAccessor)(Object)this).getEntityOutlineTarget();
-            if (outlineTarget != null) {
-                com.example.addon.rendering.GlowBlur.render(outlineTarget);
-            }
-        }
+        // GlowBlur now runs inside MixinGameRenderer.reprocessHandOutline, right
+        // before the ONE chain that actually resolves everything -- doing it here fed
+        // a chain (entity_outline.json) that MixinShaderManager nulls whenever the
+        // module is on, and it ran before the hand was flushed into the target.
 
         if (com.example.addon.modules.TungTungSahur.INSTANCE.fadingOut && com.example.addon.modules.TungTungSahur.INSTANCE.smokeFadeAlpha > 0) {
             Minecraft mc = Minecraft.getInstance();
@@ -103,7 +93,6 @@ public class MixinLevelRenderer {
                 && com.example.addon.modules.CustomSky.INSTANCE.mode.getValue() != com.example.addon.modules.CustomSky.Mode.Off) {
             Minecraft mc = Minecraft.getInstance();
             net.minecraft.client.renderer.PostChain skyChain = mc.getShaderManager().getPostChain(net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "custom_sky"), net.minecraft.client.renderer.LevelTargetBundle.MAIN_TARGETS);
-            com.example.addon.rendering.CustomSkyRenderer.debugChainSeen = skyChain != null;
             if (skyChain != null) {
                 skyChain.addToFrame(builder, mc.getWindow().getWidth(), mc.getWindow().getHeight(), this.targets);
             }

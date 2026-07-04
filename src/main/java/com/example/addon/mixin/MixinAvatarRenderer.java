@@ -46,8 +46,9 @@ public abstract class MixinAvatarRenderer {
 
         // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
         // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
-        if (!bc.glowToggle.getValue() && !bc.flareToggle.getValue() && bc.fillMode.getValue() == BetterChams.FillMode.Off) return;
+        if (!bc.glowToggle.getValue() && !bc.flareToggle.getValue() && !bc.outlineToggle.getValue() && bc.fillMode.getValue() == BetterChams.FillMode.Off) return;
 
+        bc.reportGlowDistance(player);
         state.outlineColor = 0xFFFFFFFF;
     }
 
@@ -69,7 +70,7 @@ public abstract class MixinAvatarRenderer {
     ) {
         int outlineColor = 0;
         if (BetterChams.isRenderingHand && BetterChams.INSTANCE.getState() && BetterChams.INSTANCE.handToggle.getValue()) {
-            outlineColor = 0xFFFFFFFF;
+            outlineColor = BetterChams.HAND_OUTLINE_COLOR;
         }
         collector.submitModelPart(part, poseStack, renderType, light, overlay, sprite, false, false, -1, null, outlineColor);
     }

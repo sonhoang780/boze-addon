@@ -28,12 +28,6 @@ import java.nio.file.Path;
 public class CustomSkyRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger(CustomSkyRenderer.class);
 
-    // Debug instrumentation for the "image loads but sky stays black" report:
-    // one log line every ~10s answers (a) is the composite PostChain found+added,
-    // (b) is the offscreen FBO complete, (c) does the rendered texture actually
-    // contain non-black pixels. Remove once root cause confirmed.
-    public static volatile boolean debugChainSeen = false;
-    private static int debugCounter = 0;
 
     private static int customProgram = -1;
     private static int imageProgram = -1;
@@ -210,16 +204,6 @@ public class CustomSkyRenderer {
                         GL11.glTexParameterf(GL11.GL_TEXTURE_2D, org.lwjgl.opengl.EXTTextureFilterAnisotropic.GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
                     }
 
-                    // Debug: read the uploaded texture back so the log proves whether the
-                    // upload itself carried real pixel data (vs black/garbage from stale
-                    // GL_UNPACK_* state left behind by vanilla/Skija uploads).
-                    java.nio.ByteBuffer readback = org.lwjgl.BufferUtils.createByteBuffer(w.get(0) * h.get(0) * 4);
-                    GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, readback);
-                    int mid = (h.get(0) / 2 * w.get(0) + w.get(0) / 2) * 4;
-                    LOGGER.info("[CustomSky DEBUG] upload readback centerTexel=({},{},{},{}) glError=0x{}",
-                        readback.get(mid) & 0xFF, readback.get(mid + 1) & 0xFF, readback.get(mid + 2) & 0xFF, readback.get(mid + 3) & 0xFF,
-                        Integer.toHexString(GL11.glGetError()));
-
                     GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevTex);
 
                     org.lwjgl.stb.STBImage.stbi_image_free(image);
@@ -375,15 +359,12 @@ public class CustomSkyRenderer {
         int prevActiveTex = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
         int prevBoundTex = -1;
         int prevSampler = -1;
-        int debugLocTex = -2; // -2 = uniform not declared in this program
-        int debugBoundAtDraw = -1;
         {
             // Bind for BOTH modes now: hybrid custom shaders (mode==Shader) can declare
             // u_SkyTexture/u_IsImage to react to whatever image is currently loaded, same
             // as the built-in IMAGE_FRAG. glGetUniformLocation returns -1 harmlessly for
             // shaders that don't reference it.
             int locTex = GL20.glGetUniformLocation(program, "u_SkyTexture");
-            debugLocTex = locTex;
             if (locTex != -1) {
                 GL20.glUniform1i(locTex, 0);
                 GL13.glActiveTexture(GL13.GL_TEXTURE0);
@@ -398,27 +379,12 @@ public class CustomSkyRenderer {
                 // texture object's own parameters apply, like legacy fixed-function GL.
                 prevSampler = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
                 GL33.glBindSampler(0, 0);
-                // Confirm the bind actually stuck right before the draw consumes it.
-                debugBoundAtDraw = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
             }
         }
 
         drawQuad();
 
         if (prevSampler != -1) GL33.glBindSampler(0, prevSampler);
-
-        if (++debugCounter % 200 == 0) {
-            int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
-            java.nio.ByteBuffer px = org.lwjgl.BufferUtils.createByteBuffer(4);
-            GL11.glReadPixels(width / 2, height / 2, 1, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, px);
-            int err = GL11.glGetError();
-            LOGGER.info("[CustomSky DEBUG] mode={} fboStatus=0x{} glError=0x{} tex={} {}x{} centerPx=({},{},{},{}) chainSeen={} scissor={} blend={} depthTest={} cull={} stencil={} locTex={} skyImageTexture={} boundAtDraw={}",
-                mode, Integer.toHexString(status), Integer.toHexString(err), outTexId, width, height,
-                px.get(0) & 0xFF, px.get(1) & 0xFF, px.get(2) & 0xFF, px.get(3) & 0xFF, debugChainSeen,
-                GL11.glIsEnabled(GL11.GL_SCISSOR_TEST), GL11.glIsEnabled(GL11.GL_BLEND),
-                GL11.glIsEnabled(GL11.GL_DEPTH_TEST), GL11.glIsEnabled(GL11.GL_CULL_FACE),
-                GL11.glIsEnabled(GL11.GL_STENCIL_TEST), debugLocTex, skyImageTexture, debugBoundAtDraw);
-        }
 
         // Restore texture state so blaze3d's cached bindings stay in sync
         if (prevBoundTex != -1) GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevBoundTex);

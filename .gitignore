@@ -116,3 +116,35 @@ run/
 
 # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
 !gradle-wrapper.jar
+
+# IDE project files (Eclipse/VSCode)
+.classpath
+.project
+.settings/
+.vscode/
+
+# Eclipse launch configs
+*.launch
+
+# Serena / Claude Code tooling (dev environment, not build inputs)
+.serena/
+.mcp.json
+.claude/
+
+# Eclipse build output (duplicate of build/)
+bin/
+
+# Superpowers dev docs (plans/specs, not source)
+docs/superpowers/plans/
+docs/superpowers/specs/
+docs/session-*.md
+sketch.md
+
+# scratch/dev notes
+CHANGES_EBOUNCE_MACEAURA.txt
+automace_prompt.txt
+mace-debug.txt
+run_automace_task.ps1
+gradle_build_*.log
+.remember/
+.superpowers/

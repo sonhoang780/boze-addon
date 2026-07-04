@@ -30,7 +30,7 @@ public class MixinShaderManager {
     private void betterchams$interceptPostChain(Identifier identifier, Set<Identifier> set, CallbackInfoReturnable<PostChain> cir) {
         if (identifier.equals(Identifier.fromNamespaceAndPath("minecraft", "entity_outline"))) {
             if (BetterChams.INSTANCE.getState()) {
-                if (BetterChams.INSTANCE.glowToggle.getValue() || BetterChams.INSTANCE.flareToggle.getValue() || BetterChams.INSTANCE.fillMode.getValue() != BetterChams.FillMode.Off) {
+                if (BetterChams.INSTANCE.glowToggle.getValue() || BetterChams.INSTANCE.flareToggle.getValue() || BetterChams.INSTANCE.outlineToggle.getValue() || BetterChams.INSTANCE.fillMode.getValue() != BetterChams.FillMode.Off) {
                     // Return null to prevent the vanilla entity_outline from running in the FrameGraph
                     cir.setReturnValue(null);
                 }

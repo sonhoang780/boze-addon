@@ -10,7 +10,8 @@
                 { "target": "minecraft:entity_outline", "sampler_name": "Original" },
                 { "width": 1, "sampler_name": "Image", "location": "example-addon:betterchamsfill", "height": 1 },
                 { "width": 4, "sampler_name": "Params", "location": "example-addon:betterchamsparam", "height": 1 },
-                { "width": 3, "sampler_name": "FlareParams", "location": "example-addon:betterchamsflareparam", "height": 1 }
+                { "width": 4, "sampler_name": "FlareParams", "location": "example-addon:betterchamsflareparam", "height": 1 },
+                { "width": 2, "sampler_name": "OutlineParams", "location": "example-addon:betterchamsoutlineparam", "height": 1 }
             ],
             "vertex_shader": "minecraft:core/screenquad",
             "output": "swap"

@@ -42,7 +42,12 @@ public class GlowBlur {
     private static int downProgram = -1;
     private static int upProgram = -1;
     private static int fbo = -1;
-    private static int halfTex = -1, quarterTex = -1;
+    // Mip-style pyramid /2../64: depth picked per frame from the requested blur
+    // radius, so big Glow Thickness gets a genuinely wider (still smooth) blur
+    // instead of the sparse-kernel noise the old fixed half+quarter couldn't cover.
+    private static final int MAX_LEVELS = 6;
+    private static final int[] levelTexs = new int[MAX_LEVELS];
+    static { java.util.Arrays.fill(levelTexs, -1); }
     private static int allocW = -1, allocH = -1; // full-res size these were allocated for
     private static int vao = -1, vbo = -1;
 
@@ -137,14 +142,12 @@ public class GlowBlur {
         if (allocW != fullW || allocH != fullH) {
             allocW = fullW;
             allocH = fullH;
-            int halfW = Math.max(1, fullW / 2), halfH = Math.max(1, fullH / 2);
-            int quarterW = Math.max(1, fullW / 4), quarterH = Math.max(1, fullH / 4);
-
-            if (halfTex != -1) GL11.glDeleteTextures(halfTex);
-            if (quarterTex != -1) GL11.glDeleteTextures(quarterTex);
-
-            halfTex = allocTexture(halfW, halfH);
-            quarterTex = allocTexture(quarterW, quarterH);
+            for (int i = 0; i < MAX_LEVELS; i++) {
+                if (levelTexs[i] != -1) GL11.glDeleteTextures(levelTexs[i]);
+                int w = Math.max(1, fullW >> (i + 1));
+                int h = Math.max(1, fullH >> (i + 1));
+                levelTexs[i] = allocTexture(w, h);
+            }
         }
     }
 
@@ -204,6 +207,15 @@ public class GlowBlur {
         GL30.glBindVertexArray(0);
     }
 
+    /** Maps a blur radius in full-res pixels to a pyramid depth. */
+    private static int radiusToDepth(double radiusPx) {
+        if (radiusPx <= 6)  return 2;
+        if (radiusPx <= 12) return 3;
+        if (radiusPx <= 24) return 4;
+        if (radiusPx <= 48) return 5;
+        return 6;
+    }
+
     /** Reads entity_outline's raw silhouette, blurs it via down/upsample, writes GLOW_TEXTURE. */
     public static void render(RenderTarget outlineTarget) {
         if (!(outlineTarget.getColorTexture() instanceof GlTexture glTex)) return;
@@ -214,21 +226,23 @@ public class GlowBlur {
         int outTex = GLOW_TEXTURE.getRawTextureId();
         if (outTex == -1) return;
 
-        blur(glTex.glId(), fullW, fullH, outTex);
+        blur(glTex.glId(), fullW, fullH, outTex,
+            radiusToDepth(com.example.addon.modules.BetterChams.fieldRadiusPxForBlur));
+    }
+
+    /** 2-level compatibility entry point (CustomSky bloom). */
+    public static void blur(int srcTex, int fullW, int fullH, int dstTex) {
+        blur(srcTex, fullW, fullH, dstTex, 2);
     }
 
     /**
      * Generic entry point: down/upsample-blurs srcTex (fullW x fullH) into dstTex
-     * (must already be allocated at fullW x fullH). Not tied to entity_outline/Chams --
-     * reused as-is for CustomSky's sky-glow bloom (bright-pass a texture, then blur it
-     * through this same pipeline).
+     * (must already be allocated at fullW x fullH) through `depth` pyramid levels.
      */
-    public static void blur(int srcTex, int fullW, int fullH, int dstTex) {
+    public static void blur(int srcTex, int fullW, int fullH, int dstTex, int depth) {
         ensureResources(fullW, fullH);
         if (downProgram == -1 || upProgram == -1) return;
-
-        int halfW = Math.max(1, fullW / 2), halfH = Math.max(1, fullH / 2);
-        int quarterW = Math.max(1, fullW / 4), quarterH = Math.max(1, fullH / 4);
+        depth = Math.max(1, Math.min(MAX_LEVELS, depth));
 
         int previousFBO = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
         int[] viewport = new int[4];
@@ -239,10 +253,18 @@ public class GlowBlur {
 
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
 
-        drawPass(downProgram, srcTex, fullW, fullH, halfTex, halfW, halfH);
-        drawPass(downProgram, halfTex, halfW, halfH, quarterTex, quarterW, quarterH);
-        drawPass(upProgram, quarterTex, quarterW, quarterH, halfTex, halfW, halfH);
-        drawPass(upProgram, halfTex, halfW, halfH, dstTex, fullW, fullH);
+        int srcW = fullW, srcH = fullH, src = srcTex;
+        for (int i = 0; i < depth; i++) {
+            int w = Math.max(1, fullW >> (i + 1)), h = Math.max(1, fullH >> (i + 1));
+            drawPass(downProgram, src, srcW, srcH, levelTexs[i], w, h);
+            src = levelTexs[i]; srcW = w; srcH = h;
+        }
+        for (int i = depth - 2; i >= 0; i--) {
+            int w = Math.max(1, fullW >> (i + 1)), h = Math.max(1, fullH >> (i + 1));
+            drawPass(upProgram, src, srcW, srcH, levelTexs[i], w, h);
+            src = levelTexs[i]; srcW = w; srcH = h;
+        }
+        drawPass(upProgram, src, srcW, srcH, dstTex, fullW, fullH);
 
         GL20.glUseProgram(0);
         GL33.glBindSampler(0, prevSampler);
