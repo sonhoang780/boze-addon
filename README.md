@@ -70,9 +70,15 @@ VersionHUD in Boze HUD (show boze-addon latest version)
 Commands:
 prefix for rekit command is boze prefix (default would be .)
 Added itemdrop command:
+
 .itemdrop all
+
 .itemdrop dropitem <items>
+
 .kit save : save a kit
+
 .kit load : load a kit
+
 .kit delete : delete a kit
+
 .kit list : list saved kits
