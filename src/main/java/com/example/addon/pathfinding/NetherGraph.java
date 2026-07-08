@@ -54,9 +54,14 @@ public final class NetherGraph implements DStarLite.Graph<BlockPos> {
         return Math.sqrt(a.distSqr(b));
     }
 
-    /** Blocked only once the chunk is loaded AND the block (or the one above
-     *  it, for elytra vertical clearance) is solid. Unloaded chunks are free. */
+    /** Blocked once the chunk is loaded AND the block (or the one above
+     *  it, for elytra vertical clearance) is solid. Unloaded chunks are free.
+     *  Positions outside the level's build-height range are always blocked --
+     *  isLoaded is chunk-column based and getBlockState returns free-space air
+     *  out of bounds, so without this check the planner could route into the
+     *  void or above the world ceiling forever. */
     public boolean isKnownBlocked(BlockPos pos) {
+        if (level.isOutsideBuildHeight(pos)) return true;
         if (isUnknown(pos)) return false;
         BlockState below = level.getBlockState(pos);
         BlockState above = level.getBlockState(pos.above());
