@@ -30,6 +30,15 @@ public final class DStarLite<N> {
     }
 
     private static final double INF = Double.POSITIVE_INFINITY;
+    // ponytail: synchronous full-replan budget. Unbounded 26-neighbor grid with
+    // "unknown = free" means a goal thousands of blocks away (normal for nether
+    // elytra travel) can expand a huge vertex count in one game-thread call and
+    // freeze the client. 200_000 is generous for any reasonable flight distance
+    // while bounding worst case; nextStep() still returns the best locally-known
+    // direction from a partial (non-converged) search if the cap is hit -- that's
+    // correct degrading behavior, not a bug. Revisit with an async/incremental
+    // first-plan if goals routinely exceed it.
+    private static final int MAX_ITERATIONS = 200_000;
 
     public static final class Key implements Comparable<Key> {
         final double k1, k2;
@@ -116,8 +125,10 @@ public final class DStarLite<N> {
     }
 
     public void computeShortestPath() {
+        int iterations = 0;
         while (!queueByKey.isEmpty()
                 && (queueTopKey().compareTo(calculateKey(start)) < 0 || rhsOf(start) != gOf(start))) {
+            if (++iterations > MAX_ITERATIONS) break;
             Key kOld = queueTopKey();
             N u = queuePop();
             Key kNew = calculateKey(u);

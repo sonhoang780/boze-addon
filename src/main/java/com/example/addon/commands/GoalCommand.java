@@ -30,7 +30,10 @@ public class GoalCommand extends AddonCommand {
                     double x = DoubleArgumentType.getDouble(ctx, "x");
                     double z = DoubleArgumentType.getDouble(ctx, "z2");
                     net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-                    if (mc.player == null) return SINGLE_SUCCESS;
+                    if (mc.player == null) {
+                        dev.boze.api.utility.ChatHelper.sendMsg("goal", "§cCan't set goal: not in a world.");
+                        return SINGLE_SUCCESS;
+                    }
                     int y = mc.player.blockPosition().getY();
                     PathFinder.INSTANCE.setGoal(new BlockPos((int) x, y, (int) z));
                     return SINGLE_SUCCESS;

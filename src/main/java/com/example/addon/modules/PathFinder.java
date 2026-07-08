@@ -79,6 +79,10 @@ public class PathFinder extends AddonModule {
         "Max degrees per tick the D* Lite engine may rotate the (hidden) flight yaw toward the next waypoint.", 15.0, 2.0, 45.0, 1.0);
 
     private com.example.addon.pathfinding.NetherPathfinder netherPathfinder;
+    // Level the current netherPathfinder was built for -- if mc.level ever differs
+    // (portal/dimension change, reconnect), the old NetherPathfinder is querying a
+    // detached Level and must be dropped instead of trusted (Finding 1, final review).
+    private net.minecraft.world.level.Level netherPathfinderLevel;
 
     // FakeFly-pattern camera decouple (see MixinEntity.java) -- while true, the
     // renderer sees savedCameraYaw/Pitch instead of the entity's real yaw/pitch
@@ -115,6 +119,7 @@ public class PathFinder extends AddonModule {
     @Override
     public void onEnable() {
         netherPathfinder = null;
+        netherPathfinderLevel = null;
         cameraOverrideActive = false;
 
         enabledElytraFly = false;
@@ -190,9 +195,18 @@ public class PathFinder extends AddonModule {
     /** Sets the D* Lite goal; called by GoalCommand. No-op if Fly isn't DStarLite. */
     public void setGoal(net.minecraft.core.BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) return;
-        if (fly.getValue() != Fly.DStarLite) return;
-        if (netherPathfinder == null) netherPathfinder = new com.example.addon.pathfinding.NetherPathfinder(mc.level);
+        if (mc.player == null || mc.level == null) {
+            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cCan't set goal: not in a world.");
+            return;
+        }
+        if (fly.getValue() != Fly.DStarLite) {
+            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cGoal ignored: set Fly=DStarLite first (currently Baritone).");
+            return;
+        }
+        if (netherPathfinder == null || mc.level != netherPathfinderLevel) {
+            netherPathfinder = new com.example.addon.pathfinding.NetherPathfinder(mc.level);
+            netherPathfinderLevel = mc.level;
+        }
         netherPathfinder.setGoal(mc.player.blockPosition(), goal);
     }
 
@@ -300,6 +314,24 @@ public class PathFinder extends AddonModule {
      * MixinEntity.java).
      */
     private void onTickDStarLite(Minecraft mc) {
+        // Finding 1 (final review): NetherPathfinder/NetherGraph capture a Level once;
+        // a portal/dimension change or reconnect swaps mc.level to a new, detached
+        // instance. Querying the old one either throws (swallowed below) or returns
+        // stale terrain. Detect it here and drop the stale planner instead of flying
+        // blind -- deliberately NOT auto-recreating the goal in the new world, the
+        // user re-running `goal` after a dimension change is the correct behavior.
+        if (netherPathfinder != null && mc.level != netherPathfinderLevel) {
+            netherPathfinder.clear();
+            netherPathfinder = null;
+            netherPathfinderLevel = null;
+            releaseKeys();
+            windowStartPos = null;
+            windowTicks = 0;
+            escapeTicksRemaining = 0;
+            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cWorld changed -- D* Lite goal lost, use goal again.");
+            return;
+        }
+
         Vec3 pos = mc.player.position();
 
         if (escapeTicksRemaining > 0) {
