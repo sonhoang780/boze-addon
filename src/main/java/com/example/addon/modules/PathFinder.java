@@ -79,7 +79,6 @@ public class PathFinder extends AddonModule {
         "Max degrees per tick the D* Lite engine may rotate the (hidden) flight yaw toward the next waypoint.", 15.0, 2.0, 45.0, 1.0);
 
     private com.example.addon.pathfinding.NetherPathfinder netherPathfinder;
-    private net.minecraft.core.BlockPos pendingGoal;
 
     // FakeFly-pattern camera decouple (see MixinEntity.java) -- while true, the
     // renderer sees savedCameraYaw/Pitch instead of the entity's real yaw/pitch
@@ -116,7 +115,6 @@ public class PathFinder extends AddonModule {
     @Override
     public void onEnable() {
         netherPathfinder = null;
-        pendingGoal = null;
         cameraOverrideActive = false;
 
         enabledElytraFly = false;
@@ -158,6 +156,16 @@ public class PathFinder extends AddonModule {
         windowStartPos = null;
         windowTicks = 0;
         escapeTicksRemaining = 0;
+        if (cameraOverrideActive) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                mc.player.setYRot(savedCameraYaw);
+                mc.player.setXRot(savedCameraPitch);
+                mc.player.yRotO = savedCameraYaw;
+                mc.player.xRotO = savedCameraPitch;
+            }
+            cameraOverrideActive = false;
+        }
         if (flyModeOption != null && savedFlyModeName != null) {
             try { flyModeOption.setValueByName(savedFlyModeName); } catch (Exception ignored) {}
         }
@@ -181,7 +189,6 @@ public class PathFinder extends AddonModule {
 
     /** Sets the D* Lite goal; called by GoalCommand. No-op if Fly isn't DStarLite. */
     public void setGoal(net.minecraft.core.BlockPos goal) {
-        pendingGoal = goal;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
         if (fly.getValue() != Fly.DStarLite) return;
@@ -336,7 +343,15 @@ public class PathFinder extends AddonModule {
             return;
         }
 
-        net.minecraft.core.BlockPos waypoint = netherPathfinder.tick(mc.player.blockPosition());
+        net.minecraft.core.BlockPos waypoint;
+        try {
+            waypoint = netherPathfinder.tick(mc.player.blockPosition());
+        } catch (Exception e) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            return;
+        }
         if (waypoint == null) {
             mc.options.keyUp.setDown(false);
             mc.options.keyJump.setDown(false);
