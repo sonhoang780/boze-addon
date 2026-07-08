@@ -8,7 +8,6 @@ import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
-import com.example.addon.modules.AuraStep;
 import com.example.addon.modules.AutoPortal;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.BetterChams;
@@ -81,9 +80,6 @@ public class ExampleAddon extends Addon {
         BetterChams.registerTextures();
         com.example.addon.rendering.GlowBlur.registerTextures();
         modules.add(BetterChams.INSTANCE);
-        AuraStep.registerTextures();
-        modules.add(AuraStep.INSTANCE);
-        modules.add(com.example.addon.modules.Bubble.INSTANCE);
         TungTungSahur.registerTextures();
         CustomSky.registerTextures();
         modules.add(EbookReader.INSTANCE);
