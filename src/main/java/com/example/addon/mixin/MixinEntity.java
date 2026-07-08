@@ -2,6 +2,7 @@ package com.example.addon.mixin;
 
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.FakeFly;
+import com.example.addon.modules.PathFinder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,6 +30,7 @@ public abstract class MixinEntity {
         if (mc == null || mc.player != (Object) this) return;
         if (FakeFly.cameraOverrideActive)       { cir.setReturnValue(FakeFly.savedCameraPitch);       return; }
         if (EBouncePlus.pitchOverrideActive)     { cir.setReturnValue(EBouncePlus.savedCameraPitch);   return; }
+        if (PathFinder.cameraOverrideActive)     { cir.setReturnValue(PathFinder.savedCameraPitch);    return; }
     }
     
     @Inject(method = "getYRot(F)F", at = @At("HEAD"), cancellable = true)
@@ -36,6 +38,10 @@ public abstract class MixinEntity {
         Minecraft mc = Minecraft.getInstance();
         if (FakeFly.cameraOverrideActive && mc != null && mc.player == (Object) this) {
             cir.setReturnValue(FakeFly.savedCameraYaw);
+            return;
+        }
+        if (PathFinder.cameraOverrideActive && mc != null && mc.player == (Object) this) {
+            cir.setReturnValue(PathFinder.savedCameraYaw);
         }
     }
 }
