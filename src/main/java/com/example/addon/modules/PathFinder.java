@@ -68,10 +68,27 @@ public class PathFinder extends AddonModule {
 
     private static final String MODULE_ELYTRA_FLY = "ElytraFly";
 
+    public enum Fly { Baritone, DStarLite }
+    public final dev.boze.api.option.ModeOption<Fly> fly = new dev.boze.api.option.ModeOption<>(this, "Fly",
+        "Baritone: today's behavior (drive #goal/#elytra via reflection). DStarLite: self-contained engine, no Baritone required -- set a goal with the `goal` command.", Fly.Baritone);
     public final SliderOption verticalMargin = new SliderOption(this, "Vertical Margin",
         "Blocks of Y-difference from the target waypoint within which neither Space nor Shift is auto-pressed.", 3.0, 0.5, 15.0, 0.5);
     public final SliderOption lookahead = new SliderOption(this, "Lookahead",
         "How many nodes ahead of baritone's current path position to read the vertical signal from. Higher = smoother/less reactive, lower = tighter to sudden path turns.", 5.0, 1.0, 20.0, 1.0);
+    public final SliderOption yawTurnRate = new SliderOption(this, "Yaw Turn Rate",
+        "Max degrees per tick the D* Lite engine may rotate the (hidden) flight yaw toward the next waypoint.", 15.0, 2.0, 45.0, 1.0);
+
+    private com.example.addon.pathfinding.NetherPathfinder netherPathfinder;
+    private net.minecraft.core.BlockPos pendingGoal;
+
+    // FakeFly-pattern camera decouple (see MixinEntity.java) -- while true, the
+    // renderer sees savedCameraYaw/Pitch instead of the entity's real yaw/pitch
+    // fields, which are temporarily pointed at the next D* Lite waypoint so
+    // ElytraFly Creative's velocity calc flies that direction without visibly
+    // spinning the player's actual view.
+    public static volatile boolean cameraOverrideActive = false;
+    public static volatile float savedCameraYaw = 0f;
+    public static volatile float savedCameraPitch = 0f;
 
     // True only if THIS module enabled ElytraFly (vs. it already being on) -- mirrors
     // ElytraFix's save/restore pattern so we don't clobber a state the user set manually.
@@ -98,6 +115,10 @@ public class PathFinder extends AddonModule {
 
     @Override
     public void onEnable() {
+        netherPathfinder = null;
+        pendingGoal = null;
+        cameraOverrideActive = false;
+
         enabledElytraFly = false;
         flyModeOption = null;
         savedFlyModeName = null;
@@ -133,6 +154,7 @@ public class PathFinder extends AddonModule {
     @Override
     public void onDisable() {
         releaseKeys();
+        if (netherPathfinder != null) netherPathfinder.clear();
         windowStartPos = null;
         windowTicks = 0;
         escapeTicksRemaining = 0;
@@ -157,6 +179,16 @@ public class PathFinder extends AddonModule {
         mc.options.keyShift.setDown(false);
     }
 
+    /** Sets the D* Lite goal; called by GoalCommand. No-op if Fly isn't DStarLite. */
+    public void setGoal(net.minecraft.core.BlockPos goal) {
+        pendingGoal = goal;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
+        if (fly.getValue() != Fly.DStarLite) return;
+        if (netherPathfinder == null) netherPathfinder = new com.example.addon.pathfinding.NetherPathfinder(mc.level);
+        netherPathfinder.setGoal(mc.player.blockPosition(), goal);
+    }
+
     @EventHandler
     private void onTick(EventTick.Pre event) {
         Minecraft mc = Minecraft.getInstance();
@@ -169,6 +201,11 @@ public class PathFinder extends AddonModule {
             windowStartPos = null;
             windowTicks = 0;
             escapeTicksRemaining = 0;
+            return;
+        }
+
+        if (fly.getValue() == Fly.DStarLite) {
+            onTickDStarLite(mc);
             return;
         }
 
@@ -245,6 +282,127 @@ public class PathFinder extends AddonModule {
             mc.options.keyJump.setDown(false);
             mc.options.keyShift.setDown(false);
         }
+    }
+
+
+    /**
+     * Fly=DStarLite tick: forward-hold + Space/Shift reused unchanged from the
+     * Baritone path, waypoint source swapped for NetherPathfinder, plus a
+     * short forward raycast safety backstop independent of planner
+     * correctness, plus camera-safe yaw/pitch (see class-level fields and
+     * MixinEntity.java).
+     */
+    private void onTickDStarLite(Minecraft mc) {
+        Vec3 pos = mc.player.position();
+
+        if (escapeTicksRemaining > 0) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyDown.setDown(true);
+            mc.options.keyLeft.setDown(escapeStrafeLeft);
+            mc.options.keyRight.setDown(!escapeStrafeLeft);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            escapeTicksRemaining--;
+            windowStartPos = pos;
+            windowTicks = 0;
+            return;
+        }
+        mc.options.keyDown.setDown(false);
+        mc.options.keyLeft.setDown(false);
+        mc.options.keyRight.setDown(false);
+
+        if (windowStartPos == null) {
+            windowStartPos = pos;
+            windowTicks = 0;
+        } else if (++windowTicks >= STUCK_WINDOW_TICKS) {
+            if (pos.distanceTo(windowStartPos) < STUCK_DIST_THRESHOLD) {
+                escapeStrafeLeft = clearerSideIsLeft(mc);
+                escapeTicksRemaining = ESCAPE_TICKS;
+                windowStartPos = pos;
+                windowTicks = 0;
+                mc.options.keyUp.setDown(false);
+                mc.options.keyJump.setDown(false);
+                mc.options.keyShift.setDown(false);
+                return;
+            }
+            windowStartPos = pos;
+            windowTicks = 0;
+        }
+
+        if (netherPathfinder == null || !netherPathfinder.isActive()) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            return;
+        }
+
+        net.minecraft.core.BlockPos waypoint = netherPathfinder.tick(mc.player.blockPosition());
+        if (waypoint == null) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            return;
+        }
+
+        // Safety backstop: short raycast ahead, independent of planner
+        // correctness -- cut forward and escape immediately if something solid
+        // is directly in front, rather than trusting the planner never errs.
+        Vec3 look = mc.player.getLookAngle();
+        AABB ahead = mc.player.getBoundingBox().move(look.x * 2.0, look.y * 2.0, look.z * 2.0);
+        if (!mc.level.noCollision(mc.player, ahead)) {
+            escapeStrafeLeft = clearerSideIsLeft(mc);
+            escapeTicksRemaining = ESCAPE_TICKS;
+            mc.options.keyUp.setDown(false);
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+            return;
+        }
+
+        mc.options.keyUp.setDown(true);
+
+        double dx = waypoint.getX() + 0.5 - pos.x;
+        double dz = waypoint.getZ() + 0.5 - pos.z;
+        double dy = waypoint.getY() + 0.5 - pos.y;
+        double horizDist = Math.sqrt(dx * dx + dz * dz);
+
+        savedCameraYaw = mc.player.getYRot();
+        savedCameraPitch = mc.player.getXRot();
+
+        float targetYawRaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float yawDelta = net.minecraft.util.Mth.wrapDegrees(targetYawRaw - savedCameraYaw);
+        float maxTurn = yawTurnRate.getValue().floatValue();
+        yawDelta = Math.max(-maxTurn, Math.min(maxTurn, yawDelta));
+        float targetYaw = savedCameraYaw + yawDelta;
+        float targetPitch = (float) Math.max(-60.0, Math.min(60.0, -Math.toDegrees(Math.atan2(dy, Math.max(horizDist, 0.001)))));
+
+        mc.player.setYRot(targetYaw);
+        mc.player.setXRot(targetPitch);
+        mc.player.setYBodyRot(targetYaw);
+        cameraOverrideActive = true;
+
+        double margin = verticalMargin.getValue();
+        if (dy > margin) {
+            mc.options.keyJump.setDown(true);
+            mc.options.keyShift.setDown(false);
+        } else if (dy < -margin) {
+            mc.options.keyShift.setDown(true);
+            mc.options.keyJump.setDown(false);
+        } else {
+            mc.options.keyJump.setDown(false);
+            mc.options.keyShift.setDown(false);
+        }
+    }
+
+    @EventHandler
+    private void onTickPost(EventTick.Post event) {
+        if (!cameraOverrideActive) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) { cameraOverrideActive = false; return; }
+        mc.player.setYRot(savedCameraYaw);
+        mc.player.setXRot(savedCameraPitch);
+        mc.player.yRotO = savedCameraYaw;
+        mc.player.xRotO = savedCameraPitch;
+        cameraOverrideActive = false;
     }
 
     /**
