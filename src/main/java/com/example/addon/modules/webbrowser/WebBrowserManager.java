@@ -135,7 +135,16 @@ public class WebBrowserManager {
 
     /** Opens a new tab (a new MCEFBrowser/Chromium process), makes it active. Throws on browser-creation failure -- caller decides how to surface it. */
     public static void openTab(String url) {
-        MCEFBrowser b = MCEF.createBrowser(url, true, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        // transparent=false: transparent OSR mode told Chromium to composite the page on a
+        // fully transparent backdrop, which (a) made any region relying on the default
+        // <body> background render alpha-0 (Facebook's feed gutters showed the Minecraft
+        // world straight through) and (b) left ghost trails when content reflowed, since
+        // nothing opaque ever painted over the old pixels (Instagram comment rows stacking
+        // on top of each other after their like-counts loaded in). It also silently
+        // overrides cefSettings.background_color, which is why fixing that alone did
+        // nothing. The tile/screen draw the texture over their own opaque chrome anyway,
+        // so nothing visual is lost by opting out.
+        MCEFBrowser b = MCEF.createBrowser(url, false, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         MCEFCursorChangeListener original = b.getCursorChangeListener();
         b.setCursorChangeListener(cefCursorId -> {
             if (Minecraft.getInstance().screen instanceof WebBrowserScreen) {

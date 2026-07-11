@@ -57,10 +57,61 @@ repositories {
     // jar only exists as a direct Modrinth-hosted release, pulled via Modrinth's own
     // Maven endpoint (group "maven.modrinth", artifact = project slug).
     maven { url = "https://api.modrinth.com/maven" }
+
+    // patchMcefJar (below) writes its output here under a group-name-version filename
+    // so flatDir resolution gives Loom's `include` a real module component to nest
+    // (a bare FileCollection dependency isn't a module component and `include` rejects
+    // it with "which is not a module component and has no capabilities").
+    flatDir { dirs layout.buildDirectory.dir("mcef-patched") }
 }
 
 configurations {
     bozeLoader
+    mcefRaw
+}
+
+// mcef-keksuccino 2.2.0-26.1.1-fabric is a REAL Fabric mod (own entrypoint
+// com.cinemamod.mcef.MCEFFabric + mcef.mixins.json/mcef.fabric.mixins.json), unlike
+// 2.1.7 whose com.cinemamod.mcef.* glue silently failed to link on our real-deobf
+// runtime (Yarn-intermediary names) and so never got far enough to self-init. 2.2.0's
+// classes DO link now (built for real 26.1.x names), so its entrypoint actually runs
+// and calls CefApp.getInstance() with ITS OWN settings on the first Screen open --
+// racing our own manual CefUtil.init() and throwing "Settings can only be passed to
+// CEF before createClient is called the first time" (reproduced just opening the
+// inventory). We only want its plain org.cef.*/com.cinemamod.mcef.* CLASSES, not its
+// mod behavior -- this task strips entrypoints/mixins from its fabric.mod.json so
+// Fabric Loader still recognizes it as a valid nested mod (keeps id/version) but
+// never invokes anything from it.
+// Filename follows flatDir's expected "name-version.jar" convention (group is ignored
+// by flatDir but still required in the dependency notation below). flatDir resolves
+// this by filename lookup at CONFIGURATION time with no task-dependency tracking, so
+// the patch must happen eagerly here (during script evaluation), not as a lazy task --
+// a lazy task has no way to run before Gradle's own dependency resolution needs the
+// file to already exist.
+dependencies {
+    mcefRaw "maven.modrinth:mcef-keksuccino:2.2.0-26.1.1-fabric"
+}
+def mcefRawJar = configurations.mcefRaw.singleFile
+def mcefPatchedJar = layout.buildDirectory.file("mcef-patched/mcef-keksuccino-patched-2.2.0.jar").get().asFile
+if (!mcefPatchedJar.exists() || mcefPatchedJar.lastModified() < mcefRawJar.lastModified()) {
+    mcefPatchedJar.parentFile.mkdirs()
+    if (mcefPatchedJar.exists()) mcefPatchedJar.delete()
+    new java.util.zip.ZipFile(mcefRawJar).withCloseable { zf ->
+        new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(mcefPatchedJar)).withCloseable { zos ->
+            zf.entries().each { entry ->
+                byte[] data = zf.getInputStream(entry).bytes
+                if (entry.name == "fabric.mod.json") {
+                    def json = new groovy.json.JsonSlurper().parseText(new String(data, "UTF-8"))
+                    json.entrypoints = [main: [], client: [], server: []]
+                    json.mixins = []
+                    data = groovy.json.JsonOutput.toJson(json).getBytes("UTF-8")
+                }
+                zos.putNextEntry(new java.util.zip.ZipEntry(entry.name))
+                zos.write(data)
+                zos.closeEntry()
+            }
+        }
+    }
 }
 
 dependencies {
@@ -72,8 +123,19 @@ dependencies {
     // Baritone Fabric mod to be installed separately by the user in mods/ --
     // compileOnly is correct: compile against its classes, don't bundle a dead jar.
     compileOnly "com.github.cabaletta:baritone:1.2.14"
-    implementation "dev.babbaj:nether-pathfinder:1.3.0"
-    include "dev.babbaj:nether-pathfinder:1.3.0"
+    // dev.babbaj:nether-pathfinder was bundled here for the old vendored nether-ceiling
+    // pathfinder -- removed entirely (see PathFinder.java's class doc), but this
+    // dependency lingered and kept bundling nether-pathfinder 1.3.0 into boze-addon.jar
+    // alongside baritone's own bundled 1.4.1 copy of the exact same
+    // dev.babbaj.pathfinder.NetherPathfinder class/native lib. Two versions of the same
+    // JNI-backed class on the classpath is exactly the "shadowed baritone's own bundled
+    // copy" bug the comment already warned about -- caused a real EXCEPTION_ACCESS_VIOLATION
+    // crash (hs_err log) inside the native nether_pathfinder DLL from
+    // ElytraBehavior.clearView -> NetherPathfinder.isVisible the moment Baritone's real
+    // #elytra actually used it, since whichever Java class won classloading no longer
+    // matched the ABI of whichever native .dll got extracted. Nothing in this addon's
+    // source references dev.babbaj.pathfinder anymore -- safe to drop entirely and let
+    // baritone's own bundled 1.4.1 be the only copy loaded.
     // viafabricplus-api is a stub interface jar only (no real protocol-translation
     // code) -- the full "viafabricplus" artifact is what actually does the work
     // and is what must be bundled for it to function in-game.
@@ -105,8 +167,11 @@ dependencies {
     // Everything else (MCEFApp, MCEFClient, MCEFPlatform, MCEFDownloader, MCEFDragContext,
     // ModScheme, the listener interfaces) has zero Minecraft-class references and is still
     // used directly from this jar -- verified via `javap`/decompile, not assumed.
-    implementation "maven.modrinth:mcef-keksuccino:2.1.7-1.21.10-fabric"
-    include "maven.modrinth:mcef-keksuccino:2.1.7-1.21.10-fabric"
+    // Raw coordinate is declared earlier (mcefRaw config, resolved eagerly above to
+    // produce the patched jar) -- implementation/include here point at that PATCHED
+    // jar via flatDir, not this coordinate directly.
+    implementation("mcef-keksuccino-patched:mcef-keksuccino-patched:2.2.0") { transitive = false }
+    include("mcef-keksuccino-patched:mcef-keksuccino-patched:2.2.0") { transitive = false }
     // MCEFDownloader (reused as-is above) needs these to extract the downloaded JCEF
     // tar.gz -- not otherwise pulled in transitively.
     implementation "org.apache.commons:commons-compress:1.26.0"

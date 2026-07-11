@@ -54,11 +54,17 @@ final class CefUtil {
             setUnixExecutable(new File(mcefLibrariesPath, platform.getNormalizedName() + "/jcef_app.app/Contents/Frameworks/jcef Helper (Renderer).app/Contents/MacOS/jcef Helper (Renderer)"));
         }
 
-        // Force software OSR: with GPU compositing on, CEF windowless rendering can pick
-        // the shared-texture path and call onAcceleratedPaint instead of onPaint --
-        // MCEFBrowser only overrides onPaint, so that path never fires it, and the
-        // browser stalls forever at "Loading browser..." with zero paint callback and
-        // zero error. --disable-gpu-compositing keeps OSR on the plain onPaint path.
+        // TESTED 2026-07-11 (2nd time, removed then restored again): still doesn't fix
+        // the modal-overlay bleed-through (confirmed happens on plain posts too, not just
+        // ads) -- ruled out a second time, now under the transparent=false + full-frame-
+        // replace code too. That bug is very likely CEF OSR's well-known inability to run
+        // `backdrop-filter: blur()`/dim overlays (Facebook's modal backdrop almost
+        // certainly uses one) -- backdrop-filter needs GPU-accelerated filter effects with
+        // no software-raster fallback in Chromium, and windowless/OSR mode can't use that
+        // GPU raster path at all regardless of this specific compositing flag. Same
+        // category as the 30fps windowless cap below: a real jcef/CEF OSR limitation, not
+        // fixable from this addon's code. Restored since disabling this only has downside
+        // (the onAcceleratedPaint stall below) with no upside shown across two tests.
         // OSR (windowless) rendering caps its compositor at windowless_frame_rate (default
         // 30fps), which reads as choppy on scroll. This JCEF build exposes NO way to raise
         // it -- no CefBrowserSettings class, no N_SetWindowlessFrameRate native (verified
@@ -86,7 +92,16 @@ final class CefUtil {
         // bump back to VERBOSE only while actively debugging a real black-box CEF failure.
         cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_ERROR;
         cefSettings.log_file = CACHE_PATH.resolveSibling("mcef-cef.log").toAbsolutePath().toString();
-        cefSettings.background_color = cefSettings.new ColorType(0, 255, 255, 255);
+        // ColorType's ctor packs params as (A,R,G,B) (confirmed via javap: a<<24|r<<16|g<<8|b)
+        // -- this was alpha=0 (fully transparent), which sounds right for a browser meant to
+        // float over the world, but it's the CANVAS CLEAR color: any page region that relies
+        // on the plain <html>/<body> background (no element of its own painting over it --
+        // common for whole gutters/gaps between styled cards) shows THIS color instead, so a
+        // real page's own solid dark-mode background silently became a hole straight through
+        // to the Minecraft world behind it. Opaque black instead -- real content still paints
+        // over it as soon as it loads either way, so this only ever shows as a a brief flash
+        // before first paint, not a permanent see-through gap in an already-loaded page.
+        cefSettings.background_color = cefSettings.new ColorType(255, 0, 0, 0);
         if (!Objects.equals(settings.getUserAgent(), "null")) {
             cefSettings.user_agent = settings.getUserAgent();
         } else {

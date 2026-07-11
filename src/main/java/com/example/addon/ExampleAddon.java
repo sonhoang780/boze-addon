@@ -31,6 +31,10 @@ import com.example.addon.modules.PathFinder;
 import com.example.addon.modules.PlayMusic;
 import com.example.addon.modules.SelfWeb;
 import com.example.addon.modules.SpotifyIntegration;
+import com.example.addon.modules.TargetESP;
+import com.example.addon.modules.PenisESP;
+import com.example.addon.modules.HoodResearch;
+import com.example.addon.modules.Notification;
 import com.example.addon.modules.TungTungSahur;
 import com.example.addon.modules.VersionHUD;
 import com.example.addon.modules.WebBrowser;
@@ -111,6 +115,10 @@ public class ExampleAddon extends Addon {
         modules.add(StashFinder.INSTANCE);
         modules.add(CustomSky.INSTANCE);
         modules.add(WebBrowser.INSTANCE);
+        modules.add(TargetESP.INSTANCE);
+        modules.add(PenisESP.INSTANCE);
+        modules.add(HoodResearch.INSTANCE);
+        modules.add(Notification.INSTANCE);
 
         // Must run after every modules.add() above (needs the full list) and before
         // Boze's own Addon#load() reads config.json — backfills any option missing from

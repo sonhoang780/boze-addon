@@ -32,6 +32,8 @@
     "MixinOutlineBufferSource",
     "MixinLevel",
     "MixinChatComponent",
-    "MixinSoundManager"
+    "MixinSoundManager",
+    "MixinGuiRenderState",
+    "MixinChatComponentLandingDetect"
   ]
 }

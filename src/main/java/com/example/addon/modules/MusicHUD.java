@@ -387,10 +387,23 @@ public class MusicHUD extends AddonModule {
         // Screen#extractBackground() either. Result: in both cases NOBODY called
         // blurBeforeThisStratum() this frame, and skipping our own call meant the slot went
         // completely unclaimed -- confirmed via logging, [MixinGameRenderer] processBlurEffect
-        // never fired once a screen was open. GuiRenderState#blurBeforeThisStratum() is a
-        // no-op past the first call each frame (`if (firstStratumAfterBlur != MAX) return;`),
-        // so calling it unconditionally here is always safe regardless of what the screen does.
-        context.blurBeforeThisStratum();
+        // never fired once a screen was open.
+        //
+        // CORRECTED AGAIN 2026-07-11: the "no-op past first call" claim above was wrong --
+        // verified via javap -c on GuiRenderState.blurBeforeThisStratum(): it THROWS
+        // IllegalStateException("Can only blur once per frame") whenever
+        // firstStratumAfterBlur != Integer.MAX_VALUE (i.e. already claimed this frame),
+        // it does not silently return. Crashed the whole render frame ("Rendering screen")
+        // the instant a real screen ALSO claims the slot the same frame (e.g. Escape's
+        // PauseScreen, which calls Screen#extractBackground -> extractBlurredBackground
+        // -> blurBeforeThisStratum itself when Menu Background Blurriness >= 1). Whichever
+        // caller runs first this frame legitimately owns the slot; losing that race just
+        // means MusicHUD's own blur/LiquidGlass skips an update this frame, not a crash.
+        try {
+            context.blurBeforeThisStratum();
+        } catch (IllegalStateException alreadyClaimedThisFrame) {
+            return;
+        }
 
         if (p.liquidGlass) {
             int fbH = mc.getMainRenderTarget().height;

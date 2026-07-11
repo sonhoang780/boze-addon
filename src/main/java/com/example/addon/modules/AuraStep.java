@@ -319,7 +319,11 @@ public class AuraStep extends AddonModule {
             { (float) (halfWidth * -0.5), (float) (halfWidth * 0.8660254) },
         };
 
-        for (Iterator<Footstep> it = trailIteratorPlusHead(headX, headY, headZ, now); it.hasNext(); ) {
+        // No synthetic "live head" point here (unlike the ribbon) -- Fire mode only
+        // stamps footprints at recorded spawn points, so they always trail behind
+        // the player instead of one glued under the feet every frame (which read
+        // as "always one footprint in front of me" while walking).
+        for (Iterator<Footstep> it = trail.iterator(); it.hasNext(); ) {
             Footstep f = it.next();
             int alpha = (int) Mth.clamp(255 * (1.0f - (now - f.spawnMs) / (float) lifetimeMs), 0, 255);
             if (alpha <= 2) continue;
@@ -343,13 +347,6 @@ public class AuraStep extends AddonModule {
     }
 
 
-
-    /** Trail footsteps followed by one synthetic "live head" footstep at the player's current position. */
-    private Iterator<Footstep> trailIteratorPlusHead(double headX, double headY, double headZ, long now) {
-        java.util.ArrayList<Footstep> all = new java.util.ArrayList<>(trail);
-        all.add(new Footstep(headX, headY, headZ, now, 0, 0));
-        return all.iterator();
-    }
 
     private static RenderType getLayer(boolean fire) {
         if (fire) {

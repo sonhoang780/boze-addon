@@ -104,13 +104,13 @@ public class EBouncePlus extends AddonModule {
         "", 90, 0.0, 90.0, 1.0);
 
     public final ToggleOption minimizePackets = new ToggleOption(this, "MinimizePackets",
-        "Shrinks the amount of START_FALL_FLYING packets sent to the server as much as possible by latching the takeoff resend instead of spamming it every tick. Disabling this restores the old unconditional per-tick resend, which previously broke takeoff on this server.", true);
+        "Shrinks the amount of start fly packets sent to the server as much as possible", true);
 
     public final SliderOption flagPause = new SliderOption(this, "FlagPause",
-        "Ticks to freeze everything (no packets, no jump) after the server sends a position-correction packet -- a movement-check flag. Ported from lambda-client's BounceElytraFly, which pauses instead of continuing to act right when the server is scrutinizing you.", 5, 0, 100, 1);
+        "How long to pause if the server flags you for a movement check", 5, 0, 100, 1);
 
     public final ToggleOption fakeLag = new ToggleOption(this, "FakeLag",
-        "Queues outgoing packets during the bounce-touch tick and flushes them right after, instead of letting them go out mid-touch. Ported from lambda-client's BounceElytraFly fakeLag setting.", true);
+        "Emulates the player lagging to allow flying in 1x2 tunnels", true);
 
     public enum GlideDetectMode { VirtualMask, EntityFlag }
     public final ModeOption<GlideDetectMode> glideDetectMode = new ModeOption<>(this, "GlideDetect",
@@ -206,11 +206,23 @@ public class EBouncePlus extends AddonModule {
         flagPauseTicksLeft = flagPause.getValue().intValue();
         // Cancel any in-flight jump/resend so nothing fires during the freeze window
         // that follows -- a queued action landing mid-pause would be exactly the kind
-        // of activity the pause is meant to avoid.
+        // of activity the pause is meant to avoid. prevGliding is NOT one of those:
+        // it's isGlidingMasked's multi-tick "were we gliding" latch, not a one-shot
+        // pending action -- clearing it here was the actual cause of the reported
+        // "UNEXPECTED STOP" mid-bounce (onTickPre skips entirely while frozen, so
+        // clearing it here is the only place that could break the latch). ANY
+        // ClientboundPlayerPositionPacket triggers this pause, not just genuine
+        // anti-cheat rubber-bands -- vanilla sends these routinely (e.g. periodic
+        // resync) even during a perfectly healthy bounce chain. With prevGliding wiped
+        // here, the first isGlidingMasked() call after the freeze ends sees
+        // prevGliding=false and falls through to the real (still-momentarily-false)
+        // flag instead of latching true, reading as a real stop and killing the whole
+        // recast chain right when the freeze that was supposed to protect it ends.
+        // Leaving prevGliding untouched lets the latch carry through the freeze
+        // exactly like it already carries through any other single-tick flag drop.
         doJump = false;
         pendingResend = false;
         takeoffPending = false;
-        prevGliding = false;
         Minecraft mc = Minecraft.getInstance();
         flushPackets(mc);
         flushPingPackets(mc);

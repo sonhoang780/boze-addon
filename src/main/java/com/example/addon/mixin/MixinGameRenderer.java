@@ -5,6 +5,7 @@ import com.example.addon.modules.LiquidGlassHud;
 import com.example.addon.modules.SkijaBackdropBlur;
 import com.example.addon.screens.MusicHudPipRenderer;
 import com.example.addon.screens.GifShadowPipRenderer;
+import com.example.addon.screens.GifContentPipRenderer;
 import com.example.addon.screens.EbookPagePipRenderer;
 import com.example.addon.screens.WebBrowserPipRenderer;
 import com.example.addon.screens.WebBrowserShadowPipRenderer;
@@ -40,6 +41,7 @@ public abstract class MixinGameRenderer {
         // see AbstractSkiaPipRenderer's class doc for the full mechanism.
         modified.add(new MusicHudPipRenderer(bufferSource));
         modified.add(new GifShadowPipRenderer(bufferSource));
+        modified.add(new GifContentPipRenderer(bufferSource));
         modified.add(new EbookPagePipRenderer(bufferSource));
         modified.add(new WebBrowserPipRenderer(bufferSource));
         modified.add(new WebBrowserShadowPipRenderer(bufferSource));

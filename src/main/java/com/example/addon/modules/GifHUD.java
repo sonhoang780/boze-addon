@@ -30,11 +30,15 @@ import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import com.example.addon.mixin.GuiGraphicsExtractorAccessor;
 import com.example.addon.screens.CachedSkiaTexture;
 import com.example.addon.screens.GifShadowPipState;
+import com.example.addon.screens.GifContentPipRenderer;
+import com.example.addon.screens.GifContentPipState;
+import io.github.humbleui.skija.Image;
+import io.github.humbleui.skija.SamplingMode;
+import io.github.humbleui.types.RRect;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
@@ -57,6 +61,7 @@ public class GifHUD extends AddonModule {
     public final ToggleOption prevGif       = new ToggleOption(this, "PrevGIF",      "", false);
     public final ToggleOption nextGif       = new ToggleOption(this, "NextGIF",      "", false);
     
+    public final SliderOption radius        = new SliderOption(this, "Radius", "Ban kinh bo tron goc.", 12.0, 0.0, 60.0, 1.0);
     public final ToggleOption dropShadow    = new ToggleOption(this, "DropShadow", "Do bong Skia 3D.", true);
     public final ToggleOption parallax      = new ToggleOption(this, "Parallax", "Hieu ung luot (Sway) theo goc nhin va chuot.", true);
     public final SliderOption parallaxSpeed = new SliderOption(this, "ParallaxSpeed", "Do nhay cua Parallax.", 5.0, 1.0, 20.0, 0.5);
@@ -260,10 +265,36 @@ public class GifHUD extends AddonModule {
         if (frame == null) {
             context.text(mc.font, "No GIF Loaded", 0, 0, 0xFFFF5555, true);
         } else {
-            context.blit(RenderPipelines.GUI_TEXTURED, frame, 0, 0, 0, 0, (int)w, (int)h, (int)w, (int)h);
+            drawSkiaGifFrame(context, frame, realX, realY, w, h, (float)(double) radius.getValue());
         }
 
         context.pose().popMatrix();
+    }
+
+    /**
+     * Rounded-corner GIF frame, same GPU-Skija PiP mechanism as drawSkiaShadow above --
+     * a plain context.blit() has no way to clip to a rounded rect on its own, so the
+     * frame texture is borrowed zero-copy (AbstractSkiaPipRenderer#borrowTexture) and
+     * redrawn through a Skija canvas with a clipRRect instead.
+     */
+    private void drawSkiaGifFrame(GuiGraphicsExtractor context, Identifier frame, double x, double y, double w, double h, float radius) {
+        int x0 = (int) Math.floor(x), y0 = (int) Math.floor(y);
+        int x1 = (int) Math.ceil(x + w), y1 = (int) Math.ceil(y + h);
+        ((GuiGraphicsExtractorAccessor) context).getGuiRenderState()
+            .addPicturesInPictureState(new GifContentPipState(
+                canvas -> paintSkiaGifFrame(canvas, frame, x, y, w, h, radius), x0, y0, x1, y1));
+    }
+
+    private void paintSkiaGifFrame(Canvas canvas, Identifier frame, double x, double y, double w, double h, float radius) {
+        GifContentPipRenderer renderer = GifContentPipRenderer.ACTIVE;
+        Image img = renderer != null ? renderer.borrowTexture(frame) : null;
+        if (img == null) return;
+        RRect rrect = RRect.makeXYWH((float) x, (float) y, (float) w, (float) h, radius);
+        canvas.save();
+        canvas.clipRRect(rrect, true);
+        canvas.drawImageRect(img, Rect.makeXYWH(0, 0, img.getWidth(), img.getHeight()),
+            Rect.makeXYWH((float) x, (float) y, (float) w, (float) h), SamplingMode.LINEAR, null, true);
+        canvas.restore();
     }
 
     @EventHandler

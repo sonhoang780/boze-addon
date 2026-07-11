@@ -74,32 +74,32 @@ public class MCEFBrowser extends CefBrowserOsr {
     public void onPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, ByteBuffer buffer, int width, int height) {
         if (dirtyRects.length == 0) return;
         if (!popup) {
-            if (lastWidth != width || lastHeight != height) {
-                lastWidth = width;
-                lastHeight = height;
-                renderer.onPaint(buffer, width, height);
-            } else {
-                if (renderer.getTextureID() == 0) return;
-                GlStateManager._bindTexture(renderer.getTextureID());
-                GlStateManager._pixelStore(3314, width);
-                for (Rectangle dirtyRect : dirtyRects) {
-                    GlStateManager._pixelStore(3316, dirtyRect.x);
-                    GlStateManager._pixelStore(3315, dirtyRect.y);
-                    renderer.onPaint(buffer, dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
-                }
-                if ((popupDrawn || showPopup) && popupSize != null) {
-                    if (!showPopup) {
-                        GlStateManager._pixelStore(3316, popupSize.width);
-                        GlStateManager._pixelStore(3315, popupSize.height);
-                        renderer.onPaint(buffer, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
-                        popupGraphics = null;
-                        popupSize = null;
-                    } else if (popupDrawn) {
-                        GlStateManager._pixelStore(3314, popupSize.width);
-                        GlStateManager._pixelStore(3316, 0);
-                        GlStateManager._pixelStore(3315, 0);
-                        renderer.onPaint(popupGraphics, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
-                    }
+            // Always full-frame replace, even when dirtyRects only covers part of the
+            // page -- the per-dirtyRect glTexSubImage2D path (removed) assumed `buffer`
+            // is always the FULL width*height frame at a fixed stride and only the
+            // requested sub-region needs re-uploading. That assumption is where real-page
+            // artifacts kept showing up (Facebook feed gaps, Instagram comment-row
+            // ghosting, a modal's stale background bleeding through) -- all consistent
+            // with dirty-rect bookkeeping going wrong under heavy/rapid reflow, not with
+            // anything CEF-version- or GPU-compositing-related (both were tested and
+            // ruled out). Full replace can't have an offset/stride bug because there's no
+            // offset math left: at ~30fps windowless cap and typical tile/screen
+            // resolutions the extra upload bandwidth is trivial.
+            lastWidth = width;
+            lastHeight = height;
+            renderer.onPaint(buffer, width, height);
+            if ((popupDrawn || showPopup) && popupSize != null) {
+                if (!showPopup) {
+                    GlStateManager._pixelStore(3316, popupSize.width);
+                    GlStateManager._pixelStore(3315, popupSize.height);
+                    renderer.onPaint(buffer, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
+                    popupGraphics = null;
+                    popupSize = null;
+                } else if (popupDrawn) {
+                    GlStateManager._pixelStore(3314, popupSize.width);
+                    GlStateManager._pixelStore(3316, 0);
+                    GlStateManager._pixelStore(3315, 0);
+                    renderer.onPaint(popupGraphics, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
                 }
             }
         } else {

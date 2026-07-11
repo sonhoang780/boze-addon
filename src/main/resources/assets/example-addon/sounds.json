@@ -3,5 +3,13 @@
     "sounds": [
       "example-addon:scream"
     ]
+  },
+  "hoodresearch_music": {
+    "sounds": [
+      {
+        "name": "example-addon:hoodresearch_music",
+        "stream": true
+      }
+    ]
   }
 }

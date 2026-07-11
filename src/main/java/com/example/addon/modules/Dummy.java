@@ -84,6 +84,19 @@ public class Dummy extends AddonModule {
         super("Dummy", "FakePlayer");
     }
 
+    static {
+        // Force this module's saved state to false on every client shutdown -- Boze's
+        // module toggle is otherwise persisted as-is (per AddonModule#setState, just an
+        // in-memory field with no disk write of its own; the CORE client is what
+        // serializes it to config on exit), so leaving Dummy enabled when quitting
+        // re-spawns the fake player instantly on the next launch, before the player
+        // has any chance to react. setState(false) flips the in-memory flag (and runs
+        // onDisable's own cleanup) before that final save happens.
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(mc -> {
+            if (INSTANCE.getState()) INSTANCE.setState(false);
+        });
+    }
+
     @Override
     public void onEnable() {
         spawnRequested = true;

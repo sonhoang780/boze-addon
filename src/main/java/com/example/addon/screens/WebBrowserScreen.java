@@ -261,7 +261,8 @@ public class WebBrowserScreen extends Screen {
         int glId = browser.getRenderer().getTextureID();
         if (glId <= 0) return;
         Image img = renderer.borrowTexture(browser, glId,
-            browser.getRenderer().getTextureWidth(), browser.getRenderer().getTextureHeight());
+            browser.getRenderer().getTextureWidth(), browser.getRenderer().getTextureHeight(),
+            !browser.getRenderer().isTransparent());
         if (img == null) return;
         try (Paint paint = new Paint()) {
             canvas.drawImageRect(img, Rect.makeXYWH((float) x, (float) y, (float) w, (float) h), paint);

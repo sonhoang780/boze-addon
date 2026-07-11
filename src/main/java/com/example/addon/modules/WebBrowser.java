@@ -13,6 +13,7 @@ import dev.boze.api.option.BindOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.event.EventBind;
+import dev.boze.api.event.EventTick;
 import meteordevelopment.orbit.EventHandler;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ClipMode;
@@ -67,6 +68,8 @@ public class WebBrowser extends AddonModule {
     public final BindOption openKey = new BindOption(this, "Open Key", "Key that opens the interactive browser screen.", GLFW.GLFW_KEY_B, false);
     public final ToggleOption showHud = new ToggleOption(this, "ShowHud",
         "Shows the floating browser tile HUD. Independent of the browser process itself -- disable to hide the tile while still being able to open the full-screen browser via Open Key (the CEF message loop keeps pumping either way, so tabs opened in the full-screen browser keep working).", true);
+    public final ToggleOption forceWhiteText = new ToggleOption(this, "ForceWhiteText",
+        "Injects CSS forcing all page text white. Keeps the site's own background/theme -- only overrides low-contrast text colors (placeholders, timestamps, muted secondary labels) some dark themes render too dim to read comfortably.", false);
 
     private boolean isDraggingHUD = false;
     private double dragOffsetX = 0, dragOffsetY = 0;
@@ -80,6 +83,19 @@ public class WebBrowser extends AddonModule {
     private MCEFBrowser lastResizedBrowser = null;
     private long loadingSinceMs = -1;
     private boolean slowLoadWarned = false;
+    private int forceWhiteTickCounter = 0;
+    private boolean wasForceWhiteText = false;
+
+    private static final String FORCE_WHITE_STYLE_ID = "example-addon-force-white-text";
+    // Idempotent insert -- cheap to re-run periodically (defends against a real page
+    // navigation wiping the injected <style>; an SPA's own soft/History-API navigation
+    // doesn't touch <html> so the style just keeps applying with no re-injection needed).
+    private static final String FORCE_WHITE_JS =
+        "(function(){var id='" + FORCE_WHITE_STYLE_ID + "';if(!document.getElementById(id)){" +
+        "var s=document.createElement('style');s.id=id;s.textContent='*{color:#fff !important;}';" +
+        "document.documentElement.appendChild(s);}})();";
+    private static final String REMOVE_FORCE_WHITE_JS =
+        "(function(){var e=document.getElementById('" + FORCE_WHITE_STYLE_ID + "');if(e)e.remove();})();";
 
     private WebBrowser() {
         super("WebBrowser", "Embedded Chromium browser HUD tile (MCEF).");
@@ -116,6 +132,27 @@ public class WebBrowser extends AddonModule {
         // guard above can't see or block it).
         event.setCancelled(true);
         mc.execute(() -> mc.setScreen(new WebBrowserScreen()));
+    }
+
+    @EventHandler
+    private void onTick(EventTick.Pre event) {
+        if (!active) return;
+        boolean want = forceWhiteText.getValue();
+        if (want) {
+            // Every ~1s, not every tick -- idempotent insert is cheap but no reason to
+            // hit executeJavaScript 20x/sec for something that only needs to catch a
+            // real page reload wiping the injected <style>.
+            forceWhiteTickCounter++;
+            if (forceWhiteTickCounter >= 20) {
+                forceWhiteTickCounter = 0;
+                MCEFBrowser browser = WebBrowserManager.getActiveBrowser();
+                if (browser != null) browser.executeJavaScript(FORCE_WHITE_JS, browser.getURL(), 0);
+            }
+        } else if (wasForceWhiteText) {
+            MCEFBrowser browser = WebBrowserManager.getActiveBrowser();
+            if (browser != null) browser.executeJavaScript(REMOVE_FORCE_WHITE_JS, browser.getURL(), 0);
+        }
+        wasForceWhiteText = want;
     }
 
     private void render(GuiGraphicsExtractor context) {
@@ -242,7 +279,8 @@ public class WebBrowser extends AddonModule {
         int glId = browser.getRenderer().getTextureID();
         if (glId <= 0) return;
         Image img = renderer.borrowTexture(browser, glId,
-            browser.getRenderer().getTextureWidth(), browser.getRenderer().getTextureHeight());
+            browser.getRenderer().getTextureWidth(), browser.getRenderer().getTextureHeight(),
+            !browser.getRenderer().isTransparent());
         if (img == null) return;
         canvas.save();
         try (Paint paint = new Paint()) {

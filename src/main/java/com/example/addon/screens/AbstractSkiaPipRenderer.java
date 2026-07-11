@@ -166,7 +166,7 @@ public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extend
         if (!(gpu instanceof GlTexture glTex)) return null;
         int glId = glTex.glId();
         if (glId <= 0) return null;
-        return borrowFromGlId(id, glId, gpu.getWidth(0), gpu.getHeight(0));
+        return borrowFromGlId(id, glId, gpu.getWidth(0), gpu.getHeight(0), false);
     }
 
     /**
@@ -175,13 +175,20 @@ public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extend
      * an externally-owned texture from a library like MCEF) — WebBrowserPipRenderer's
      * only consumer. {@code cacheKey} just needs to be stable/unique per source (the
      * external owner's own identity is fine, e.g. the MCEFBrowser instance).
+     *
+     * @param opaque true for a non-transparent MCEFBrowser -- its alpha byte isn't
+     *               guaranteed to be 255 (CEF doesn't bother filling it meaningfully
+     *               once the browser was created non-transparent), and reading it as
+     *               real UNPREMUL alpha washed the whole page out translucent over
+     *               whatever's behind the tile/screen. OPAQUE tells Skia to ignore the
+     *               alpha byte entirely and treat every pixel as fully opaque.
      */
-    public Image borrowTexture(Object cacheKey, int glId, int w, int h) {
+    public Image borrowTexture(Object cacheKey, int glId, int w, int h, boolean opaque) {
         if (ctx == null || cacheKey == null || glId <= 0) return null;
-        return borrowFromGlId(cacheKey, glId, w, h);
+        return borrowFromGlId(cacheKey, glId, w, h, opaque);
     }
 
-    private Image borrowFromGlId(Object cacheKey, int glId, int w, int h) {
+    private Image borrowFromGlId(Object cacheKey, int glId, int w, int h, boolean opaque) {
         BorrowedImage cached = borrowed.get(cacheKey);
         if (cached != null && cached.glId == glId) return cached.image;
         if (cached != null) cached.image.close();
@@ -190,7 +197,7 @@ public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extend
         try (BackendTexture bt = BackendTexture.makeGL(w, h, false, info)) {
             // UNPREMUL: Minecraft uploads PNG/NativeImage textures with straight alpha.
             Image img = Image.borrowTextureFrom(ctx, bt, SurfaceOrigin.TOP_LEFT,
-                ColorType.RGBA_8888, ColorAlphaType.UNPREMUL, ColorSpace.getSRGB(), null);
+                ColorType.RGBA_8888, opaque ? ColorAlphaType.OPAQUE : ColorAlphaType.UNPREMUL, ColorSpace.getSRGB(), null);
             if (img == null) return null;
             borrowed.put(cacheKey, new BorrowedImage(img, glId));
             return img;

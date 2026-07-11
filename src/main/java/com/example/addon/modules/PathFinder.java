@@ -372,10 +372,26 @@ public class PathFinder extends AddonModule {
      */
     private static boolean isElytraLanding(Object elytraProcess) {
         try {
-            java.lang.reflect.Field stateField = elytraProcess.getClass().getDeclaredField("state");
-            stateField.setAccessible(true);
-            Object state = stateField.get(elytraProcess);
-            return state instanceof Enum<?> e && "LANDING".equals(e.name());
+            // Release baritone jars are proguard-obfuscated: ElytraProcess is e.g.
+            // baritone.dz and its `state` field is renamed to `a` -- so looking it up
+            // BY NAME fails closed and landing was never detected (verified via javap
+            // on baritone-0.15.0+1.21.11.jar -- WRONG jar, not the one runBoze/mods/26.1
+            // actually loads). Enum CONSTANT names survive obfuscation regardless (baked
+            // as ldc strings for Enum#name()/valueOf), so instead scan every field in the
+            // hierarchy for an enum value literally named LANDING -- works whether the
+            // field itself is obfuscated or not. In practice this alone proved unreliable
+            // (never observed a LANDING transition before Baritone's own chat message
+            // printed) -- MixinChatComponentLandingDetect now hooks that chat message
+            // directly as the authoritative disable trigger; this stays as a secondary
+            // best-effort path.
+            for (Class<?> c = elytraProcess.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                    if (!f.getType().isEnum()) continue;
+                    f.setAccessible(true);
+                    if (f.get(elytraProcess) instanceof Enum<?> e && "LANDING".equals(e.name())) return true;
+                }
+            }
+            return false;
         } catch (Throwable t) {
             return false;
         }
