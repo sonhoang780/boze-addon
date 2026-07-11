@@ -61,6 +61,43 @@ public class ConfigMigrator {
     }
 
     /**
+     * Renames a module's own top-level key in config.json (e.g. after a Java class rename)
+     * -- separate from {@link #migrate}, which only renames option keys WITHIN an existing
+     * module section and has no way to move the section itself under a new name. Call
+     * BEFORE any {@link #migrate} call that targets the module's new name, since that call
+     * only finds the section once it's already sitting under the new key.
+     *
+     * @param addonId      the addon's string ID (matches the "id" field in config.json)
+     * @param oldModuleName the module's previous registered name
+     * @param newModuleName the module's current registered name
+     */
+    public static void renameModule(String addonId, String oldModuleName, String newModuleName) {
+        Path configPath = FabricLoader.getInstance().getGameDir()
+                .resolve("boze").resolve("addons").resolve(addonId).resolve("config.json");
+
+        if (!Files.exists(configPath)) return;
+
+        try {
+            String raw = Files.readString(configPath, StandardCharsets.UTF_8);
+            JsonObject root = JsonParser.parseString(raw).getAsJsonObject();
+
+            if (!root.has("modules")) return;
+            JsonObject modules = root.getAsJsonObject("modules");
+
+            if (!modules.has(oldModuleName) || modules.has(newModuleName)) return;
+
+            modules.add(newModuleName, modules.get(oldModuleName));
+            modules.remove(oldModuleName);
+
+            String migrated = new GsonBuilder().setPrettyPrinting().create().toJson(root);
+            Files.writeString(configPath, migrated, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            // Same tradeoff as migrate(): a failure here just means the module starts at
+            // defaults instead of its saved settings -- no worse than before this existed.
+        }
+    }
+
+    /**
      * Boze's AddonModule#fromJson does {@code object.get(setting.name).getAsJsonObject()}
      * with no {@code .has()} check — an option added in a code update that isn't yet in
      * the user's saved config.json throws NullPointerException. Addon#fromJson's loop over

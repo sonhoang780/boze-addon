@@ -62,7 +62,5 @@ public class ExampleExtension extends ClientModuleExtension {
 
     @EventHandler
     private void onPlayerUpdate(EventPlayerUpdate event) {
-        // Print every player update (as requested)
-        System.out.println("Player update - extension active!");
     }
 }

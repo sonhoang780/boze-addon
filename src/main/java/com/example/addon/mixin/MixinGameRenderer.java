@@ -1,11 +1,14 @@
 package com.example.addon.mixin;
 
-import com.example.addon.modules.FakeFly;
+import com.example.addon.modules.ControlRocket;
 import com.example.addon.modules.LiquidGlassHud;
 import com.example.addon.modules.SkijaBackdropBlur;
 import com.example.addon.screens.MusicHudPipRenderer;
 import com.example.addon.screens.GifShadowPipRenderer;
 import com.example.addon.screens.EbookPagePipRenderer;
+import com.example.addon.screens.WebBrowserPipRenderer;
+import com.example.addon.screens.WebBrowserShadowPipRenderer;
+import com.example.addon.screens.WebBrowserChromePipRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.GameRenderer;
@@ -38,6 +41,9 @@ public abstract class MixinGameRenderer {
         modified.add(new MusicHudPipRenderer(bufferSource));
         modified.add(new GifShadowPipRenderer(bufferSource));
         modified.add(new EbookPagePipRenderer(bufferSource));
+        modified.add(new WebBrowserPipRenderer(bufferSource));
+        modified.add(new WebBrowserShadowPipRenderer(bufferSource));
+        modified.add(new WebBrowserChromePipRenderer(bufferSource));
         args.set(4, modified);
     }
 
@@ -56,8 +62,8 @@ public abstract class MixinGameRenderer {
     private void fakefly$suppressBobView(CameraRenderState cameraRenderState, PoseStack matrices, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && mc.player != null
-                && FakeFly.INSTANCE.getState()
-                && (FakeFly.INSTANCE.isFlying() || mc.player.isFallFlying())) {
+                && ControlRocket.INSTANCE.getState()
+                && (ControlRocket.INSTANCE.isFlying() || mc.player.isFallFlying())) {
             ci.cancel();
         }
     }

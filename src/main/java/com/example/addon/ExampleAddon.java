@@ -8,6 +8,7 @@ import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
+import com.example.addon.modules.AuraStep;
 import com.example.addon.modules.AutoPortal;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.BetterChams;
@@ -17,7 +18,7 @@ import com.example.addon.modules.Dummy;
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.EbookReader;
 import com.example.addon.modules.ElytraFix;
-import com.example.addon.modules.FakeFly;
+import com.example.addon.modules.ControlRocket;
 import com.example.addon.modules.GifHUD;
 import com.example.addon.modules.HUDEditor;
 import com.example.addon.modules.InvMovePlus;
@@ -32,8 +33,10 @@ import com.example.addon.modules.SelfWeb;
 import com.example.addon.modules.SpotifyIntegration;
 import com.example.addon.modules.TungTungSahur;
 import com.example.addon.modules.VersionHUD;
+import com.example.addon.modules.WebBrowser;
 import com.example.addon.modules.betterrekit.EvilRekit;
 import com.example.addon.modules.chestscan.ChestScan;
+import com.example.addon.modules.stashfinder.StashFinder;
 
 import dev.boze.api.BozeInstance;
 import dev.boze.api.addon.Addon;
@@ -52,13 +55,15 @@ public class ExampleAddon extends Addon {
     @Override
     public boolean initialize() {
         AddonConfig.load();
+        ConfigMigrator.renameModule(ID, "FakeFly", "ControlRocket");
         ConfigMigrator.migrate(ID, Map.of(
-            "FakeFly", Map.of(
+            "ControlRocket", Map.of(
                 "Speed",           "UpSpeed",
                 "Vertical Speed",  "DownSpeed",
                 "Firework Delay",  "ConserveDelay",
                 "Auto Firework",   "AutoTakeoff",
                 "Chestplate Mode", "ChestplateMode",
+                "ChestplateMode",  "FakeFly",
                 "Swap Mode",       "Swap"
             )
         ));
@@ -67,6 +72,7 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(PrintModuleCommand.INSTANCE);
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         dispatcher.registerCommand(com.example.addon.commands.GoalCommand.INSTANCE);
+        dispatcher.registerCommand(com.example.addon.commands.StashFinderCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(MaceAura.INSTANCE);
@@ -80,11 +86,14 @@ public class ExampleAddon extends Addon {
         BetterChams.registerTextures();
         com.example.addon.rendering.GlowBlur.registerTextures();
         modules.add(BetterChams.INSTANCE);
+        AuraStep.registerTextures();
+        modules.add(AuraStep.INSTANCE);
+        modules.add(com.example.addon.modules.Bubble.INSTANCE);
         TungTungSahur.registerTextures();
         CustomSky.registerTextures();
         modules.add(EbookReader.INSTANCE);
         modules.add(ElytraFix.INSTANCE);
-        modules.add(FakeFly.INSTANCE);
+        modules.add(ControlRocket.INSTANCE);
         modules.add(EvilRekit.INSTANCE);
         modules.add(GifHUD.INSTANCE);
         modules.add(HUDEditor.INSTANCE);
@@ -100,7 +109,9 @@ public class ExampleAddon extends Addon {
         modules.add(VersionHUD.INSTANCE);
         modules.add(PathFinder.INSTANCE);
         modules.add(ChestScan.INSTANCE);
+        modules.add(StashFinder.INSTANCE);
         modules.add(CustomSky.INSTANCE);
+        modules.add(WebBrowser.INSTANCE);
 
         // Must run after every modules.add() above (needs the full list) and before
         // Boze's own Addon#load() reads config.json — backfills any option missing from

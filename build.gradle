@@ -45,6 +45,18 @@ repositories {
     maven { url = "https://maven.lavalink.dev/snapshots" }
     maven { url = "https://jitpack.io" }
     maven { url = "https://packages.jetbrains.team/maven/p/ui/dev" }
+
+    // Nether Pathfinder (used by Baritone's #elytra pathing)
+    maven { url = "https://babbaj.github.io/maven/" }
+    // ViaFabricPlus (protocol-translation dev API)
+    maven { url = "https://repo.viaversion.com" }
+    maven { url = "https://maven.lenni0451.net/everything" }
+    maven { url = "https://maven.terraformersmc.com/releases" }
+    // MCEF [Keksuccino's Fork] (WebBrowser module) -- no JitPack tag matches this exact
+    // build (Keksuccino/mcef's git tags stop at 2.1.6-1.21.1); the 2.1.7-1.21.10-fabric
+    // jar only exists as a direct Modrinth-hosted release, pulled via Modrinth's own
+    // Maven endpoint (group "maven.modrinth", artifact = project slug).
+    maven { url = "https://api.modrinth.com/maven" }
 }
 
 configurations {
@@ -54,11 +66,51 @@ configurations {
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    // This jitpack coordinate is a plain class library (jar has NO fabric.mod.json,
+    // "modules": [] on jitpack for this tag) -- it can never run as an in-game mod
+    // no matter how it's bundled. PathFinder.java has always expected the REAL
+    // Baritone Fabric mod to be installed separately by the user in mods/ --
+    // compileOnly is correct: compile against its classes, don't bundle a dead jar.
     compileOnly "com.github.cabaletta:baritone:1.2.14"
+    implementation "dev.babbaj:nether-pathfinder:1.3.0"
+    include "dev.babbaj:nether-pathfinder:1.3.0"
+    // viafabricplus-api is a stub interface jar only (no real protocol-translation
+    // code) -- the full "viafabricplus" artifact is what actually does the work
+    // and is what must be bundled for it to function in-game.
+    // Pinned to 4.5.5, NOT the latest (4.6.1): 4.5.5's fabric.mod.json declares
+    // "minecraft": ">=26.1 <=26.1.2" -- an exact match for this project's
+    // minecraft_version. 4.6.0+ moved their minimum to "26.2", which Fabric
+    // Loader's dependency check would reject against 26.1.2 (mod refuses to
+    // load, not a bundling problem -- verified directly against the resolved
+    // jars' fabric.mod.json, not guessed).
+    compileOnly "com.viaversion:viafabricplus-api:4.5.5"
+    implementation "com.viaversion:viafabricplus:4.5.5"
+    include "com.viaversion:viafabricplus:4.5.5"
 
     // Fabric API để sửa lỗi thiếu HudRenderCallback và sự kiện Chat
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     include "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // MCEF (WebBrowser module) -- used ONLY for its bundled org.cef.* (JCEF) classes,
+    // which are pure Java-over-JNI with ZERO Minecraft references. The jar's own
+    // com.cinemamod.mcef.* glue classes are compiled against Yarn INTERMEDIARY names
+    // (Fabric 1.21.10 production convention -- CefUtil references net/minecraft/class_310)
+    // and can NEVER link on the Boze 26.1.2 runtime (MC 26.x ships real deobfuscated
+    // names; hit as NoClassDefFoundError: class_310 in a real runBoze). No remap pipeline
+    // exists to fix that at build time either: this Loom fork disables obfuscation for
+    // 26.x, so modImplementation/mod-remap configurations are never registered.
+    // The classes that DO touch Minecraft types (CefUtil, MCEF, MCEFBrowser, MCEFRenderer,
+    // MCEFDirectTexture, MCEFSettings) are VENDORED and ported to 26.1.2 under
+    // com.example.addon.modules.webbrowser.mcef -- do not import those from com.cinemamod.mcef.
+    // Everything else (MCEFApp, MCEFClient, MCEFPlatform, MCEFDownloader, MCEFDragContext,
+    // ModScheme, the listener interfaces) has zero Minecraft-class references and is still
+    // used directly from this jar -- verified via `javap`/decompile, not assumed.
+    implementation "maven.modrinth:mcef-keksuccino:2.1.7-1.21.10-fabric"
+    include "maven.modrinth:mcef-keksuccino:2.1.7-1.21.10-fabric"
+    // MCEFDownloader (reused as-is above) needs these to extract the downloaded JCEF
+    // tar.gz -- not otherwise pulled in transitively.
+    implementation "org.apache.commons:commons-compress:1.26.0"
+    include "org.apache.commons:commons-compress:1.26.0"
 
     // Boze Dependencies
     compileOnly "dev.boze:boze-api:${project.boze_api_version}+${project.minecraft_version}"

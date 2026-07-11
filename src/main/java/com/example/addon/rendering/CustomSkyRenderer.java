@@ -61,9 +61,22 @@ public class CustomSkyRenderer {
         "in vec2 texCoord;\n" +
         "out vec4 fragColor;\n";
 
-    // Built-in equirectangular-sample shader for Image mode -- NOT user-provided, so
-    // it can rely on the same u_InverseProj/u_InverseView ray reconstruction as the
-    // custom-shader path without needing to process arbitrary user code.
+    // Built-in image-sample shader for Image mode -- NOT user-provided, so it can rely
+    // on the same u_InverseProj/u_InverseView ray reconstruction as the custom-shader
+    // path without needing to process arbitrary user code.
+    //
+    // Mapping is a zenith-centered angular fisheye ("dome"), NOT equirectangular: with
+    // equirect (u=atan(z,x), v=acos(y)) a regular non-panorama image had its entire top
+    // pixel row converge to the zenith point -- looking up showed the image pinched into
+    // a cone/vortex. The dome puts the image CENTER straight overhead, undistorted, and
+    // radius grows linearly with the angle from zenith (horizon = the inscribed r=0.5
+    // circle), so there is no pole pinch and no wrap seam looking up.
+    //
+    // Known tradeoff (explicitly requested to keep despite this): the SAME degeneracy
+    // still exists at the nadir (straight down) -- dir.xz -> (0,0) there too, so azimuth
+    // is undefined and that region pinches/fans the same way equirect did at the top.
+    // A screen-space-scroll mapping (no azimuth term at all) avoids that at both poles,
+    // but was reverted in favor of this dome on request.
     // DEBUG (systematic-debugging Phase 3, single-variable test): when true, output the
     // computed equirect UV as color instead of sampling u_SkyTexture -- isolates "UV math
     // degenerate" from "texture sampling broken" for the CustomSky Image black-sky bug.
@@ -78,11 +91,14 @@ public class CustomSkyRenderer {
         "    vec4 viewPos = u_InverseProj * clip;\n" +
         "    viewPos = vec4(viewPos.xy, -1.0, 0.0);\n" +
         "    vec3 dir = normalize((u_InverseView * viewPos).xyz);\n" +
-        "    float u = atan(dir.z, dir.x) / 6.28318530718 + 0.5;\n" +
-        "    float v = acos(clamp(dir.y, -1.0, 1.0)) / 3.14159265359;\n" +
+        "    float phi = acos(clamp(dir.y, -1.0, 1.0));\n" + // 0 = zenith .. pi = nadir
+        "    vec2 horiz = dir.xz;\n" +
+        "    float hlen = length(horiz);\n" +
+        "    horiz = hlen > 1e-5 ? horiz / hlen : vec2(0.0);\n" + // zenith: r->0, direction irrelevant
+        "    vec2 uv = clamp(vec2(0.5) + horiz * (phi / 3.14159265359), 0.0, 1.0);\n" +
         (DEBUG_UV_MODE ?
-        "    fragColor = vec4(u, v, 0.0, 1.0);\n" :
-        "    fragColor = texture(u_SkyTexture, vec2(u, v));\n") +
+        "    fragColor = vec4(uv, 0.0, 1.0);\n" :
+        "    fragColor = texture(u_SkyTexture, uv);\n") +
         "}\n";
 
     public static void loadCustomShader(Path path) {

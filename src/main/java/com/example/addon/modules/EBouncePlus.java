@@ -1,62 +1,141 @@
 package com.example.addon.modules;
 
+import com.example.addon.mixin.EntityFlagAccessor;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInput;
+import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import net.minecraft.network.chat.Component;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ClientboundPingPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.phys.HitResult;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.LivingEntity;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
- * EBounce+ — "Ground Build" recast mode.
+ * EBounce+ — "Ground Build" recast mode, ported from lambda-client's BounceElytraFly
+ * (github.com/lambda-client/lambda, elytrafly/modes/BounceElytraFly.kt), minus obstacle
+ * passing (no PasserSettings/ObstaclePassingMode equivalent here) and Y-motion diagonal
+ * sneak-assist (obstacle-adjacent, needs a RotationManager/line-projection stack this
+ * codebase doesn't have -- see conversation, skipped by explicit choice).
  *
- * Cơ chế: thay vì đợi chạm đất thật, mỗi ~6 tick khi vy ≈ 0 và sát sàn thì
- * gửi fake StatusOnly(onGround=true) → server dừng elytra khi chạy aiStep →
- * tick sau jump thật + START_FALL_FLYING → sprint-jump boost +0.2 b/t horizontal.
- * Không có landing friction nên speed tích lũy đến ~84 b/s ngoài trời.
+ * Core mechanism, matching lambda instead of the old fold/pendingFold/recastPhase state
+ * machine: HOLD JUMP every tick while isFallFlying (mirrors their
+ * `(player.isGliding && jump) || jumpThisTick` in EventInput). Vanilla itself re-sends
+ * START_FALL_FLYING and resumes gliding through a brief ground graze as long as jump
+ * stays held through the touch -- the old multi-tick cancel→wait→resend cycle was
+ * fighting vanilla instead of leaning on it, which is why it visibly "stood up" every
+ * bounce instead of diving continuously.
  *
- * Pitch cố định 72.4° suốt chu kỳ (kể cả khi bay lên) → chu kỳ ngắn (~6 tick),
- * bounce cao ~0.34 block, không cần ceiling guard.
+ * Ported:
+ * - Continuous jump-hold while gliding + auto-launch from ground (Takeoff/Jump settings).
+ * - AutoPitch: force glidePitch down every tick while gliding (this codebase's own
+ *   camera-safe rotation via MixinEntity, not lambda's rotationRequest/RotationManager).
+ * - MinimizePackets: latch the takeoff resend instead of spamming it every tick.
+ * - FlagPause: freeze everything for N ticks after the server sends a
+ *   ClientboundPlayerPositionPacket (position-correction / movement-check flag), instead
+ *   of continuing to act right when the server is scrutinizing you.
+ * - Zero-gap local prediction: right on ground-touch, set the local FALL_FLYING flag via
+ *   EntityFlagAccessor (Entity#setSharedFlag) instead of waiting for the server's echo.
+ *   Lambda achieves the same thing with its own `player.startGliding()` helper (not
+ *   present in this API) -- this is the direct equivalent, and the actual fix for the
+ *   "stands up instead of diving" symptom: isFallFlying() now reads true THIS SAME tick,
+ *   so the pitch override never reverts to the real camera angle for a visible gap.
+ *
+ * - FakeLag/queuePackets: buffer outgoing packets during the bounce-touch tick, flush
+ *   right after -- ported using the same trick as lambda's PacketUtils.sendPacketSilently
+ *   (public, github.com/lambda-client/lambda util/PacketUtils.kt): that helper bypasses
+ *   their own send-hook by calling the RAW netty Connection.send(packet, null, true)
+ *   instead of the higher-level listener method their mixin actually hooks. Verified the
+ *   same layering exists here: Minecraft#getConnection() returns ClientPacketListener
+ *   (the high-level listener, where EventPacket.Send is presumably hooked, same as every
+ *   fabric mod convention), and ClientPacketListener#getConnection() returns the distinct
+ *   raw net.minecraft.network.Connection with its own send(Packet, ChannelFutureListener,
+ *   boolean) + isConnected() -- calling that directly skips the listener's send() (and
+ *   whatever hooks it) entirely, same as lambda's technique.
+ *
+ * - Ping-packet defer (incoming half of FakeLag): mirrors lambda's PacketEvent.Receive.Pre
+ *   queuing CommonPingS2CPacket (ClientboundPingPacket here) during the bounce-touch tick
+ *   and replaying it after via handle() straight to the listener -- bypassing
+ *   EventPacket.Receive so it isn't captured a second time, same idea as
+ *   sendPacketSilently but for the receive side.
+ *
+ * - Eligibility gating: ported PlayerUtils.canStartGliding/canTakeoff/
+ *   canGlideWithChestPiece verbatim in spirit as canGlideNow() below -- not just
+ *   "elytra equipped": also refuses while riding a vehicle, on a climbable, in water,
+ *   under Levitation, or in creative/spectator flight, and uses the real vanilla
+ *   LivingEntity#canGlideUsing (curse of binding / equipment-slot validity) instead of a
+ *   bare item-type check.
+ *
+ * NOT ported:
+ * - Obstacle passing (ObstaclePassingMode/PasserSettings) -- explicitly out of scope.
+ * - Y-motion diagonal sneak-assist -- obstacle-adjacent, no rotation-request/line-math
+ *   infra here; skipped by explicit choice rather than half-built speculatively.
  */
 public class EBouncePlus extends AddonModule {
     public static final EBouncePlus INSTANCE = new EBouncePlus();
 
+    public final ToggleOption takeoff = new ToggleOption(this, "Takeoff",
+        "Automatically jumps and initiates gliding when grounded with an elytra equipped.", true);
+
+    public final ToggleOption jump = new ToggleOption(this, "Jump",
+        "Holds jump every tick while gliding. This is what lets vanilla itself carry the glide through each bounce touch -- turning it off restores plain vanilla bounce behaviour (stops at the first touch).", true);
+
+    public final ToggleOption autoPitch = new ToggleOption(this, "AutoPitch",
+        "Automatically pitches the player's rotation down while gliding to bounce at faster speeds.", true);
+
     public final SliderOption glidePitch = new SliderOption(this, "Pitch",
         "", 90, 0.0, 90.0, 1.0);
 
-    public final SliderOption groundThreshold = new SliderOption(this, "GroundThreshold",
-        "Floor distance (blocks) to trigger recast. Reference triggers at alt ~0.01-0.15. Increase if recast misfires mid-air.", 0.15, 0.02, 1.0, 0.01);
+    public final ToggleOption minimizePackets = new ToggleOption(this, "MinimizePackets",
+        "Shrinks the amount of START_FALL_FLYING packets sent to the server as much as possible by latching the takeoff resend instead of spamming it every tick. Disabling this restores the old unconditional per-tick resend, which previously broke takeoff on this server.", true);
 
-    public final SliderOption recastVY = new SliderOption(this, "RecastVY",
-        "Max vy (b/t) to allow recast. Reference triggers at vy ≈ 0. Positive = recast while still rising slightly.", 0.08, 0.0, 0.5, 0.01);
+    public final SliderOption flagPause = new SliderOption(this, "FlagPause",
+        "Ticks to freeze everything (no packets, no jump) after the server sends a position-correction packet -- a movement-check flag. Ported from lambda-client's BounceElytraFly, which pauses instead of continuing to act right when the server is scrutinizing you.", 5, 0, 100, 1);
+
+    public final ToggleOption fakeLag = new ToggleOption(this, "FakeLag",
+        "Queues outgoing packets during the bounce-touch tick and flushes them right after, instead of letting them go out mid-touch. Ported from lambda-client's BounceElytraFly fakeLag setting.", true);
 
     public final ToggleOption debug = new ToggleOption(this, "Debug",
-        "Print chat lines on every recast trigger, jump-hold fire, and unexpected glide-stop so the exact branch causing weird behaviour can be pinned down.", false);
+        "Print chat lines on every recast trigger, jump-hold fire, flag pause, and unexpected glide-stop so the exact branch causing weird behaviour can be pinned down.", false);
 
     public static volatile boolean pitchOverrideActive = false;
     public static volatile float   savedCameraPitch    = 0f;
 
-    // -1 = no recast pending; 1 = StatusOnly sent, waiting to send START_FALL_FLYING
-    private int     recastPhase         = 0;
-    private boolean pendingFold         = false;
-    private boolean doJump              = false;
-    // Initial-takeoff pacing: 0 = may send START_FALL_FLYING now; >0 = ticks left to
-    // wait for the glide flag echo before retrying. Bounded retry (every 5 ticks) --
-    // the meteor-style unconditional per-tick resend broke takeoff on this server,
-    // reverted back to the gated version.
-    private int takeoffCooldown = 0;
+    private boolean doJump = false;
+    // Ground-touch was just detected this tick and hasn't been resolved with a
+    // START_FALL_FLYING resend yet. Separate from the initial-takeoff latch below --
+    // a touch mid-glide and a cold takeoff from a dead stop are different events.
+    private boolean pendingResend = false;
+    // false = may send the initial takeoff command now; true = already sent, waiting for
+    // the glide flag echo (isFallFlying/onGround) before sending again. Gated by
+    // minimizePackets -- see its description.
+    private boolean takeoffPending = false;
+    // Ticks left to freeze everything after a server position-correction packet.
+    // Decremented once per tick in onTickPre; onTickPost checks (without decrementing
+    // again) the value Pre already updated this same tick.
+    private int flagPauseTicksLeft = 0;
     // Purely for --Debug logging (edge detection on isFallFlying); never read by
-    // behavior logic, so it can't reintroduce the earlier grace-period regression.
+    // behavior logic.
     private boolean wasFlyingForLog = false;
+    // FakeLag: outgoing packets captured during the bounce-touch tick, flushed via the
+    // raw Connection (bypassing whatever hooks ClientPacketListener#send) right after.
+    private final Deque<Packet<?>> sendPacketQueue = new ArrayDeque<>();
+    // FakeLag, incoming half: ClientboundPingPacket deferred during the bounce-touch tick
+    // (mirrors lambda's PacketEvent.Receive.Pre queuing CommonPingS2CPacket), flushed by
+    // handing it straight to the listener -- bypassing EventPacket.Receive so it isn't
+    // captured a second time, same idea as sendPacketSilently but for the receive side.
+    private final Deque<ClientboundPingPacket> pingPacketQueue = new ArrayDeque<>();
 
     public EBouncePlus() {
         super("EBounce+", "Infinite Durability for recast, Fuck your boze client.");
@@ -64,31 +143,109 @@ public class EBouncePlus extends AddonModule {
 
     @Override
     public void onEnable() {
-        recastPhase = 0;
-        pendingFold = false;
-        doJump      = false;
-        takeoffCooldown = 0;
+        doJump = false;
+        pendingResend = false;
+        takeoffPending = false;
+        flagPauseTicksLeft = 0;
         wasFlyingForLog = false;
         pitchOverrideActive = false;
-        // No one-shot jump here anymore -- onTickPre now holds jump continuously every
-        // tick the player is genuinely on the ground (see below), which covers both the
-        // enable-while-grounded case AND any later real landing during the session.
     }
 
     @Override
     public void onDisable() {
-        recastPhase = 0;
-        pendingFold = false;
-        doJump      = false;
-        takeoffCooldown = 0;
+        doJump = false;
+        pendingResend = false;
+        takeoffPending = false;
+        flagPauseTicksLeft = 0;
+        Minecraft mc = Minecraft.getInstance();
+        flushPackets(mc);
+        flushPingPackets(mc);
         if (pitchOverrideActive) {
-            Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) mc.player.setXRot(savedCameraPitch);
             pitchOverrideActive = false;
         }
     }
 
-    // ── EventInput: apply jump + AssistW ────────────────────────────────────
+    // ── EventPacket.Receive: detect anti-cheat position-correction flags ────
+
+    @EventHandler
+    private void onPacketReceive(EventPacket.Receive event) {
+        if (event.packet instanceof ClientboundPingPacket ping) {
+            Minecraft mcForPing = Minecraft.getInstance();
+            boolean inDip = fakeLag.getValue() && mcForPing.player != null
+                && mcForPing.player.isFallFlying() && mcForPing.player.onGround() && canGlideNow(mcForPing);
+            if (inDip) {
+                pingPacketQueue.add(ping);
+                event.cancel();
+                return;
+            }
+            flushPingPackets(mcForPing);
+            return;
+        }
+
+        if (!(event.packet instanceof ClientboundPlayerPositionPacket)) return;
+
+        flagPauseTicksLeft = flagPause.getValue().intValue();
+        // Cancel any in-flight jump/resend so nothing fires during the freeze window
+        // that follows -- a queued action landing mid-pause would be exactly the kind
+        // of activity the pause is meant to avoid.
+        doJump = false;
+        pendingResend = false;
+        takeoffPending = false;
+        Minecraft mc = Minecraft.getInstance();
+        flushPackets(mc);
+        flushPingPackets(mc);
+        if (debug.getValue()) {
+            debugLog(mc, "FLAG detected (position-correction packet) -- pausing " + flagPauseTicksLeft + " ticks");
+        }
+    }
+
+    // ── EventPacket.Send: queue outgoing packets during the bounce-touch tick ─
+
+    @EventHandler
+    private void onPacketSend(EventPacket.Send event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+
+        boolean inDip = fakeLag.getValue()
+            && mc.player.isFallFlying() && mc.player.onGround() && canGlideNow(mc);
+        if (inDip) {
+            sendPacketQueue.add(event.packet);
+            event.cancel();
+            return;
+        }
+        flushPackets(mc);
+    }
+
+    private void flushPackets(Minecraft mc) {
+        if (sendPacketQueue.isEmpty()) return;
+        Connection connection = mc.getConnection() == null ? null : mc.getConnection().getConnection();
+        if (connection == null || !connection.isConnected()) {
+            sendPacketQueue.clear();
+            return;
+        }
+        Packet<?> packet;
+        while ((packet = sendPacketQueue.poll()) != null) {
+            connection.send(packet, null, true);
+        }
+    }
+
+    // Hands each deferred ping straight to the listener instead of re-sending it through
+    // Minecraft#getConnection() -- that would re-fire EventPacket.Receive and queue it
+    // right back. This is the receive-side equivalent of flushPackets()'s raw send.
+    private void flushPingPackets(Minecraft mc) {
+        if (pingPacketQueue.isEmpty()) return;
+        if (mc.getConnection() == null) {
+            pingPacketQueue.clear();
+            return;
+        }
+        ClientboundPingPacket ping;
+        while ((ping = pingPacketQueue.poll()) != null) {
+            ping.handle(mc.getConnection());
+        }
+    }
+
+    // ── EventInput: apply jump ───────────────────────────────────────────────
 
     @EventHandler
     private void onInput(EventInput event) {
@@ -96,7 +253,6 @@ public class EBouncePlus extends AddonModule {
             event.jumping = true;
             doJump = false;
         }
-
     }
 
     // ── EventTick.Post: send packets AFTER vanilla movement packet ───────────
@@ -105,47 +261,34 @@ public class EBouncePlus extends AddonModule {
     private void onTickPost(EventTick.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.getConnection() == null) return;
+        if (flagPauseTicksLeft > 0) return; // frozen -- see onPacketReceive
 
-        // Phase 1: StatusOnly sent last tick; this tick player.tick() jumped →
-        //          onGround=false → server will accept START_FALL_FLYING.
-        if (recastPhase == 1) {
+        // A ground touch was detected in Pre this tick -- reassert the glide command so
+        // the server also resumes gliding (the local flag was already set immediately in
+        // Pre; this is the actual server-side re-affirmation).
+        if (pendingResend) {
             mc.getConnection().send(new ServerboundPlayerCommandPacket(
                 mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
-            recastPhase = 0;
+            pendingResend = false;
             if (debug.getValue()) {
                 debugLog(mc, "RECAST resolve: START_FALL_FLYING resent (onGround="
                     + mc.player.onGround() + " speed=" + horizontalSpeed(mc) + ")");
             }
         }
 
-        // Phase 0 + fold trigger: send StatusOnly(true) now, jump next tick.
-        if (pendingFold) {
-            mc.getConnection().send(
-                new ServerboundMovePlayerPacket.StatusOnly(true, mc.player.horizontalCollision));
-            doJump      = true; // EventInput next tick will jump
-            recastPhase = 1;    // EventTick.Post next tick sends START_FALL_FLYING
-            pendingFold = false;
-        }
-
-        // Initial takeoff: airborne but not gliding and no recast dance in flight →
-        // ask the server to start fall flying. Post runs after this tick's movement
-        // packet, so the server already sees onGround=false and accepts the command.
-        // Retry every 5 ticks until the glide flag echoes back (covers a lost/early
-        // send under latency) — bounded, not per-tick spam. The meteor-client style
-        // unconditional per-tick resend (no cooldown) broke takeoff on this server;
-        // reverted back to this gated version.
-        if (!mc.player.isFallFlying() && !mc.player.onGround()
-                && recastPhase == 0 && !pendingFold
-                && mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
-            if (takeoffCooldown == 0) {
+        // Initial takeoff: airborne but not gliding yet → ask the server to start fall
+        // flying. Post runs after this tick's movement packet, so the server already
+        // sees onGround=false and accepts the command. minimizePackets latches this to a
+        // single send until the glide flag echoes back -- the unconditional per-tick
+        // resend (minimizePackets off) previously broke takeoff on this server.
+        if (!mc.player.isFallFlying() && !mc.player.onGround() && canGlideNow(mc)) {
+            if (!minimizePackets.getValue() || !takeoffPending) {
                 mc.getConnection().send(new ServerboundPlayerCommandPacket(
                     mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
-                takeoffCooldown = 5;
-            } else {
-                takeoffCooldown--;
+                takeoffPending = true;
             }
         } else if (mc.player.onGround()) {
-            takeoffCooldown = 0;
+            takeoffPending = false;
         }
 
         // Restore real camera pitch (was set to override in Pre for physics packet).
@@ -155,93 +298,84 @@ public class EBouncePlus extends AddonModule {
         }
     }
 
-    // ── EventTick.Pre: pitch override + recast detection ────────────────────
+    // ── EventTick.Pre: pitch override + jump-hold + recast detection ────────
 
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.getConnection() == null) return;
 
-        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
-            reset(); return;
+        if (!canGlideNow(mc)) {
+            reset();
+            flushPackets(mc);
+            flushPingPackets(mc);
+            return;
         }
+
+        // Frozen after a server flag: do nothing at all this tick (no sprint force, no
+        // pitch override, no jump-hold) -- let real client/server state settle before
+        // touching anything again.
+        if (flagPauseTicksLeft > 0) {
+            flagPauseTicksLeft--;
+            return;
+        }
+
         // Maintain sprint so every jump is a sprint-jump (+0.2 b/t boost)
         mc.player.setSprinting(true);
 
+        boolean isFlyingNow = mc.player.isFallFlying();
+
         // Set pitch override so player.tick() sends it in movement packet.
         // MixinEntity intercepts getXRot(F) → camera unaffected.
-        if (mc.player.isFallFlying()) {
+        if (isFlyingNow && autoPitch.getValue()) {
             savedCameraPitch = mc.player.getXRot();
             mc.player.setXRot((float)(double) glidePitch.getValue());
             pitchOverrideActive = true;
         }
 
-        // Genuinely standing on the ground with NO recast cycle in flight and NOT
-        // currently gliding: hold jump every tick, same as EBounce.java's JUMPING phase.
-        // Without this, a real landing (isFallFlying already cleared by the server) had
-        // nothing to trigger a fresh jump. Gated tightly on !isFallFlying/!recastPhase/
-        // !pendingFold: bounce height is only ~0.34 block, so the real client onGround
-        // flag routinely flickers true for a tick in the MIDDLE of an otherwise-healthy
-        // recast cycle (client physics briefly touches the floor even while the fake
-        // StatusOnly dance is still managing the server side). Without this guard the
-        // real jump fired here fights the recast state machine's own jump and permanently
-        // knocks the module out of gliding after the first bounce.
-        if (mc.player.onGround() && !mc.player.isFallFlying()
-                && recastPhase == 0 && !pendingFold) {
+        // The core mechanism: hold jump every tick while gliding (matches lambda's
+        // `(player.isGliding && jump) || jumpThisTick`). This is what lets vanilla itself
+        // carry the glide through a bounce touch same-tick instead of us cancelling and
+        // manually restarting it across several ticks -- that older cancel/wait/resend
+        // cycle is what visibly made the player "stand up" every bounce.
+        if (isFlyingNow) {
+            if (jump.getValue()) doJump = true;
+        } else if (mc.player.onGround() && takeoff.getValue()) {
             doJump = true;
             if (debug.getValue()) {
                 debugLog(mc, "GROUND-JUMP-HOLD fired (onGround, not flying, idle state)");
             }
         }
 
-        // Debug only: flag any tick where gliding stops WITHOUT us having initiated a
-        // recast (recastPhase==0, no pendingFold) -- this is exactly the "đứng dậy" event
-        // reported: something OTHER than our own fold/strike sequence is clearing
-        // isFallFlying (a real hard landing on terrain, a server-side rubber-band, or a
-        // rejection we're not accounting for).
+        // Debug only: flag any tick where gliding stops without a ground touch this same
+        // tick -- a real hard landing on terrain, a server-side rubber-band, or a
+        // rejection not otherwise accounted for.
         if (debug.getValue()) {
-            boolean isFlyingNow = mc.player.isFallFlying();
-            if (wasFlyingForLog && !isFlyingNow && recastPhase == 0 && !pendingFold) {
-                debugLog(mc, "UNEXPECTED STOP: isFallFlying true->false with no recast in flight"
-                    + " (onGround=" + mc.player.onGround()
-                    + " hCollision=" + mc.player.horizontalCollision
-                    + " floor=" + floorClear(mc)
+            if (wasFlyingForLog && !isFlyingNow && !mc.player.onGround()) {
+                debugLog(mc, "UNEXPECTED STOP: isFallFlying true->false with no ground touch"
+                    + " (hCollision=" + mc.player.horizontalCollision
                     + " vy=" + mc.player.getDeltaMovement().y
                     + " speed=" + horizontalSpeed(mc) + ")");
             }
             wasFlyingForLog = isFlyingNow;
         }
 
-        // Not yet gliding: nothing else to do in Pre. The initial-takeoff
-        // START_FALL_FLYING is sent from EventTick.Post — it MUST go out AFTER the
-        // tick's vanilla movement packet, otherwise the server still holds
-        // onGround=true from the previous move packet and silently rejects the
-        // command (canGlide needs !onGround). Sending from Pre was why takeoff
-        // never caught: the one gated send always arrived too early and died.
-        if (!mc.player.isFallFlying()) {
-            return;
-        }
-        takeoffCooldown = 0;
+        if (!isFlyingNow) return;
+        takeoffPending = false;
 
-        // Don't queue another recast while one is already in flight.
-        if (recastPhase != 0 || pendingFold) return;
-
-        // Recast condition: near floor AND vy is small (approaching ground level).
-        double floor = floorClear(mc);
-        double vy    = mc.player.getDeltaMovement().y;
-
-        boolean nearGround = floor >= 0 && floor < groundThreshold.getValue();
-        boolean vyOk       = vy <= recastVY.getValue();
-
-        // horizontalCollision only counts as a recast trigger near ground — otherwise
-        // clipping a block edge mid-dive (far from floor) falsely re-triggers recast
-        // while still accelerating.
-        if (nearGround && (vyOk || mc.player.horizontalCollision)) {
-            pendingFold = true;
+        // Ground-touch = the bounce: the client's own onGround flag flickers true for
+        // one tick at the low point of each bounce, even while still isFallFlying -- this
+        // is vanilla's own collision resolution, the SAME authority the server uses to
+        // decide ground contact, more reliable than any vy threshold or raycast guess.
+        // Set the local glide flag back to true IMMEDIATELY (no waiting for the server's
+        // echo) so isFallFlying() reads true again this same tick and the pitch override
+        // above never lapses -- this is the actual fix for the "stands up instead of
+        // diving" symptom; the server-side resend still happens in Post regardless.
+        if (mc.player.onGround()) {
+            ((EntityFlagAccessor) (Object) mc.player).invokeSetSharedFlag(EntityFlagAccessor.getFlagFallFlying(), true);
+            pendingResend = true;
             if (debug.getValue()) {
-                debugLog(mc, "RECAST TRIGGER (floor=" + floor + " vy=" + vy
-                    + " vyOk=" + vyOk + " hCollision=" + mc.player.horizontalCollision
-                    + " speed=" + horizontalSpeed(mc) + ")");
+                debugLog(mc, "RECAST TRIGGER (onGround flicker, speed=" + horizontalSpeed(mc) + ")");
             }
         }
     }
@@ -252,38 +386,30 @@ public class EBouncePlus extends AddonModule {
         }
     }
 
+    // Ported from lambda's PlayerUtils.canStartGliding/canTakeoff/canGlideWithChestPiece:
+    // not just "elytra equipped" -- also refuses while riding, on a climbable, in water,
+    // under Levitation, or in creative/spectator flight, and checks real vanilla
+    // curse-of-binding/slot eligibility instead of a bare item-type comparison.
+    private static boolean canGlideNow(Minecraft mc) {
+        var player = mc.player;
+        if (player.getAbilities().flying) return false;
+        if (player.isPassenger()) return false;
+        if (player.onClimbable()) return false;
+        if (player.isInWater()) return false;
+        if (player.hasEffect(MobEffects.LEVITATION)) return false;
+        return LivingEntity.canGlideUsing(player.getItemBySlot(EquipmentSlot.CHEST), EquipmentSlot.CHEST);
+    }
+
     private static double horizontalSpeed(Minecraft mc) {
         var v = mc.player.getDeltaMovement();
         return Math.sqrt(v.x * v.x + v.z * v.z) * 20.0; // b/t -> b/s
     }
 
     private void reset() {
-        recastPhase = 0;
-        pendingFold = false;
-        doJump      = false;
-        takeoffCooldown = 0;
+        doJump = false;
+        pendingResend = false;
+        takeoffPending = false;
+        flagPauseTicksLeft = 0;
     }
 
-    // 5-ray footprint downward scan (same as EBounce, returns distance to floor)
-    private double floorClear(Minecraft mc) {
-        var box = mc.player.getBoundingBox();
-        final double scan = 8.0;
-        double baseY = box.minY;
-        double[][] pts = {
-            { mc.player.getX(),  mc.player.getZ()  },
-            { box.minX, box.minZ }, { box.minX, box.maxZ },
-            { box.maxX, box.minZ }, { box.maxX, box.maxZ },
-        };
-        double best = -1;
-        for (double[] pt : pts) {
-            Vec3 from = new Vec3(pt[0], baseY,        pt[1]);
-            Vec3 to   = new Vec3(pt[0], baseY - scan, pt[1]);
-            HitResult hit = mc.level.clip(new ClipContext(
-                from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
-            if (hit.getType() == HitResult.Type.MISS) continue;
-            double c = Math.abs(hit.getLocation().y - baseY);
-            if (best < 0 || c < best) best = c;
-        }
-        return best;
-    }
 }

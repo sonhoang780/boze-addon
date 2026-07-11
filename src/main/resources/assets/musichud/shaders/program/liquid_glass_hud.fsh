@@ -16,6 +16,7 @@ layout(std140) uniform WidgetUniforms {
     float IOR;
     float RefDispersion;
     vec4 TintColor;     // rgb = tint colour, a = tint strength (glass = light/weak, Blur = dark/strong)
+    vec4 Flags;         // x = write blurred outside widget (standing in for menu-bg blur); yzw unused
 };
 
 out vec4 fragColor;
@@ -52,9 +53,15 @@ void main() {
     float nlen  = length(normal);
     if (nlen > 1e-6) normal /= nlen;
 
-    // Pixels outside the widget are left untouched (the glass pass only
-    // writes interior pixels; shadow/glow are handled by Skia layers above).
-    if (dist >= 0.0) discard;
+    // Pixels outside the widget: normally left untouched (the glass pass only writes
+    // interior pixels; shadow/glow are handled by Skia layers above). But when Flags.x is
+    // set this pass is standing in for Minecraft's menu-background blur, so outside pixels
+    // must get the full-screen blurred texture instead of being discarded -- otherwise the
+    // open menu loses its background blur entirely.
+    if (dist >= 0.0) {
+        if (Flags.x > 0.5) { fragColor = vec4(texture(Sampler0, uv).rgb, 1.0); return; }
+        discard;
+    }
 
     float nmerged = -dist * inSize.y; // depth into glass in pixels
 

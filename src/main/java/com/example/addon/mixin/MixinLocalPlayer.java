@@ -1,6 +1,6 @@
 package com.example.addon.mixin;
 
-import com.example.addon.modules.FakeFly;
+import com.example.addon.modules.ControlRocket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,8 +16,8 @@ public abstract class MixinLocalPlayer {
      * no-arg overload) — that lag is what ItemInHandRenderer.renderHandsWithItems
      * later turns into the held-item's lean/sway rotation whenever the camera turns.
      *
-     * While FakeFly is flying, applyInput() runs in the Pre/Post window where
-     * FakeFly.prepDirection() has temporarily overwritten the entity's REAL rotation
+     * While ControlRocket is flying, applyInput() runs in the Pre/Post window where
+     * ControlRocket.prepDirection() has temporarily overwritten the entity's REAL rotation
      * fields with the flight/movement direction (targetPitch/targetYaw) — and
      * getXRot()/getYRot() (no-arg) read those raw fields directly, unlike
      * getXRot(float)/getYRot(float) which MixinEntity intercepts back to the saved
@@ -25,18 +25,18 @@ public abstract class MixinLocalPlayer {
      * camera — that's why the hand followed the WASD direction instead of staying
      * still: snapping xBob/yBob to getXRot()/getYRot() (as the first version of this
      * fix did) just removed the lag while still tracking the wrong angle. Using
-     * FakeFly's saved camera angle here instead fixes that.
+     * ControlRocket's saved camera angle here instead fixes that.
      */
     @Inject(method = "applyInput", at = @At("TAIL"), require = 0)
     private void fakefly$stillHandBob(CallbackInfo ci) {
         LocalPlayer self = (LocalPlayer) (Object) this;
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && mc.player == self
-                && FakeFly.INSTANCE.getState()
-                && (FakeFly.INSTANCE.isFlying() || self.isFallFlying())) {
-            if (FakeFly.cameraOverrideActive) {
-                self.xBob = FakeFly.savedCameraPitch;
-                self.yBob = FakeFly.savedCameraYaw;
+                && ControlRocket.INSTANCE.getState()
+                && (ControlRocket.INSTANCE.isFlying() || self.isFallFlying())) {
+            if (ControlRocket.cameraOverrideActive) {
+                self.xBob = ControlRocket.savedCameraPitch;
+                self.yBob = ControlRocket.savedCameraYaw;
             } else {
                 self.xBob = self.getXRot();
                 self.yBob = self.getYRot();

@@ -84,7 +84,7 @@ public class PathFinder extends AddonModule {
     // detached Level and must be dropped instead of trusted (Finding 1, final review).
     private net.minecraft.world.level.Level netherPathfinderLevel;
 
-    // FakeFly-pattern camera decouple (see MixinEntity.java) -- while true, the
+    // ControlRocket-pattern camera decouple (see MixinEntity.java) -- while true, the
     // renderer sees savedCameraYaw/Pitch instead of the entity's real yaw/pitch
     // fields, which are temporarily pointed at the next D* Lite waypoint so
     // ElytraFly Creative's velocity calc flies that direction without visibly
@@ -171,9 +171,8 @@ public class PathFinder extends AddonModule {
             }
             cameraOverrideActive = false;
         }
-        if (flyModeOption != null && savedFlyModeName != null) {
-            try { flyModeOption.setValueByName(savedFlyModeName); } catch (Exception ignored) {}
-        }
+        // FIX: KHÔNG trả ElytraFly về mode cũ (Control) nữa -- giữ nguyên "Creative"
+        // (cùng fix đã áp cho ElytraFix.restoreFlyMode). Chỉ dọn dẹp tham chiếu.
         flyModeOption = null;
         savedFlyModeName = null;
         if (enabledElytraFly) {

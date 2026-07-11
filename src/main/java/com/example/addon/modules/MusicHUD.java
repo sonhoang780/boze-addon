@@ -368,31 +368,45 @@ public class MusicHUD extends AddonModule {
         float scale = (float) mc.getWindow().getGuiScale();
 
         // GuiRenderState allows exactly one blurBeforeThisStratum() call per frame.
-        // MusicHUD is a persistent HudElementRegistry element and keeps extracting while
-        // a Screen is open (e.g. paused); Screen.extractBlurredBackground() (PauseScreen,
-        // etc.) also calls it whenever Menu Background Blurriness > 0, and always runs
-        // after the HUD layer. Requesting our own blur too collides -> "Can only blur
-        // once per frame" crash. Skip our request whenever a screen owns the frame's
-        // blur budget instead; the panel falls back to its existing dark-fill path.
-        boolean screenOwnsBlur = mc.screen != null;
+        // Screen.extractBlurredBackground() runs for EVERY open screen (inventory
+        // included, verified via bytecode -- it's called unconditionally from Screen's
+        // own render path, not just PauseScreen), but it only actually calls
+        // blurBeforeThisStratum() itself when Menu Background Blurriness >= 1 (also
+        // confirmed via bytecode: a single `if (blurriness < 1) return;` guard). The
+        // old `mc.screen != null` check treated ANY open screen as claiming the blur
+        // slot -- including inventory with blurriness at its default/off value, which
+        // never touches the slot at all -- silently dropping MusicHUD's own blur/
+        // LiquidGlass for no real conflict.
+        //
+        // CORRECTED 2026-07-11 (was wrong): assumed every open screen with blurriness>=1
+        // calls blurBeforeThisStratum() itself, so we skipped calling it ourselves to avoid
+        // "double-claiming". Read Screen.java's actual source: Screen#extractBackground()
+        // only calls extractBlurredBackground() when !isInGameUi() -- AbstractContainerScreen
+        // (every inventory/container screen) overrides isInGameUi()=true, so it NEVER calls
+        // it at all. WebBrowserScreen draws its own custom background and never calls
+        // Screen#extractBackground() either. Result: in both cases NOBODY called
+        // blurBeforeThisStratum() this frame, and skipping our own call meant the slot went
+        // completely unclaimed -- confirmed via logging, [MixinGameRenderer] processBlurEffect
+        // never fired once a screen was open. GuiRenderState#blurBeforeThisStratum() is a
+        // no-op past the first call each frame (`if (firstStratumAfterBlur != MAX) return;`),
+        // so calling it unconditionally here is always safe regardless of what the screen does.
+        context.blurBeforeThisStratum();
 
-        if (p.liquidGlass && !screenOwnsBlur) {
+        if (p.liquidGlass) {
             int fbH = mc.getMainRenderTarget().height;
-            // Mark the blur boundary: GuiRenderer only calls GameRenderer.processBlurEffect()
-            // (which our mixin intercepts to run the GPU blur+refraction pass) if something
-            // requested it via blurBeforeThisStratum() during extraction.
-            context.blurBeforeThisStratum();
             LiquidGlassHud.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, fbH);
+            // Always panel-only -- MusicHUD's blur must never extend past its own widget
+            // regardless of what screen (if any) is open behind it.
+            LiquidGlassHud.INSTANCE.setBlurOutside(false);
             p.gpuBlur = true;
-        } else if (!screenOwnsBlur) {
+        } else {
             float blurVal = (float)(double) blurIntensity.getValue();
             p.gpuBlur = blurVal > 0.5f;
             if (p.gpuBlur) {
-                context.blurBeforeThisStratum();
                 SkijaBackdropBlur.INSTANCE.setWidget((float)x, (float)y, (float)w, (float)h, radius, scale, blurVal, 0.35f);
+                // Always panel-only, same as the LiquidGlass branch above.
+                SkijaBackdropBlur.INSTANCE.setBlurOutside(false);
             }
-        } else {
-            p.gpuBlur = false;
         }
     }
 

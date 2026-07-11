@@ -1,6 +1,6 @@
 package com.example.addon.mixin;
 
-import com.example.addon.modules.FakeFly;
+import com.example.addon.modules.ControlRocket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.InteractionHand;
@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Suppresses arm-swing animation during FakeFly elytra gliding.
+ * Suppresses arm-swing animation during ControlRocket elytra gliding.
  * interactItem() calls swingHand() each time a firework rocket fires.
  * Without this, the arm swings every ~8 ticks continuously while keys are held.
  */
@@ -21,7 +21,7 @@ public abstract class MixinLivingEntity {
     private void fakefly$suppressArmSwing(InteractionHand hand, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && mc.player == (Object) this
-                && FakeFly.INSTANCE.getState()
+                && ControlRocket.INSTANCE.getState()
                 && mc.player.isFallFlying()) {
             ci.cancel();
         }

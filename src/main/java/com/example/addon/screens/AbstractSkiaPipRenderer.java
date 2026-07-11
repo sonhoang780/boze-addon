@@ -65,7 +65,7 @@ public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extend
         final Image image; final int glId;
         BorrowedImage(Image image, int glId) { this.image = image; this.glId = glId; }
     }
-    private final Map<Identifier, BorrowedImage> borrowed = new HashMap<>();
+    private final Map<Object, BorrowedImage> borrowed = new HashMap<>();
 
     protected AbstractSkiaPipRenderer(MultiBufferSource.BufferSource bufferSource) {
         super(bufferSource);
@@ -166,19 +166,33 @@ public abstract class AbstractSkiaPipRenderer<T extends SkiaPaintedState> extend
         if (!(gpu instanceof GlTexture glTex)) return null;
         int glId = glTex.glId();
         if (glId <= 0) return null;
+        return borrowFromGlId(id, glId, gpu.getWidth(0), gpu.getHeight(0));
+    }
 
-        BorrowedImage cached = borrowed.get(id);
+    /**
+     * Same zero-copy borrow as {@link #borrowTexture(Identifier)}, for a raw GL texture
+     * ID that ISN'T registered in Minecraft's TextureManager under any Identifier (e.g.
+     * an externally-owned texture from a library like MCEF) — WebBrowserPipRenderer's
+     * only consumer. {@code cacheKey} just needs to be stable/unique per source (the
+     * external owner's own identity is fine, e.g. the MCEFBrowser instance).
+     */
+    public Image borrowTexture(Object cacheKey, int glId, int w, int h) {
+        if (ctx == null || cacheKey == null || glId <= 0) return null;
+        return borrowFromGlId(cacheKey, glId, w, h);
+    }
+
+    private Image borrowFromGlId(Object cacheKey, int glId, int w, int h) {
+        BorrowedImage cached = borrowed.get(cacheKey);
         if (cached != null && cached.glId == glId) return cached.image;
         if (cached != null) cached.image.close();
 
-        int w = gpu.getWidth(0), h = gpu.getHeight(0);
         GLTextureInfo info = new GLTextureInfo(GL11C.GL_TEXTURE_2D, glId, GL_RGBA8);
         try (BackendTexture bt = BackendTexture.makeGL(w, h, false, info)) {
             // UNPREMUL: Minecraft uploads PNG/NativeImage textures with straight alpha.
             Image img = Image.borrowTextureFrom(ctx, bt, SurfaceOrigin.TOP_LEFT,
                 ColorType.RGBA_8888, ColorAlphaType.UNPREMUL, ColorSpace.getSRGB(), null);
             if (img == null) return null;
-            borrowed.put(id, new BorrowedImage(img, glId));
+            borrowed.put(cacheKey, new BorrowedImage(img, glId));
             return img;
         }
     }

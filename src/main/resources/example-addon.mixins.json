@@ -17,6 +17,7 @@
     "MixinLivingEntity",
     "MixinLivingEntityRenderer",
     "MixinEntity",
+    "EntityFlagAccessor",
     "MixinMultiPlayerGameMode",
     "MixinPlayerLikeEntity",
     "GuiGraphicsExtractorAccessor",
@@ -29,6 +30,8 @@
     "MixinLevelRenderer",
     "MixinShaderManager",
     "MixinOutlineBufferSource",
-    "MixinLevel"
+    "MixinLevel",
+    "MixinChatComponent",
+    "MixinSoundManager"
   ]
 }

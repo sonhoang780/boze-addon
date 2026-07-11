@@ -102,7 +102,7 @@ public class InvMovePlus extends AddonModule {
     public boolean deferClick(int containerId, int slotId, int buttonNum, ContainerInput input) {
         if (replaying) return false;
         if (!getState()) return false;
-        if (FakeFly.invMoveBypass) return false;  // FakeFly chestplate-swap needs precise ordering
+        if (ControlRocket.invMoveBypass) return false;  // ControlRocket chestplate-swap needs precise ordering
         if (mode.getValue() != Mode.GrimStrict) return false;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return false;

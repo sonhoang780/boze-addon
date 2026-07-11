@@ -44,6 +44,12 @@ public final class LiquidGlassHud {
     private float optIor = 1.4f, optRefThickness = 20.0f, optRefDispersion = 7.0f;
     private float tintR = 0.59f, tintG = 0.80f, tintB = 1.0f, tintA = 0.03f;
     private int blurRadius = BLUR_RADIUS;
+    // When true, the glass pass also writes the full-screen blurred texture to pixels
+    // OUTSIDE the widget (instead of discarding them) -- used when this pass is standing in
+    // for Minecraft's own menu-background blur (a screen is open with blurriness>=1), so the
+    // menu still gets its full-screen blur AND the MusicHUD panel keeps its liquid glass,
+    // rather than one clobbering the other (only one blurBeforeThisStratum slot per frame).
+    private volatile boolean blurOutside = false;
     private volatile boolean active = false;
     private boolean resourcesFailed = false;
     private static int liquidDebugLogCount = 0; // TEMP DEBUG
@@ -122,6 +128,12 @@ public final class LiquidGlassHud {
     }
 
     public boolean isActive() { return active && !resourcesFailed; }
+
+    /** Set once per frame alongside setWidget: true when this pass is replacing Minecraft's
+     * own menu-background blur (screen open with blurriness>=1) and must therefore also blur
+     * pixels outside the widget; false for the normal in-world HUD case where outside pixels
+     * stay untouched. */
+    public void setBlurOutside(boolean value) { this.blurOutside = value; }
 
     /** Called from the GameRenderer mixin; executes the GPU passes. */
     public void render() {
@@ -263,7 +275,7 @@ public final class LiquidGlassHud {
                     () -> "musichud SamplerInfo", UBO_USAGE, 16L);
         if (widgetUniformsUbo == null)
             widgetUniformsUbo = RenderSystem.getDevice().createBuffer(
-                    () -> "musichud WidgetUniforms", UBO_USAGE, 48L);
+                    () -> "musichud WidgetUniforms", UBO_USAGE, 64L);
         // BlurConfig: vec4 Params (16 bytes) + 65 floats each padded to 16 = 16 + 65*16 = 1056
         long blurCfgSize = 16L + (MAX_BLUR_TAPS + 1) * 16L;
         if (blurConfigUboX == null)
@@ -304,6 +316,7 @@ public final class LiquidGlassHud {
             b.putFloat(optIor);
             b.putFloat(optRefDispersion);
             b.putVec4(tintR, tintG, tintB, tintA); // TintColor (rgb + tint strength)
+            b.putVec4(blurOutside ? 1f : 0f, 0f, 0f, 0f); // Flags.x = write blurred outside widget
         }
     }
 

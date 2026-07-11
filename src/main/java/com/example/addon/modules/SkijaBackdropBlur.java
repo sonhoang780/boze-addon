@@ -55,6 +55,12 @@ public final class SkijaBackdropBlur {
     private float px, py, pw, ph, pr;
     private float blurSigma = 4f;
     private float darkness = 0.35f;
+    // When true, also blur the WHOLE screen (not just the panel rect) -- used when this
+    // pass is standing in for Minecraft's own menu-background blur (a screen is open with
+    // blurriness>=1 and already claimed the one blurBeforeThisStratum slot this frame), so
+    // the menu still gets a full-screen blur instead of losing it entirely to MusicHUD's
+    // own panel-only blur. Same fix shape as LiquidGlassHud's Flags.x/blurOutside.
+    private volatile boolean blurOutside = false;
     private volatile boolean active = false;
     private boolean failed = false;
 
@@ -68,6 +74,9 @@ public final class SkijaBackdropBlur {
     private SkijaBackdropBlur() {}
 
     public boolean isActive() { return active && !failed; }
+
+    /** Set once per frame alongside setWidget; see blurOutside's field doc. */
+    public void setBlurOutside(boolean value) { this.blurOutside = value; }
 
     /**
      * @param guiX/Y/W/H  panel rect in GUI (logical) pixels
@@ -130,6 +139,17 @@ public final class SkijaBackdropBlur {
                 if (fbImage == null || surface == null) return;
                 Canvas canvas = surface.getCanvas();
 
+                if (blurOutside) {
+                    // Standing in for the menu's own full-screen blur -- same panel-region
+                    // padding trick as below, just over the whole framebuffer instead.
+                    Rect whole = Rect.makeLTRB(0, 0, w, h);
+                    try (Paint wholeBlur = new Paint();
+                         ImageFilter blur = ImageFilter.makeBlur(blurSigma, blurSigma, FilterTileMode.CLAMP)) {
+                        wholeBlur.setImageFilter(blur);
+                        canvas.drawImageRect(fbImage, whole, whole, SamplingMode.LINEAR, wholeBlur, true);
+                    }
+                }
+
                 RRect panel = RRect.makeXYWH(px, py, pw, ph, pr);
                 canvas.save();
                 canvas.clipRRect(panel, ClipMode.INTERSECT, true);
@@ -177,10 +197,22 @@ public final class SkijaBackdropBlur {
         GL30C.glBindFramebuffer(GL30C.GL_FRAMEBUFFER, drawFbo);
         GL30C.glFramebufferTexture2D(GL30C.GL_FRAMEBUFFER, GL30C.GL_COLOR_ATTACHMENT0,
                 GL_TEXTURE_2D, mcColorId, 0);
+        // Standalone GL_STENCIL_INDEX8 -> GL_STENCIL_ATTACHMENT leaves the FBO incomplete
+        // on this NVIDIA driver (GL_INVALID_FRAMEBUFFER_OPERATION every frame this ran).
+        // GL_DEPTH24_STENCIL8 -> GL_DEPTH_STENCIL_ATTACHMENT is the combo every vendor
+        // actually implements correctly; we don't read the depth half, we just need it
+        // for the stencil clip Skija uses for the rounded-rect blur mask.
         GL30C.glBindRenderbuffer(GL30C.GL_RENDERBUFFER, stencilRbo);
-        GL30C.glRenderbufferStorage(GL30C.GL_RENDERBUFFER, GL30C.GL_STENCIL_INDEX8, w, h);
-        GL30C.glFramebufferRenderbuffer(GL30C.GL_FRAMEBUFFER, GL30C.GL_STENCIL_ATTACHMENT,
+        GL30C.glRenderbufferStorage(GL30C.GL_RENDERBUFFER, GL30C.GL_DEPTH24_STENCIL8, w, h);
+        GL30C.glFramebufferRenderbuffer(GL30C.GL_FRAMEBUFFER, GL30C.GL_DEPTH_STENCIL_ATTACHMENT,
                 GL30C.GL_RENDERBUFFER, stencilRbo);
+
+        int status = GL30C.glCheckFramebufferStatus(GL30C.GL_FRAMEBUFFER);
+        if (status != GL30C.GL_FRAMEBUFFER_COMPLETE) {
+            System.err.println("[SkijaBackdropBlur] FBO incomplete (status=0x"
+                + Integer.toHexString(status) + "), disabling blur");
+            failed = true;
+        }
 
         attachedColorId = mcColorId;
         fbW = w; fbH = h;
