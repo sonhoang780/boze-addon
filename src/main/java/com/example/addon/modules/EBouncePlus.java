@@ -5,6 +5,7 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInput;
 import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import net.minecraft.network.chat.Component;
@@ -45,12 +46,17 @@ import java.util.Deque;
  * - FlagPause: freeze everything for N ticks after the server sends a
  *   ClientboundPlayerPositionPacket (position-correction / movement-check flag), instead
  *   of continuing to act right when the server is scrutinizing you.
- * - Zero-gap local prediction: right on ground-touch, set the local FALL_FLYING flag via
- *   EntityFlagAccessor (Entity#setSharedFlag) instead of waiting for the server's echo.
- *   Lambda achieves the same thing with its own `player.startGliding()` helper (not
- *   present in this API) -- this is the direct equivalent, and the actual fix for the
- *   "stands up instead of diving" symptom: isFallFlying() now reads true THIS SAME tick,
- *   so the pitch override never reverts to the real camera angle for a visible gap.
+ * - Ground-touch gap bridging (GlideDetect setting, two modes):
+ *   VirtualMask (default) ports lambda's `isGliding()` override verbatim in spirit --
+ *   isGlidingMasked() below latches "still gliding" for EBounce+'s OWN checks (pitch
+ *   override, jump-hold) without touching the real vanilla flag; !interrupting and
+ *   !BaritoneHandler.isActive from lambda's version are dropped (no equivalents here).
+ *   EntityFlag writes the real FALL_FLYING flag immediately via a mixin accessor
+ *   (Entity#setSharedFlag) -- what this module used before VirtualMask was ported, kept
+ *   as a fallback since it's more invasive (touches state other systems also read).
+ *   Either way this is the fix for the "stands up instead of diving" symptom: whichever
+ *   mode is active, isFlyingNow reads true THIS SAME tick, so the pitch override never
+ *   reverts to the real camera angle for a visible gap.
  *
  * - FakeLag/queuePackets: buffer outgoing packets during the bounce-touch tick, flush
  *   right after -- ported using the same trick as lambda's PacketUtils.sendPacketSilently
@@ -88,9 +94,6 @@ public class EBouncePlus extends AddonModule {
     public final ToggleOption takeoff = new ToggleOption(this, "Takeoff",
         "Automatically jumps and initiates gliding when grounded with an elytra equipped.", true);
 
-    public final ToggleOption jump = new ToggleOption(this, "Jump",
-        "Holds jump every tick while gliding. This is what lets vanilla itself carry the glide through each bounce touch -- turning it off restores plain vanilla bounce behaviour (stops at the first touch).", true);
-
     public final ToggleOption autoPitch = new ToggleOption(this, "AutoPitch",
         "Automatically pitches the player's rotation down while gliding to bounce at faster speeds.", true);
 
@@ -105,6 +108,10 @@ public class EBouncePlus extends AddonModule {
 
     public final ToggleOption fakeLag = new ToggleOption(this, "FakeLag",
         "Queues outgoing packets during the bounce-touch tick and flushes them right after, instead of letting them go out mid-touch. Ported from lambda-client's BounceElytraFly fakeLag setting.", true);
+
+    public enum GlideDetectMode { VirtualMask, EntityFlag }
+    public final ModeOption<GlideDetectMode> glideDetectMode = new ModeOption<>(this, "GlideDetect",
+        "How EBounce+ bridges the ground-touch gap. VirtualMask (default, lambda's isGliding() override): only masks EBounce+'s OWN checks -- the real vanilla FALL_FLYING flag still reads false during the gap for physics/other modules, safer (doesn't touch shared entity state) but relies on our own pitch-override/jump-hold decisions being driven by the masked value, not the real flag. EntityFlag: writes the real flag immediately via a mixin accessor -- more invasive, kept as a fallback if VirtualMask tests unstable in-game.", GlideDetectMode.VirtualMask);
 
     public final ToggleOption debug = new ToggleOption(this, "Debug",
         "Print chat lines on every recast trigger, jump-hold fire, flag pause, and unexpected glide-stop so the exact branch causing weird behaviour can be pinned down.", false);
@@ -128,6 +135,9 @@ public class EBouncePlus extends AddonModule {
     // Purely for --Debug logging (edge detection on isFallFlying); never read by
     // behavior logic.
     private boolean wasFlyingForLog = false;
+    // VirtualMask latch (lambda's prevGliding): last masked "are we gliding" verdict.
+    // Only read/written by isGlidingMasked() below when glideDetectMode == VirtualMask.
+    private boolean prevGliding = false;
     // FakeLag: outgoing packets captured during the bounce-touch tick, flushed via the
     // raw Connection (bypassing whatever hooks ClientPacketListener#send) right after.
     private final Deque<Packet<?>> sendPacketQueue = new ArrayDeque<>();
@@ -148,6 +158,7 @@ public class EBouncePlus extends AddonModule {
         takeoffPending = false;
         flagPauseTicksLeft = 0;
         wasFlyingForLog = false;
+        prevGliding = false;
         pitchOverrideActive = false;
     }
 
@@ -157,6 +168,7 @@ public class EBouncePlus extends AddonModule {
         pendingResend = false;
         takeoffPending = false;
         flagPauseTicksLeft = 0;
+        prevGliding = false;
         Minecraft mc = Minecraft.getInstance();
         flushPackets(mc);
         flushPingPackets(mc);
@@ -192,6 +204,7 @@ public class EBouncePlus extends AddonModule {
         doJump = false;
         pendingResend = false;
         takeoffPending = false;
+        prevGliding = false;
         Minecraft mc = Minecraft.getInstance();
         flushPackets(mc);
         flushPingPackets(mc);
@@ -323,7 +336,9 @@ public class EBouncePlus extends AddonModule {
         // Maintain sprint so every jump is a sprint-jump (+0.2 b/t boost)
         mc.player.setSprinting(true);
 
-        boolean isFlyingNow = mc.player.isFallFlying();
+        boolean isFlyingNow = glideDetectMode.getValue() == GlideDetectMode.EntityFlag
+            ? mc.player.isFallFlying()
+            : isGlidingMasked(mc);
 
         // Set pitch override so player.tick() sends it in movement packet.
         // MixinEntity intercepts getXRot(F) → camera unaffected.
@@ -333,13 +348,15 @@ public class EBouncePlus extends AddonModule {
             pitchOverrideActive = true;
         }
 
-        // The core mechanism: hold jump every tick while gliding (matches lambda's
-        // `(player.isGliding && jump) || jumpThisTick`). This is what lets vanilla itself
-        // carry the glide through a bounce touch same-tick instead of us cancelling and
-        // manually restarting it across several ticks -- that older cancel/wait/resend
-        // cycle is what visibly made the player "stand up" every bounce.
+        // The core mechanism: hold jump every tick while gliding, unconditionally (matches
+        // lambda's `(player.isGliding && jump) || jumpThisTick` with jump always true).
+        // This is what lets vanilla itself carry the glide through a bounce touch
+        // same-tick instead of us cancelling and manually restarting it across several
+        // ticks -- that older cancel/wait/resend cycle is what visibly made the player
+        // "stand up" every bounce. No toggle: turning this off is just plain vanilla
+        // bounce behaviour (stops at the first touch), never a useful state to test in.
         if (isFlyingNow) {
-            if (jump.getValue()) doJump = true;
+            doJump = true;
         } else if (mc.player.onGround() && takeoff.getValue()) {
             doJump = true;
             if (debug.getValue()) {
@@ -367,12 +384,15 @@ public class EBouncePlus extends AddonModule {
         // one tick at the low point of each bounce, even while still isFallFlying -- this
         // is vanilla's own collision resolution, the SAME authority the server uses to
         // decide ground contact, more reliable than any vy threshold or raycast guess.
-        // Set the local glide flag back to true IMMEDIATELY (no waiting for the server's
-        // echo) so isFallFlying() reads true again this same tick and the pitch override
-        // above never lapses -- this is the actual fix for the "stands up instead of
-        // diving" symptom; the server-side resend still happens in Post regardless.
+        // EntityFlag mode: write the real flag immediately so isFallFlying() reads true
+        // this same tick. VirtualMask mode: nothing to write -- isGlidingMasked()'s latch
+        // (prevGliding was already true) already made isFlyingNow read true above, which
+        // is what keeps the pitch override/jump-hold from lapsing; the real flag is left
+        // alone. Either way the server-side resend still happens in Post.
         if (mc.player.onGround()) {
-            ((EntityFlagAccessor) (Object) mc.player).invokeSetSharedFlag(EntityFlagAccessor.getFlagFallFlying(), true);
+            if (glideDetectMode.getValue() == GlideDetectMode.EntityFlag) {
+                ((EntityFlagAccessor) (Object) mc.player).invokeSetSharedFlag(EntityFlagAccessor.getFlagFallFlying(), true);
+            }
             pendingResend = true;
             if (debug.getValue()) {
                 debugLog(mc, "RECAST TRIGGER (onGround flicker, speed=" + horizontalSpeed(mc) + ")");
@@ -400,6 +420,19 @@ public class EBouncePlus extends AddonModule {
         return LivingEntity.canGlideUsing(player.getItemBySlot(EquipmentSlot.CHEST), EquipmentSlot.CHEST);
     }
 
+    // Ported from lambda's BounceElytraFly#isGliding() override: if we were gliding last
+    // tick and we're not currently frozen by FlagPause, KEEP reporting gliding regardless
+    // of the real flag -- masks a transient drop for EBounce+'s own decisions (pitch
+    // override, jump-hold, touch detection) without touching the real vanilla flag. Lambda
+    // also gates on !interrupting and !BaritoneHandler.isActive; neither has an equivalent
+    // here (no obstacle-passing interrupt, no Baritone integration), so those are dropped.
+    private boolean isGlidingMasked(Minecraft mc) {
+        boolean real = mc.player.isFallFlying();
+        if (prevGliding && flagPauseTicksLeft == 0) return true; // masked -- prevGliding untouched
+        prevGliding = real;
+        return real;
+    }
+
     private static double horizontalSpeed(Minecraft mc) {
         var v = mc.player.getDeltaMovement();
         return Math.sqrt(v.x * v.x + v.z * v.z) * 20.0; // b/t -> b/s
@@ -410,6 +443,7 @@ public class EBouncePlus extends AddonModule {
         pendingResend = false;
         takeoffPending = false;
         flagPauseTicksLeft = 0;
+        prevGliding = false;
     }
 
 }

@@ -112,6 +112,14 @@ public class PathFinder extends AddonModule {
     private int escapeTicksRemaining = 0;
     private boolean escapeStrafeLeft = true;
 
+    // True only while this module actually holds movement/camera keys this tick (Baritone
+    // mode: #elytra process genuinely isActive(); DStarLite: has a live goal). Lets
+    // releaseKeys() fire ONCE on the falling edge instead of every tick -- calling it
+    // unconditionally every tick fights the player's OWN real key input even when they
+    // never asked this module to fly them anywhere (e.g. walking normally without an
+    // elytra, or wearing one without ever running #elytra).
+    private boolean wasControllingMovement = false;
+
     public PathFinder() {
         super("PathFinder", "Use boze elytrafly so you dont waste fireworks (but still have to bring at least 5 fireworks to make baritone work.");
     }
@@ -121,6 +129,7 @@ public class PathFinder extends AddonModule {
         netherPathfinder = null;
         netherPathfinderLevel = null;
         cameraOverrideActive = false;
+        wasControllingMovement = false;
 
         enabledElytraFly = false;
         flyModeOption = null;
@@ -157,6 +166,7 @@ public class PathFinder extends AddonModule {
     @Override
     public void onDisable() {
         releaseKeys();
+        wasControllingMovement = false;
         if (netherPathfinder != null) netherPathfinder.clear();
         windowStartPos = null;
         windowTicks = 0;
@@ -191,6 +201,22 @@ public class PathFinder extends AddonModule {
         mc.options.keyShift.setDown(false);
     }
 
+    /**
+     * Hands control back to the player: releases keys ONCE (only if we actually held them
+     * last tick -- calling releaseKeys() unconditionally every tick would keep stomping the
+     * player's own real key input even while this module has nothing to do) and clears the
+     * stuck-detection window so a stale one doesn't leak into the next active period.
+     */
+    private void stopControllingMovement() {
+        if (wasControllingMovement) {
+            releaseKeys();
+            wasControllingMovement = false;
+        }
+        windowStartPos = null;
+        windowTicks = 0;
+        escapeTicksRemaining = 0;
+    }
+
     /** Sets the D* Lite goal; called by GoalCommand. No-op if Fly isn't DStarLite. */
     public void setGoal(net.minecraft.core.BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
@@ -217,10 +243,7 @@ public class PathFinder extends AddonModule {
         }
 
         if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA || mc.player.onGround()) {
-            releaseKeys();
-            windowStartPos = null;
-            windowTicks = 0;
-            escapeTicksRemaining = 0;
+            stopControllingMovement();
             return;
         }
 
@@ -228,6 +251,19 @@ public class PathFinder extends AddonModule {
             onTickDStarLite(mc);
             return;
         }
+
+        // Only take over movement while baritone's #elytra process is genuinely running
+        // (isActive()) -- an equipped elytra alone used to be enough to hold forward
+        // unconditionally below, which auto-flew the player even when #elytra was never
+        // run (or had already finished). Also the fix for releaseKeys() spam: previously
+        // called every tick whenever the guard above failed, which fought the player's
+        // own real key input even while just walking without an elytra.
+        Object elytraProcess = getElytraProcess();
+        if (elytraProcess == null || !isProcessActive(elytraProcess)) {
+            stopControllingMovement();
+            return;
+        }
+        wasControllingMovement = true;
 
         Vec3 pos = mc.player.position();
 
@@ -272,26 +308,41 @@ public class PathFinder extends AddonModule {
             windowTicks = 0;
         }
 
-        // Forward: hold it, advancing in whatever direction the player is currently
-        // facing (their own mouse look, or baritone's yaw if it manages to hold it --
-        // either way "go forward" is the correct action while following a path).
-        mc.options.keyUp.setDown(true);
-
-        Object elytraProcess = getElytraProcess();
-        BlockPos target = elytraProcess != null
-            ? readLookaheadWaypoint(elytraProcess, lookahead.getValue().intValue())
-            : null;
-        if (target == null && elytraProcess != null) {
+        BlockPos target = readLookaheadWaypoint(elytraProcess, lookahead.getValue().intValue());
+        if (target == null) {
             target = readCurrentDestination(elytraProcess);
         }
         if (target == null) {
+            mc.options.keyUp.setDown(false);
             mc.options.keyJump.setDown(false);
             mc.options.keyShift.setDown(false);
             return;
         }
 
+        double dx = target.getX() + 0.5 - pos.x;
+        double dz = target.getZ() + 0.5 - pos.z;
+        double horizDist = Math.sqrt(dx * dx + dz * dz);
         double dy = target.getY() - mc.player.getY();
         double margin = verticalMargin.getValue();
+
+        // Path is overwhelmingly vertical (climbing/descending a shaft): release forward
+        // so ElytraFly Creative's direction calc takes its pure-vertical branch
+        // (targetPitch = ±90°, straight up/down) instead of the shallow diagonal climb it
+        // computes when forward is ALSO held (its "hasH" branch caps pitch at
+        // upSpeed*90° -- a partial angle, not actually vertical). Holding both fought
+        // baritone's real near-vertical path shape and showed up as jitter.
+        if (Math.abs(dy) > margin && Math.abs(dy) > horizDist * 2.0) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyJump.setDown(dy > 0);
+            mc.options.keyShift.setDown(dy < 0);
+            return;
+        }
+
+        // Forward: hold it, advancing in whatever direction the player is currently
+        // facing (their own mouse look, or baritone's yaw if it manages to hold it --
+        // either way "go forward" is the correct action while following a path).
+        mc.options.keyUp.setDown(true);
+
         if (dy > margin) {
             mc.options.keyJump.setDown(true);
             mc.options.keyShift.setDown(false);
@@ -469,6 +520,20 @@ public class PathFinder extends AddonModule {
         boolean rightClear = mc.level.noCollision(mc.player, rightBox);
         if (leftClear != rightClear) return leftClear;
         return mc.player.getRandom().nextBoolean();
+    }
+
+    /**
+     * IBaritoneProcess#isActive() -- true only while baritone's #elytra command is
+     * genuinely running a path right now, false once it's finished/never started. Every
+     * baritone process (elytra included) implements this. Fail closed like every other
+     * reflective call here: any exception means "treat as not active."
+     */
+    private static boolean isProcessActive(Object elytraProcess) {
+        try {
+            return (boolean) elytraProcess.getClass().getMethod("isActive").invoke(elytraProcess);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /**
