@@ -19,10 +19,15 @@ import net.minecraft.world.phys.Vec3;
  * PathFinder — no longer a standalone pathfinder. The vendored native
  * (dev.babbaj.pathfinder) nether-ceiling implementation never worked reliably and was
  * removed entirely (it also shadowed baritone's OWN bundled copy of the same
- * package/class, which broke `#elytra` with a NoSuchMethodError). Replaced with the
- * "củ chuối" (janky-but-works) approach: let baritone's own `#goal` + `#elytra` compute
- * and RENDER the path (baritone does this itself, no code needed here for either) while
- * this module:
+ * package/class, which broke `#elytra` with a NoSuchMethodError). The self-contained
+ * D* Lite engine (NetherPathfinder/NetherGraph/DStarLite, `goal` command) was removed
+ * too -- too many correctness issues (flew past the goal with no arrival check, and a
+ * 1-block/26-neighbor search grid that couldn't converge within its iteration budget
+ * for the multi-thousand-block distances elytra travel actually needs, causing
+ * sustained lag) to be worth carrying alongside the Baritone-driven mode below.
+ * Replaced with the "củ chuối" (janky-but-works) approach: let baritone's own `#goal` +
+ * `#elytra` compute and RENDER the path (baritone does this itself, no code needed here
+ * for either) while this module:
  *   1. Forces Boze's own ElytraFly module into Creative mode so the player is
  *      velocity-controlled (not vanilla-gliding) and can't fall out of the sky.
  *   2. Auto-holds the forward key so the player advances in whatever direction they're
@@ -36,6 +41,11 @@ import net.minecraft.world.phys.Vec3;
  *      module is enabled, since baritone's own elytra process tries to burn fireworks
  *      for boost that ElytraFly Creative doesn't need and that would otherwise
  *      waste/drop items.
+ *   5. Only takes over movement while baritone's #elytra process is genuinely
+ *      isActive() -- an equipped elytra alone isn't enough (see onTick). Hands full
+ *      control back to baritone (disabling ElytraFly Creative entirely) the moment it
+ *      enters its own State.LANDING, since baritone's careful vanilla-glide touchdown
+ *      needs no fireworks and would otherwise fight ElytraFly's velocity control.
  *
  * Vertical signal, two layers (both reflection-only -- see readLookaheadWaypoint /
  * readCurrentDestination -- no compile-time baritone types are referenced and nothing is
@@ -57,10 +67,11 @@ import net.minecraft.world.phys.Vec3;
  *   empty (still calculating), fall back to currentDestination()'s static goal Y so
  *   there's still SOME signal rather than none.
  *
- * These internal classes (ElytraBehavior/PathManager/NetherPath, all under
- * baritone.process(.elytra)) are NOT part of baritone's public `api` module and could
- * change shape in a future baritone build -- every reflective call here is wrapped to
- * fail closed (return null, caller falls back or does nothing) rather than throw.
+ * These internal classes (ElytraBehavior/PathManager/NetherPath/ElytraProcess.State, all
+ * under baritone.process(.elytra)) are NOT part of baritone's public `api` module and
+ * could change shape in a future baritone build -- every reflective call here is
+ * wrapped to fail closed (return null/false, caller falls back or does nothing) rather
+ * than throw.
  */
 public class PathFinder extends AddonModule {
 
@@ -68,30 +79,10 @@ public class PathFinder extends AddonModule {
 
     private static final String MODULE_ELYTRA_FLY = "ElytraFly";
 
-    public enum Fly { Baritone, DStarLite }
-    public final dev.boze.api.option.ModeOption<Fly> fly = new dev.boze.api.option.ModeOption<>(this, "Fly",
-        "Baritone: today's behavior (drive #goal/#elytra via reflection). DStarLite: self-contained engine, no Baritone required -- set a goal with the `goal` command.", Fly.Baritone);
     public final SliderOption verticalMargin = new SliderOption(this, "Vertical Margin",
         "Blocks of Y-difference from the target waypoint within which neither Space nor Shift is auto-pressed.", 3.0, 0.5, 15.0, 0.5);
     public final SliderOption lookahead = new SliderOption(this, "Lookahead",
         "How many nodes ahead of baritone's current path position to read the vertical signal from. Higher = smoother/less reactive, lower = tighter to sudden path turns.", 5.0, 1.0, 20.0, 1.0);
-    public final SliderOption yawTurnRate = new SliderOption(this, "Yaw Turn Rate",
-        "Max degrees per tick the D* Lite engine may rotate the (hidden) flight yaw toward the next waypoint.", 15.0, 2.0, 45.0, 1.0);
-
-    private com.example.addon.pathfinding.NetherPathfinder netherPathfinder;
-    // Level the current netherPathfinder was built for -- if mc.level ever differs
-    // (portal/dimension change, reconnect), the old NetherPathfinder is querying a
-    // detached Level and must be dropped instead of trusted (Finding 1, final review).
-    private net.minecraft.world.level.Level netherPathfinderLevel;
-
-    // ControlRocket-pattern camera decouple (see MixinEntity.java) -- while true, the
-    // renderer sees savedCameraYaw/Pitch instead of the entity's real yaw/pitch
-    // fields, which are temporarily pointed at the next D* Lite waypoint so
-    // ElytraFly Creative's velocity calc flies that direction without visibly
-    // spinning the player's actual view.
-    public static volatile boolean cameraOverrideActive = false;
-    public static volatile float savedCameraYaw = 0f;
-    public static volatile float savedCameraPitch = 0f;
 
     // True only if THIS module enabled ElytraFly (vs. it already being on) -- mirrors
     // ElytraFix's save/restore pattern so we don't clobber a state the user set manually.
@@ -112,13 +103,18 @@ public class PathFinder extends AddonModule {
     private int escapeTicksRemaining = 0;
     private boolean escapeStrafeLeft = true;
 
-    // True only while this module actually holds movement/camera keys this tick (Baritone
-    // mode: #elytra process genuinely isActive(); DStarLite: has a live goal). Lets
-    // releaseKeys() fire ONCE on the falling edge instead of every tick -- calling it
-    // unconditionally every tick fights the player's OWN real key input even when they
-    // never asked this module to fly them anywhere (e.g. walking normally without an
-    // elytra, or wearing one without ever running #elytra).
+    // True only while this module actually holds movement keys this tick (baritone's
+    // #elytra process genuinely isActive() and not landing). Lets releaseKeys() fire
+    // ONCE on the falling edge instead of every tick -- calling it unconditionally every
+    // tick fights the player's OWN real key input even when they never asked this module
+    // to fly them anywhere (e.g. walking normally without an elytra, or wearing one
+    // without ever running #elytra).
     private boolean wasControllingMovement = false;
+
+    // True while ElytraFly was forced off specifically for a baritone landing (not the
+    // separate enabledElytraFly, which tracks whether PathFinder's OWN onEnable turned it
+    // on in the first place) -- restored the instant baritone leaves State.LANDING.
+    private boolean elytraFlyDisabledForLanding = false;
 
     public PathFinder() {
         super("PathFinder", "Use boze elytrafly so you dont waste fireworks (but still have to bring at least 5 fireworks to make baritone work.");
@@ -126,9 +122,6 @@ public class PathFinder extends AddonModule {
 
     @Override
     public void onEnable() {
-        netherPathfinder = null;
-        netherPathfinderLevel = null;
-        cameraOverrideActive = false;
         wasControllingMovement = false;
 
         enabledElytraFly = false;
@@ -167,20 +160,9 @@ public class PathFinder extends AddonModule {
     public void onDisable() {
         releaseKeys();
         wasControllingMovement = false;
-        if (netherPathfinder != null) netherPathfinder.clear();
         windowStartPos = null;
         windowTicks = 0;
         escapeTicksRemaining = 0;
-        if (cameraOverrideActive) {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.player != null) {
-                mc.player.setYRot(savedCameraYaw);
-                mc.player.setXRot(savedCameraPitch);
-                mc.player.yRotO = savedCameraYaw;
-                mc.player.xRotO = savedCameraPitch;
-            }
-            cameraOverrideActive = false;
-        }
         // FIX: KHÔNG trả ElytraFly về mode cũ (Control) nữa -- giữ nguyên "Creative"
         // (cùng fix đã áp cho ElytraFix.restoreFlyMode). Chỉ dọn dẹp tham chiếu.
         flyModeOption = null;
@@ -217,24 +199,6 @@ public class PathFinder extends AddonModule {
         escapeTicksRemaining = 0;
     }
 
-    /** Sets the D* Lite goal; called by GoalCommand. No-op if Fly isn't DStarLite. */
-    public void setGoal(net.minecraft.core.BlockPos goal) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) {
-            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cCan't set goal: not in a world.");
-            return;
-        }
-        if (fly.getValue() != Fly.DStarLite) {
-            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cGoal ignored: set Fly=DStarLite first (currently Baritone).");
-            return;
-        }
-        if (netherPathfinder == null || mc.level != netherPathfinderLevel) {
-            netherPathfinder = new com.example.addon.pathfinding.NetherPathfinder(mc.level);
-            netherPathfinderLevel = mc.level;
-        }
-        netherPathfinder.setGoal(mc.player.blockPosition(), goal);
-    }
-
     @EventHandler
     private void onTick(EventTick.Pre event) {
         Minecraft mc = Minecraft.getInstance();
@@ -244,11 +208,7 @@ public class PathFinder extends AddonModule {
 
         if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA || mc.player.onGround()) {
             stopControllingMovement();
-            return;
-        }
-
-        if (fly.getValue() == Fly.DStarLite) {
-            onTickDStarLite(mc);
+            restoreElytraFlyIfDisabledForLanding();
             return;
         }
 
@@ -261,8 +221,21 @@ public class PathFinder extends AddonModule {
         Object elytraProcess = getElytraProcess();
         if (elytraProcess == null || !isProcessActive(elytraProcess)) {
             stopControllingMovement();
+            restoreElytraFlyIfDisabledForLanding();
             return;
         }
+
+        // Baritone reached the end of its path and is doing its own careful vanilla-glide
+        // touchdown (no fireworks, precise control -- see "Path complete, picking a nearby
+        // safe landing spot..." in chat). ElytraFly's Creative velocity control fights that,
+        // so disable it and let go of our own held keys for the duration of the landing;
+        // restored the instant baritone leaves the landing state (new path, or done).
+        if (isElytraLanding(elytraProcess)) {
+            stopControllingMovement();
+            disableElytraFlyForLanding();
+            return;
+        }
+        restoreElytraFlyIfDisabledForLanding();
         wasControllingMovement = true;
 
         Vec3 pos = mc.player.position();
@@ -355,153 +328,6 @@ public class PathFinder extends AddonModule {
         }
     }
 
-
-    /**
-     * Fly=DStarLite tick: forward-hold + Space/Shift reused unchanged from the
-     * Baritone path, waypoint source swapped for NetherPathfinder, plus a
-     * short forward raycast safety backstop independent of planner
-     * correctness, plus camera-safe yaw/pitch (see class-level fields and
-     * MixinEntity.java).
-     */
-    private void onTickDStarLite(Minecraft mc) {
-        // Finding 1 (final review): NetherPathfinder/NetherGraph capture a Level once;
-        // a portal/dimension change or reconnect swaps mc.level to a new, detached
-        // instance. Querying the old one either throws (swallowed below) or returns
-        // stale terrain. Detect it here and drop the stale planner instead of flying
-        // blind -- deliberately NOT auto-recreating the goal in the new world, the
-        // user re-running `goal` after a dimension change is the correct behavior.
-        if (netherPathfinder != null && mc.level != netherPathfinderLevel) {
-            netherPathfinder.clear();
-            netherPathfinder = null;
-            netherPathfinderLevel = null;
-            releaseKeys();
-            windowStartPos = null;
-            windowTicks = 0;
-            escapeTicksRemaining = 0;
-            dev.boze.api.utility.ChatHelper.sendMsg("PathFinder", "§cWorld changed -- D* Lite goal lost, use goal again.");
-            return;
-        }
-
-        Vec3 pos = mc.player.position();
-
-        if (escapeTicksRemaining > 0) {
-            mc.options.keyUp.setDown(false);
-            mc.options.keyDown.setDown(true);
-            mc.options.keyLeft.setDown(escapeStrafeLeft);
-            mc.options.keyRight.setDown(!escapeStrafeLeft);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            escapeTicksRemaining--;
-            windowStartPos = pos;
-            windowTicks = 0;
-            return;
-        }
-        mc.options.keyDown.setDown(false);
-        mc.options.keyLeft.setDown(false);
-        mc.options.keyRight.setDown(false);
-
-        if (windowStartPos == null) {
-            windowStartPos = pos;
-            windowTicks = 0;
-        } else if (++windowTicks >= STUCK_WINDOW_TICKS) {
-            if (pos.distanceTo(windowStartPos) < STUCK_DIST_THRESHOLD) {
-                escapeStrafeLeft = clearerSideIsLeft(mc);
-                escapeTicksRemaining = ESCAPE_TICKS;
-                windowStartPos = pos;
-                windowTicks = 0;
-                mc.options.keyUp.setDown(false);
-                mc.options.keyJump.setDown(false);
-                mc.options.keyShift.setDown(false);
-                return;
-            }
-            windowStartPos = pos;
-            windowTicks = 0;
-        }
-
-        if (netherPathfinder == null || !netherPathfinder.isActive()) {
-            mc.options.keyUp.setDown(false);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            return;
-        }
-
-        net.minecraft.core.BlockPos waypoint;
-        try {
-            waypoint = netherPathfinder.tick(mc.player.blockPosition());
-        } catch (Exception e) {
-            mc.options.keyUp.setDown(false);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            return;
-        }
-        if (waypoint == null) {
-            mc.options.keyUp.setDown(false);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            return;
-        }
-
-        // Safety backstop: short raycast ahead, independent of planner
-        // correctness -- cut forward and escape immediately if something solid
-        // is directly in front, rather than trusting the planner never errs.
-        Vec3 look = mc.player.getLookAngle();
-        AABB ahead = mc.player.getBoundingBox().move(look.x * 2.0, look.y * 2.0, look.z * 2.0);
-        if (!mc.level.noCollision(mc.player, ahead)) {
-            escapeStrafeLeft = clearerSideIsLeft(mc);
-            escapeTicksRemaining = ESCAPE_TICKS;
-            mc.options.keyUp.setDown(false);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            return;
-        }
-
-        mc.options.keyUp.setDown(true);
-
-        double dx = waypoint.getX() + 0.5 - pos.x;
-        double dz = waypoint.getZ() + 0.5 - pos.z;
-        double dy = waypoint.getY() + 0.5 - pos.y;
-        double horizDist = Math.sqrt(dx * dx + dz * dz);
-
-        savedCameraYaw = mc.player.getYRot();
-        savedCameraPitch = mc.player.getXRot();
-
-        float targetYawRaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-        float yawDelta = net.minecraft.util.Mth.wrapDegrees(targetYawRaw - savedCameraYaw);
-        float maxTurn = yawTurnRate.getValue().floatValue();
-        yawDelta = Math.max(-maxTurn, Math.min(maxTurn, yawDelta));
-        float targetYaw = savedCameraYaw + yawDelta;
-        float targetPitch = (float) Math.max(-60.0, Math.min(60.0, -Math.toDegrees(Math.atan2(dy, Math.max(horizDist, 0.001)))));
-
-        mc.player.setYRot(targetYaw);
-        mc.player.setXRot(targetPitch);
-        mc.player.setYBodyRot(targetYaw);
-        cameraOverrideActive = true;
-
-        double margin = verticalMargin.getValue();
-        if (dy > margin) {
-            mc.options.keyJump.setDown(true);
-            mc.options.keyShift.setDown(false);
-        } else if (dy < -margin) {
-            mc.options.keyShift.setDown(true);
-            mc.options.keyJump.setDown(false);
-        } else {
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-        }
-    }
-
-    @EventHandler
-    private void onTickPost(EventTick.Post event) {
-        if (!cameraOverrideActive) return;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) { cameraOverrideActive = false; return; }
-        mc.player.setYRot(savedCameraYaw);
-        mc.player.setXRot(savedCameraPitch);
-        mc.player.yRotO = savedCameraYaw;
-        mc.player.xRotO = savedCameraPitch;
-        cameraOverrideActive = false;
-    }
-
     /**
      * True if strafing LEFT of the player's current facing has more open space than
      * strafing right (tested via AABB collision against the world a couple blocks out
@@ -534,6 +360,43 @@ public class PathFinder extends AddonModule {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * ElytraProcess#state (private, an internal State enum -- NOT part of the public
+     * IElytraProcess API) == State.LANDING: baritone finished its path and is doing its
+     * own careful vanilla-glide touchdown, logging "Path complete, picking a nearby safe
+     * landing spot..." (github.com/cabaletta/baritone, process/ElytraProcess.java). Not
+     * part of the public API and could change shape in a future baritone build -- fails
+     * closed like every other reflective call here (treat as "not landing").
+     */
+    private static boolean isElytraLanding(Object elytraProcess) {
+        try {
+            java.lang.reflect.Field stateField = elytraProcess.getClass().getDeclaredField("state");
+            stateField.setAccessible(true);
+            Object state = stateField.get(elytraProcess);
+            return state instanceof Enum<?> e && "LANDING".equals(e.name());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void disableElytraFlyForLanding() {
+        if (elytraFlyDisabledForLanding) return;
+        try {
+            if (ModuleManager.getState(MODULE_ELYTRA_FLY)) {
+                ModuleManager.setState(MODULE_ELYTRA_FLY, false);
+            }
+        } catch (Exception ignored) {}
+        elytraFlyDisabledForLanding = true;
+    }
+
+    private void restoreElytraFlyIfDisabledForLanding() {
+        if (!elytraFlyDisabledForLanding) return;
+        try {
+            ModuleManager.setState(MODULE_ELYTRA_FLY, true);
+        } catch (Exception ignored) {}
+        elytraFlyDisabledForLanding = false;
     }
 
     /**

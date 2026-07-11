@@ -3,7 +3,6 @@ package com.example.addon.mixin;
 
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.ControlRocket;
-import com.example.addon.modules.PathFinder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -31,8 +30,6 @@ public abstract class MixinEntity {
         if (mc == null || mc.player != (Object) this) return;
         if (ControlRocket.cameraOverrideActive)       { cir.setReturnValue(ControlRocket.savedCameraPitch);       return; }
 
-        if (PathFinder.cameraOverrideActive)     { cir.setReturnValue(PathFinder.savedCameraPitch);    return; }
-
         if (EBouncePlus.pitchOverrideActive)     { cir.setReturnValue(EBouncePlus.savedCameraPitch);   return; }
     }
 
@@ -41,10 +38,6 @@ public abstract class MixinEntity {
         Minecraft mc = Minecraft.getInstance();
         if (ControlRocket.cameraOverrideActive && mc != null && mc.player == (Object) this) {
             cir.setReturnValue(ControlRocket.savedCameraYaw);
-            return;
-        }
-        if (PathFinder.cameraOverrideActive && mc != null && mc.player == (Object) this) {
-            cir.setReturnValue(PathFinder.savedCameraYaw);
             return;
         }
     }

@@ -11,6 +11,7 @@ import com.example.addon.screens.WebBrowserScreen;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.option.BindOption;
 import dev.boze.api.option.SliderOption;
+import dev.boze.api.option.ToggleOption;
 import dev.boze.api.event.EventBind;
 import meteordevelopment.orbit.EventHandler;
 import io.github.humbleui.skija.Canvas;
@@ -64,6 +65,8 @@ public class WebBrowser extends AddonModule {
     public final SliderOption width = new SliderOption(this, "Width", "", 320.0, 100.0, 1000.0, 1.0);
     public final SliderOption height = new SliderOption(this, "Height", "", 180.0, 60.0, 600.0, 1.0);
     public final BindOption openKey = new BindOption(this, "Open Key", "Key that opens the interactive browser screen.", GLFW.GLFW_KEY_B, false);
+    public final ToggleOption showHud = new ToggleOption(this, "ShowHud",
+        "Shows the floating browser tile HUD. Independent of the browser process itself -- disable to hide the tile while still being able to open the full-screen browser via Open Key (the CEF message loop keeps pumping either way, so tabs opened in the full-screen browser keep working).", true);
 
     private boolean isDraggingHUD = false;
     private double dragOffsetX = 0, dragOffsetY = 0;
@@ -136,6 +139,11 @@ public class WebBrowser extends AddonModule {
         // PictureInPictureRenderer instance in one frame stomp each other's shared
         // offscreen texture -- see AbstractSkiaPipRenderer's class doc).
         if (mc.screen instanceof WebBrowserScreen) return;
+
+        // ShowHud only gates the tile's own drawing below -- the message loop pump above
+        // already ran unconditionally, so tabs opened in the full-screen WebBrowserScreen
+        // keep working even with the floating tile hidden.
+        if (!showHud.getValue()) return;
 
         // REVERTED 2026-07-10: forcing browser.repaint() (N_Invalidate) every frame here
         // was meant to raise the effective paint rate past CEF's internal 30fps OSR cap.

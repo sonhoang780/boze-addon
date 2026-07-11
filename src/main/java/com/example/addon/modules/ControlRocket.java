@@ -11,11 +11,11 @@ import dev.boze.api.utility.interaction.InvHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.Items;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
-import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.item.Items;
 
 /**
  * ControlRocket — Grim-compatible elytra flight.
@@ -53,7 +53,7 @@ public class ControlRocket extends AddonModule {
     public final ModeOption<TryHoldMode> tryHold = new ModeOption<>(this, "TryHold",
             "Off: free-fall when no keys. On: upward rocket when falling to hold altitude.", TryHoldMode.Off);
     public final ToggleOption fakeFlyMode = new ToggleOption(this, "FakeFly",
-            "Rapidly swaps the chestplate and elytra to give the appearance the player is flying without an elytra. May also reduce durability loss. Ported from lambda-client's ElytraFly.fakeFly (github.com/lambda-client/lambda).", false);
+            "Constant chestplate swap", false);
     public final ToggleOption autoTakeoff = new ToggleOption(this, "AutoTakeoff",
             "FakeFly only: auto-jump off ground.", false);
     public final SliderOption glideDelay = new SliderOption(this, "GlideDelay",

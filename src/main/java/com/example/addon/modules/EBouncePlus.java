@@ -19,6 +19,9 @@ import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -112,6 +115,9 @@ public class EBouncePlus extends AddonModule {
     public enum GlideDetectMode { VirtualMask, EntityFlag }
     public final ModeOption<GlideDetectMode> glideDetectMode = new ModeOption<>(this, "GlideDetect",
         "How EBounce+ bridges the ground-touch gap. VirtualMask (default, lambda's isGliding() override): only masks EBounce+'s OWN checks -- the real vanilla FALL_FLYING flag still reads false during the gap for physics/other modules, safer (doesn't touch shared entity state) but relies on our own pitch-override/jump-hold decisions being driven by the masked value, not the real flag. EntityFlag: writes the real flag immediately via a mixin accessor -- more invasive, kept as a fallback if VirtualMask tests unstable in-game.", GlideDetectMode.VirtualMask);
+
+    public final ToggleOption putOnElytra = new ToggleOption(this, "PutOnElytra",
+        "Safety net, independent of the glide logic above: if the elytra ends up off the chest slot -- unequipped into the inventory, or stuck on the cursor from an interrupted swap (any module's, not just this one) -- immediately equip/place it back. Falls back to an empty inventory slot, or swaps with an arbitrary occupied one if the inventory is full, when the cursor is the one holding it and the chest slot swap alone doesn't clear it.", true);
 
     public final ToggleOption debug = new ToggleOption(this, "Debug",
         "Print chat lines on every recast trigger, jump-hold fire, flag pause, and unexpected glide-stop so the exact branch causing weird behaviour can be pinned down.", false);
@@ -266,6 +272,89 @@ public class EBouncePlus extends AddonModule {
             event.jumping = true;
             doJump = false;
         }
+    }
+
+    // ── PutOnElytra: safety net, runs regardless of glide eligibility ────────
+
+    @EventHandler
+    private void onPutOnElytraTick(EventTick.Pre event) {
+        if (!putOnElytra.getValue()) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.getConnection() == null) return;
+
+        // Cursor-stuck case: only touch this while no UNRELATED container (chest,
+        // furnace, ...) is open -- inventoryMenu's slot numbering (6 = chest armor)
+        // only applies when it's actually the active menu.
+        if (mc.player.containerMenu == mc.player.inventoryMenu) {
+            ItemStack carried = mc.player.inventoryMenu.getCarried();
+            if (carried.getItem() == Items.ELYTRA) {
+                resolveCarriedElytra(mc);
+                return; // one action per tick is enough; re-checked next tick
+            }
+        }
+
+        // Unequipped case: elytra sitting loose in the inventory (an interrupted swap
+        // from any module, or a manual unequip) instead of on the chest slot.
+        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
+            int slot = findElytraInInventory(mc);
+            if (slot != -1) swapIntoChestSlot(mc, slot);
+        }
+    }
+
+    /**
+     * Cursor already holds the elytra (e.g. left stuck there by an interrupted 3-click
+     * swap, from ControlRocket's FakeFly or anywhere else). One click on the chest slot
+     * places it there if empty, or swaps it with whatever's currently equipped (armor
+     * slots always accept a valid chestplate/elytra via a direct click, regardless of
+     * current occupant) -- this alone resolves the vast majority of cases. Falls back to
+     * an empty inventory slot, then an arbitrary occupied one (full inventory), only if
+     * that single click somehow didn't clear the cursor (e.g. a Curse of Binding item
+     * already equipped that can't be picked up by a normal click).
+     */
+    private void resolveCarriedElytra(Minecraft mc) {
+        int syncId = mc.player.inventoryMenu.containerId;
+        mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+        if (mc.player.inventoryMenu.getCarried().getItem() != Items.ELYTRA) return;
+
+        int empty = findEmptyInventorySlot(mc);
+        if (empty != -1) {
+            mc.gameMode.handleContainerInput(syncId, empty, 0, ContainerInput.PICKUP, mc.player);
+            return;
+        }
+        int any = findAnyInventorySlot(mc);
+        if (any != -1) {
+            mc.gameMode.handleContainerInput(syncId, any, 0, ContainerInput.PICKUP, mc.player);
+        }
+    }
+
+    /** Atomic 3-click swap: elytra currently at {@code slot} in the inventory ends up
+     *  in the chest slot, whatever was equipped ends up at {@code slot}. */
+    private void swapIntoChestSlot(Minecraft mc, int slot) {
+        int syncId = mc.player.inventoryMenu.containerId;
+        mc.gameMode.handleContainerInput(syncId, slot, 0, ContainerInput.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(syncId, slot, 0, ContainerInput.PICKUP, mc.player);
+    }
+
+    private int findElytraInInventory(Minecraft mc) {
+        for (int i = 9; i <= 44; i++) {
+            if (mc.player.inventoryMenu.getSlot(i).getItem().getItem() == Items.ELYTRA) return i;
+        }
+        return -1;
+    }
+
+    private int findEmptyInventorySlot(Minecraft mc) {
+        for (int i = 9; i <= 44; i++) {
+            if (mc.player.inventoryMenu.getSlot(i).getItem().isEmpty()) return i;
+        }
+        return -1;
+    }
+
+    private int findAnyInventorySlot(Minecraft mc) {
+        for (int i = 9; i <= 44; i++) {
+            if (!mc.player.inventoryMenu.getSlot(i).getItem().isEmpty()) return i;
+        }
+        return -1;
     }
 
     // ── EventTick.Post: send packets AFTER vanilla movement packet ───────────

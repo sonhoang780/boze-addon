@@ -77,11 +77,14 @@ final class CefUtil {
         if (settings.isUsingCache()) {
             cefSettings.cache_path = CACHE_PATH.toAbsolutePath().toString();
         }
-        // Diagnostic only -- onPaint never firing with no error anywhere is otherwise a
-        // black box. verbose log_severity + explicit log_file forces CEF's own native-side
-        // log (renderer/GPU process crashes, sandbox failures, etc.) into a readable file
-        // instead of nowhere, since none of that surfaces through our Java-side logger.
-        cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_VERBOSE;
+        // log_file forces CEF's own native-side log (renderer/GPU process crashes, sandbox
+        // failures, etc.) into a readable file instead of nowhere, since none of that
+        // surfaces through our Java-side logger. log_severity was VERBOSE while diagnosing
+        // an earlier "onPaint never fires with no error anywhere" black-box issue (now
+        // resolved) -- VERBOSE floods stdout with routine internal noise (e.g. every
+        // MSPL::OnSpeedLimitChange from media_stream_manager.cc), so it's ERROR now;
+        // bump back to VERBOSE only while actively debugging a real black-box CEF failure.
+        cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_ERROR;
         cefSettings.log_file = CACHE_PATH.resolveSibling("mcef-cef.log").toAbsolutePath().toString();
         cefSettings.background_color = cefSettings.new ColorType(0, 255, 255, 255);
         if (!Objects.equals(settings.getUserAgent(), "null")) {

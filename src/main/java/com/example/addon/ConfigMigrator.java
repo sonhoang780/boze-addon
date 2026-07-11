@@ -67,6 +67,15 @@ public class ConfigMigrator {
      * BEFORE any {@link #migrate} call that targets the module's new name, since that call
      * only finds the section once it's already sitting under the new key.
      *
+     * Also fixes up the module's persisted "title" field, which is SEPARATE from the JSON
+     * key and from the live class's registered name -- Boze's own UI reads this cached
+     * field for display, so moving the section (or renaming the Java class) alone leaves
+     * it showing the OLD name forever. This half is intentionally NOT gated on "did we
+     * just move the section this call" -- it runs every launch as long as the module is
+     * sitting under newModuleName, so it still gets fixed even on a later run after the
+     * key move already happened (the key-move itself is a one-time, idempotent no-op past
+     * the first successful run).
+     *
      * @param addonId      the addon's string ID (matches the "id" field in config.json)
      * @param oldModuleName the module's previous registered name
      * @param newModuleName the module's current registered name
@@ -84,13 +93,26 @@ public class ConfigMigrator {
             if (!root.has("modules")) return;
             JsonObject modules = root.getAsJsonObject("modules");
 
-            if (!modules.has(oldModuleName) || modules.has(newModuleName)) return;
+            boolean changed = false;
 
-            modules.add(newModuleName, modules.get(oldModuleName));
-            modules.remove(oldModuleName);
+            if (modules.has(oldModuleName) && !modules.has(newModuleName)) {
+                modules.add(newModuleName, modules.get(oldModuleName));
+                modules.remove(oldModuleName);
+                changed = true;
+            }
 
-            String migrated = new GsonBuilder().setPrettyPrinting().create().toJson(root);
-            Files.writeString(configPath, migrated, StandardCharsets.UTF_8);
+            if (modules.has(newModuleName)) {
+                JsonObject moduleObj = modules.getAsJsonObject(newModuleName);
+                if (moduleObj.has("title") && !newModuleName.equals(moduleObj.get("title").getAsString())) {
+                    moduleObj.addProperty("title", newModuleName);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                String migrated = new GsonBuilder().setPrettyPrinting().create().toJson(root);
+                Files.writeString(configPath, migrated, StandardCharsets.UTF_8);
+            }
         } catch (Exception ignored) {
             // Same tradeoff as migrate(): a failure here just means the module starts at
             // defaults instead of its saved settings -- no worse than before this existed.
