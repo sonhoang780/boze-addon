@@ -60,9 +60,9 @@ PenisESP - length of dih based on timezone, for japan it is censored
 
 HoodResearch - ask 500+ questions to boze chat and let random AI answer
 
-ChestScan - Cover opened chest with a colored box so you know which is full and which is not
-
 StashFinder - BaseHunting
+
+ChestScan - Cover opened chest with a colored box so you know which is full and which is not
 
 - Red is Full
 - Green is Empty
