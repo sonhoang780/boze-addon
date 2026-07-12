@@ -17,6 +17,10 @@ BetterBasePlace - Places obisidan if there is no blocks to place crystal
 
 BetterChams - Extended Version of Boze's Chams with a lot of unique features
 
+Bubble - cover yourself with a bubble
+
+AuraStep - Fire/Water steps behind you
+
 ChestButtons - Allows you to steal/put in items even if its finished putting in/stealing
 
 CustomSky - Changed your default sky with Image and frag Shaders
@@ -25,11 +29,11 @@ Dummy - Fakeplayer but loses hp and pops totems
 
 EbookReader - Insert eupb files to read ebook inside minecraft
 
-EbouncePlus - Elytra Recast but doesnt lose Elytra Durability (may take a while to take off)
+EbouncePlus - Elytra Recast (to not lose durability turn off FakeLag)
 
 ElytraFix - Fix your Elytra on Air (useful when AFK travelling)
 
-FakeFly - Control Fireworks but supports Chestplate mode (havent tested yet)
+ControlRocket - Control Fireworks but supports FakeFly mode (havent tested yet)
 
 InvMovePlus - A patch for Boze Invmove (stop you moving for a tick when interacting with items)
 
@@ -38,8 +42,6 @@ InventoryCleaner - Throw out worse items and blacklisted items
 InvetorySorter - Sort your items in inventory based on saved kits
 
 EvilRekit - Steal items (even with different names which were saved in kits) 
-
-MaceAura - Bad (dont use)
 
 SelfWeb - Web your head
 
@@ -52,7 +54,15 @@ SpotifyIntergration - Sync your song playing on Spotify with MusicHUD (Requires 
 
 TungTungSahur - Summons TungTung
 
+TargetESP - Russian bloat targetESP
+
+PenisESP - length of dih based on timezone, for japan it is censored
+
+HoodResearch - ask 500+ questions to boze chat and let random AI answer
+
 ChestScan - Cover opened chest with a colored box so you know which is full and which is not
+
+StashFinder - BaseHunting
 
 - Red is Full
 - Green is Empty
@@ -61,6 +71,8 @@ ChestScan - Cover opened chest with a colored box so you know which is full and 
 MusicHUD - Shows current songs with extra features
 
 GifHUD - Import gif links and display it on screen
+
+WebBrowser - Surf the internet inside minecraft
 
 HUDEditor - For MusicHUD and GifHUD
 
@@ -82,3 +94,11 @@ Added itemdrop command:
 .kit delete : delete a kit
 
 .kit list : list saved kits
+
+.stashfinder webhook <url> — set Discord webhook URL
+
+.stashfinder userid <id> — set user ID to ping you when detected a stash
+
+.stashfinder test — send test webhook (rate-limit once/5s)
+
+.stashfinder reset — delete stashfinder history, reset scanned chunks
