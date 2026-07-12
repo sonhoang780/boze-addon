@@ -143,6 +143,10 @@ sketch.md
 # CodeGraph index
 .codegraph/
 
+# Eagerly-patched MCEF jar cache (build.gradle) -- deliberately outside build/
+# so `gradle clean` can't wipe it mid-build; not a build input, just a cache.
+.gradle-mcef-cache/
+
 # local-only instructions, not build-relevant
 CLAUDE.md
 

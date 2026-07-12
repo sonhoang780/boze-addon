@@ -62,7 +62,15 @@ repositories {
     // so flatDir resolution gives Loom's `include` a real module component to nest
     // (a bare FileCollection dependency isn't a module component and `include` rejects
     // it with "which is not a module component and has no capabilities").
-    flatDir { dirs layout.buildDirectory.dir("mcef-patched") }
+    // Deliberately OUTSIDE layout.buildDirectory: the patch runs eagerly at
+    // configuration time (see below), before any task -- including `clean` -- ever
+    // executes. `clean` deletes the whole buildDir, so a patched jar living under
+    // build/ gets wiped by `gradle clean build` right after this eager block already
+    // decided the file exists and skipped re-patching, leaving compileJava with no
+    // org.cef/com.cinemamod.mcef classes on the classpath (reproduced: `gradle clean
+    // compileJava` -> "package org.cef does not exist" x145). A location clean never
+    // touches survives that ordering regardless of task order.
+    flatDir { dirs layout.projectDirectory.dir(".gradle-mcef-cache") }
 }
 
 configurations {
@@ -92,7 +100,7 @@ dependencies {
     mcefRaw "maven.modrinth:mcef-keksuccino:2.2.0-26.1.1-fabric"
 }
 def mcefRawJar = configurations.mcefRaw.singleFile
-def mcefPatchedJar = layout.buildDirectory.file("mcef-patched/mcef-keksuccino-patched-2.2.0.jar").get().asFile
+def mcefPatchedJar = layout.projectDirectory.file(".gradle-mcef-cache/mcef-keksuccino-patched-2.2.0.jar").asFile
 if (!mcefPatchedJar.exists() || mcefPatchedJar.lastModified() < mcefRawJar.lastModified()) {
     mcefPatchedJar.parentFile.mkdirs()
     if (mcefPatchedJar.exists()) mcefPatchedJar.delete()
