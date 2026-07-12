@@ -145,7 +145,29 @@ public class TungTungSahur extends AddonModule {
         if (mc != null) {
             buildTexture(mc);
             loadMesh(mc);
+            // initialized used to only flip true inside onTick(), the following client
+            // tick. A disable landing before that first tick (e.g. rapid re-toggling
+            // faster than one tick) hit onDisable()'s `mesh != null && initialized`
+            // check while initialized was still false, wiping the model instantly with
+            // no fade at all. Computing the initial pose here, synchronously, means a
+            // same-tick disable already has a valid initialized model to fade from.
+            if (mc.player != null) initializePose(mc);
         }
+    }
+
+    private void initializePose(Minecraft mc) {
+        double yawRad = Math.toRadians(mc.player.getYRot());
+        double sinYaw = Math.sin(yawRad);
+        double cosYaw = Math.cos(yawRad);
+        double fwd = 1.8;
+        double side = 2.2;
+        posX = mc.player.getX() - sinYaw * fwd + cosYaw * side;
+        posY = mc.player.getY();
+        posZ = mc.player.getZ() + cosYaw * fwd + sinYaw * side;
+        prevPosX = posX; prevPosY = posY; prevPosZ = posZ;
+        bodyYaw = mc.player.getYRot();
+        prevBodyYaw = bodyYaw;
+        initialized = true;
     }
 
     @Override

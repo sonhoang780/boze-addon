@@ -59,20 +59,28 @@ vec3 getSdfUv(vec3 localPos) {
 
 float sampleSdf(vec3 localPos) {
     vec3 uvw = getSdfUv(localPos);
-    if(uvw.x < 0.0 || uvw.x > 1.0 || uvw.y < 0.0 || uvw.y > 1.0 || uvw.z < 0.0 || uvw.z > 1.0) return 1.0;
-    
+    if(!(uvw.x >= 0.0) || !(uvw.x <= 1.0) || !(uvw.y >= 0.0) || !(uvw.y <= 1.0) || !(uvw.z >= 0.0) || !(uvw.z <= 1.0)) return 1.0;
+
     float zCoord = uvw.z * 31.0;
     float zIndex = floor(zCoord);
     float zFract = fract(zCoord);
-    
+
+    // Each of the 32 Z-slices is packed edge-to-edge into one 256x128 atlas (8 cols x 4
+    // rows, 32x32 texels/cell) -- texture()'s bilinear filtering blends real neighboring
+    // texels regardless of the cell boundary we intend, so sampling near a cell edge
+    // blends in a totally unrelated Z-slice (classic atlas-bleed). Insetting by half a
+    // texel keeps the filter footprint inside the cell (visible as spikes radiating out
+    // of the model before this fix).
+    vec2 cellUv = clamp(uvw.xy, 0.5 / 32.0, 1.0 - 0.5 / 32.0);
+
     float col0 = mod(zIndex, 8.0);
     float row0 = floor(zIndex / 8.0);
-    vec2 uv0 = vec2((col0 + uvw.x) / 8.0, (row0 + uvw.y) / 4.0);
-    
+    vec2 uv0 = vec2((col0 + cellUv.x) / 8.0, (row0 + cellUv.y) / 4.0);
+
     float zNext = min(zIndex + 1.0, 31.0);
     float col1 = mod(zNext, 8.0);
     float row1 = floor(zNext / 8.0);
-    vec2 uv1 = vec2((col1 + uvw.x) / 8.0, (row1 + uvw.y) / 4.0);
+    vec2 uv1 = vec2((col1 + cellUv.x) / 8.0, (row1 + cellUv.y) / 4.0);
     
     float val0 = texture(SDFSampler, uv0).r;
     float val1 = texture(SDFSampler, uv1).r;
@@ -122,20 +130,25 @@ void main() {
     float b = dot(oc, rayDir);
     float c = dot(oc, oc) - radius * radius;
     float h = b * b - c;
-    
-    if(h < 0.0) {
+
+    // `h < 0.0` is FALSE for NaN (GLSL/IEEE 754: every relational comparison with NaN is
+    // false), so a garbage tungPos (e.g. read before it's ever been written) silently
+    // skipped this bail-out and let the raymarch run on garbage coordinates -- painting
+    // noise across whatever pixels happened to be affected that frame, including the sky
+    // far from the model. Negating a `>=` check bails out on NaN too.
+    if(!(h >= 0.0)) {
         fragColor = baseColor;
         return;
     }
-    
+
     h = sqrt(h);
     float t1 = -b - h;
     float t2 = -b + h;
-    
+
     float tMin = max(t1, 0.0);
     float tMax = max(t2, 0.0);
-    
-    if(tMin >= tMax) {
+
+    if(!(tMin < tMax)) {
         fragColor = baseColor;
         return;
     }

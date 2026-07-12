@@ -2,6 +2,7 @@ package com.example.addon;
 
 import java.util.Map;
 
+import com.example.addon.commands.HoodResearchCommand;
 import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
@@ -76,6 +77,7 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(PrintModuleCommand.INSTANCE);
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         dispatcher.registerCommand(com.example.addon.commands.StashFinderCommand.INSTANCE);
+        dispatcher.registerCommand(HoodResearchCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(Dummy.INSTANCE);

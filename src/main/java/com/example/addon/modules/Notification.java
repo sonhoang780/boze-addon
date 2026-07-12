@@ -6,6 +6,10 @@ import dev.boze.api.client.module.BaseModule;
 import dev.boze.api.event.EventModuleToggle;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 
 /**
  * Replaces Boze core's own "<Module> has been enabled/disabled" toggle message with
@@ -27,6 +31,8 @@ public class Notification extends AddonModule {
     // or absent. The [+]/[-] line above still gets added either way.
     private static final String[] BOZE_NOTIFICATION_MODULE_GUESSES = { "Notifications", "ModuleNotifications", "Notification" };
 
+    private static final TextColor BOZE_PREFIX_COLOR = TextColor.fromRgb(0xFFB3C6);
+
     public Notification() {
         super("Notification", "Prints [+]/[-] Module lines for every module toggle (addon-side, alongside Boze's own message).");
     }
@@ -47,7 +53,9 @@ public class Notification extends AddonModule {
         boolean enabled = module.getState();
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-            "§d[Boze] " + (enabled ? "§a[+] " : "§c[-] ") + "§f" + module.getName()));
+        MutableComponent line = Component.literal("[Boze] ").setStyle(Style.EMPTY.withColor(BOZE_PREFIX_COLOR))
+            .append(Component.literal(enabled ? "[+] " : "[-] ").withStyle(enabled ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.RED))
+            .append(Component.literal(module.getName()).withStyle(net.minecraft.ChatFormatting.WHITE));
+        mc.player.sendSystemMessage(line);
     }
 }

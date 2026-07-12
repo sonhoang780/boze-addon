@@ -12,7 +12,6 @@ import net.minecraft.util.RandomSource;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
@@ -20,9 +19,9 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Asks one random physics/biology/everyday-life trivia question in chat every time the
  * module is enabled (prefixed with "$"), and plays Can-You-Hear-The-Music.ogg for the
- * duration -- stopped the instant the module is disabled. ~2s after asking, a free
- * keyless AI text endpoint (pollinations.ai -- no API key/account needed, unlike
- * OpenAI/DeepSeek/etc.) answers it, also prefixed with "$".
+ * duration -- stopped the instant the module is disabled. ~2s after asking, Groq's free
+ * Chat Completions API answers it, also prefixed with "$" (needs a free API key set via
+ * .research key <APIKEY> -- see console.groq.com).
  */
 public class HoodResearch extends AddonModule {
     public static final HoodResearch INSTANCE = new HoodResearch();
@@ -631,7 +630,9 @@ public class HoodResearch extends AddonModule {
     // a time with a pause between each -- reads like someone actually talking through
     // a speech instead of a single wall of text, and avoids most anti-spam heuristics
     // that flag a burst of same-tick messages.
-    private static final int CHAT_LINE_MAX = 200;
+    // Vanilla chat's hard cap is 256 chars; "$ A: " is the longest prefix (5 chars) --
+    // leaves a small safety margin for the rest.
+    private static final int CHAT_LINE_MAX = 245;
     private static final long LINE_DELAY_MS = 1500L;
 
     private void askAiAndAnswer(String question) {
@@ -691,31 +692,57 @@ public class HoodResearch extends AddonModule {
     }
 
     /**
-     * pollinations.ai's plain-GET text endpoint -- free, no API key/signup, unlike
-     * OpenAI/DeepSeek/Anthropic etc. Returns raw text for the prompt in the URL path.
-     * A free/shared endpoint like this returns the occasional transient 502/503 under
-     * load (observed in practice) -- a couple of quick retries before giving up.
+     * Groq's OpenAI-compatible Chat Completions endpoint (free tier, key via
+     * .research key <APIKEY> -- console.groq.com). Replaced pollinations.ai: same
+     * "occasional transient 5xx under load" behavior justified retries there, kept
+     * here since it's still a shared free endpoint.
      */
     private static String fetchAiAnswer(String question) {
+        String apiKey = com.example.addon.modules.GroqStore.getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return "(AI answer unavailable: no Groq API key set -- use .research key <APIKEY>)";
+        }
+
         String prompt = "Give a detailed, thorough, lecture-style explanation answering this "
             + "question, as if delivering a short speech (several sentences, real substance, "
             + "not a one-liner): " + question;
-        URI uri = URI.create("https://text.pollinations.ai/" + URLEncoder.encode(prompt, StandardCharsets.UTF_8));
+
+        com.google.gson.JsonObject message = new com.google.gson.JsonObject();
+        message.addProperty("role", "user");
+        message.addProperty("content", prompt);
+        com.google.gson.JsonArray messages = new com.google.gson.JsonArray();
+        messages.add(message);
+        com.google.gson.JsonObject payload = new com.google.gson.JsonObject();
+        payload.addProperty("model", "llama-3.1-8b-instant");
+        payload.add("messages", messages);
+        byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
 
         Exception lastError = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
+                URI uri = URI.create("https://api.groq.com/openai/v1/chat/completions");
                 HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
                 conn.setConnectTimeout(8000);
                 conn.setReadTimeout(30000);
+                try (var os = conn.getOutputStream()) {
+                    os.write(body);
+                }
                 String raw;
                 try (InputStream is = conn.getInputStream()) {
                     raw = new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 }
+                com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(raw).getAsJsonObject();
+                String content = json.getAsJsonArray("choices")
+                    .get(0).getAsJsonObject()
+                    .getAsJsonObject("message")
+                    .get("content").getAsString();
                 // Chat lines are single-line -- collapse newlines to spaces;
                 // splitIntoChatLines handles breaking the result into multiple messages.
-                return raw.replaceAll("\\s*\\n+\\s*", " ").trim();
+                return content.replaceAll("\\s*\\n+\\s*", " ").trim();
             } catch (Exception e) {
                 lastError = e;
                 if (attempt < 3) {
