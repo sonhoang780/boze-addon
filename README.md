@@ -102,3 +102,5 @@ Added itemdrop command:
 .stashfinder test — send test webhook (rate-limit once/5s)
 
 .stashfinder reset — delete stashfinder history, reset scanned chunks
+
+.research key <Groq API key> to add Groq AI to answer questions.
