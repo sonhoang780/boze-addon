@@ -25,7 +25,6 @@ import com.example.addon.modules.InvMovePlus;
 import com.example.addon.modules.InventoryCleaner;
 import com.example.addon.modules.InventorySorter;
 import com.example.addon.modules.LoadingScreen;
-import com.example.addon.modules.MaceAura;
 import com.example.addon.modules.MusicHUD;
 import com.example.addon.modules.PathFinder;
 import com.example.addon.modules.PlayMusic;
@@ -78,7 +77,6 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(com.example.addon.commands.StashFinderCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
-        modules.add(MaceAura.INSTANCE);
         modules.add(Dummy.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
         // modules.add(EBounce.INSTANCE);

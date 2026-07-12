@@ -1,6 +1,7 @@
 package com.example.addon.mixin;
 
 import com.example.addon.modules.ControlRocket;
+import com.example.addon.util.EarlyTickHooks;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -10,6 +11,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LocalPlayer.class)
 public abstract class MixinLocalPlayer {
+
+    /**
+     * Dispatches EarlyTickHooks at the very HEAD of LocalPlayer#tick() -- runs before
+     * vanilla's own physics/movement tick for that frame (onGround/gliding-flag resolution
+     * included). Lets callers (e.g. EBouncePlus) run logic strictly before vanilla resolves
+     * ground/gliding state for the frame -- lambda-client's GlideHandler force-flag takeoff
+     * runs at TickEvent.Pre({-1000}), earlier than a normal tick handler; this is the
+     * closest equivalent without an addon-wide event-priority system. The public
+     * register/unregister API lives on EarlyTickHooks, not here -- Sponge Mixin rejects
+     * non-private static methods inside an @Mixin class.
+     */
+    @Inject(method = "tick", at = @At("HEAD"))
+    private void earlyTick$dispatch(CallbackInfo ci) {
+        LocalPlayer self = (LocalPlayer) (Object) this;
+        if (Minecraft.getInstance().player != self) return;
+        EarlyTickHooks.dispatch();
+    }
 
     /**
      * applyInput() smooths xBob/yBob 50% per tick toward getXRot()/getYRot() (the

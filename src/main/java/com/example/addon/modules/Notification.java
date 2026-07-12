@@ -9,7 +9,7 @@ import net.minecraft.client.Minecraft;
 
 /**
  * Replaces Boze core's own "<Module> has been enabled/disabled" toggle message with
- * "[+] Module" (green) / "[-] Module" (red). Boze's own message can't be suppressed or
+ * "[Boze] [+] Module" (pink prefix, green/red +/-, white module name). Boze's own message can't be suppressed or
  * reformatted -- EventModuleToggle (the event AddonModule#setState posts after every
  * toggle) has no cancel() field (see decompiled boze-api source), and the message
  * itself never reaches Minecraft's own ChatComponent at all (verified: hooking every
@@ -48,6 +48,6 @@ public class Notification extends AddonModule {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-            (enabled ? "§a[+] " : "§c[-] ") + module.getName()));
+            "§d[Boze] " + (enabled ? "§a[+] " : "§c[-] ") + "§f" + module.getName()));
     }
 }

@@ -73,11 +73,18 @@ Việc cần làm:
 - Thêm 1 static callback/hook đơn giản (interface hoặc list of Runnable) để EBounce+ đăng ký logic muốn chạy ở điểm này, thay vì hard-code logic EBounce+ thẳng vào mixin (giữ mixin generic, tái dùng được).
 - Test: log ra tick-count/timestamp so sánh với `EventTick.Pre` của Boze để xác nhận thứ tự thật (bước debug, không phải code production).
 
-### Bước 1 — Chỉ thay riêng: Takeoff force-flag (dùng mixin mới từ Bước 0)
-- Chuyển logic ép cờ `FALL_FLYING` + gửi `START_FALL_FLYING` từ `onTickPre` (Boze) sang callback đăng ký qua mixin Bước 0.
-- Test RIÊNG chỉ thay đổi này (giữ nguyên AutoPitch, FakeLag như bản hiện tại đã revert).
-- Nếu hỏng: đã có bằng chứng rõ ràng là do cách EventTick.Pre định thời, không phải do logic ép cờ sai.
-- Nếu ổn: tiếp bước 2.
+### Bước 1 — Chỉ thay riêng: Takeoff force-flag (dùng mixin mới từ Bước 0) — ĐÃ LÀM, THẤT BẠI, ĐÃ TÌM RA ROOT CAUSE
+
+**Trạng thái**: implement xong (`MixinLocalPlayer.earlyTick$dispatch` + `EBouncePlus.earlyTickForceTakeoff()`, registry sống ở `util/EarlyTickHooks.java` — không được sống trong `com.example.addon.mixin`, Sponge Mixin quăng `IllegalClassLoadError` vì cả package đó bị mixins.json chiếm làm mixin-only, xem thêm ghi chú build lỗi mục 5). Test in-game: **flicker/dựng lên liên tục ngay tại thời điểm takeoff**, đã loại trừ FakeLag (tắt FakeLag vẫn flicker y vậy) và loại trừ hook-ordering (đã thử CẢ 2 kiểu: `EventTick.Pre` của Boze lúc port lambda ban đầu, VÀ mixin tick-HEAD sớm hơn ở đây — cùng 1 triệu chứng).
+
+**Root cause xác nhận** (không phải đoán — 2 cách order khác nhau, cùng 1 triệu chứng → không phải do timing):
+Ép `FALL_FLYING=true` (qua `EntityFlagAccessor.invokeSetSharedFlag`) trong khi `onGround()` **vẫn còn true** tại thời điểm gọi (cú nhảy jump-hold chưa kịp áp dụng lực đẩy lên trong tick đó — impulse jump nằm trong body thật của `tick()`, chạy SAU điểm HEAD mình hook vào). Vanilla có safety-net riêng coi combo `onGround && isFallFlying` là vô lý và tự dập cờ về false ngay trong cùng tick, trước khi impulse nhảy kịp đưa player rời mặt đất — ép/dập/ép/dập mỗi tick đọc ra đúng y hệt cái flicker quan sát được. Giả thuyết này đã được viết sẵn trong plan doc gốc (mục 5 cũ, trước khi bắt đầu port lại) — nay xác nhận đúng bằng thực nghiệm có kiểm soát (A/B: baseline không mixin vẫn OK, có mixin+force-flag thì flicker, tắt FakeLag không đổi).
+
+**Kết luận**: đây không phải vấn đề event-ordering (2 hook khác nhau, cùng lỗi) — về bản chất, ép flag glide trong khi còn onGround là tự triệt tiêu, bất kể ép ở đâu trong tick. Muốn làm được kiểu lambda thật (force-flag trước khi rời đất) cần đồng thời tự tay cấp vận tốc Y (jump impulse) NGAY TRONG cùng lần gọi ép cờ, để khi vanilla tick tới đoạn safety-net kiểm tra thì `onGround()` đã đọc ra false rồi — CHƯA THỬ, không nằm trong scope bước 1 ban đầu, cân nhắc có đáng làm tiếp hay bỏ hẳn nhánh takeoff-force-flag, giữ nguyên cơ chế cũ (wait-for-genuine-airborne, chậm hơn nhưng đã proven ổn định).
+
+**Đã disable**: `EarlyTickHooks.register(earlyTickForceTakeoffRef)` comment out lại trong `onEnable`/`onDisable` (EBouncePlus.java), method + `util/EarlyTickHooks.java` giữ nguyên (dead code, không xoá, phòng khi quay lại làm hướng "force-flag + tự cấp velocity Y" ở trên). Mixin Bước 0 (`earlyTick$dispatch`, dispatch rỗng) vẫn ở nguyên. Có nghi vấn "từ khi thêm mixin Bước 0, takeoff chậm hẳn so với hôm trước" — đã dựng lại đúng git HEAD gốc (stash hết thay đổi phiên này, không có mixin/step1 gì cả) để A/B, nhưng chưa có kết quả xác nhận (user chuyển hướng nghi FakeLag trước khi báo lại) — CHƯA CHỐT được mixin Bước 0 có vô hại thật 100% hay không, cần test lại nếu nghi ngờ "takeoff chậm" còn tái diễn.
+
+- Không tiếp bước 2 bằng nhánh takeoff-force-flag này. Nếu muốn thử "force-flag + tự cấp velocity Y cùng lúc" ở phiên sau, viết thành mục riêng, KHÔNG coi là tiếp tục bước 1 cũ.
 
 ### Bước 2 — Chỉ thay riêng: FakeLag Y-delta trigger
 - Đổi lại `onGround()` → `player.y - startY < 0.163` (y hệt lần trước), NHƯNG lần này làm RIÊNG, không gộp với bước 1.
@@ -98,3 +105,7 @@ Việc cần làm:
 - Mọi lần build: nhớ đóng game trước (`build/libs/boze-addon.jar` bị khoá file nếu game đang chạy — đã gặp lỗi này nhiều lần, đừng copy jar dở dang đè lên jar đang hoạt động).
 - `./gradlew --stop` trước khi build lại nếu gặp `ClosedFileSystemException` (gradle daemon cache stale, không phải lỗi code).
 - Copy `build/libs/boze-addon.jar` → `$APPDATA/.minecraft/mods/26.1/boze-addon.jar` sau mỗi build thành công, verify size hợp lý trước khi copy (jar đầy đủ ~108-110MB, jar lỗi/dở dang thường chỉ vài MB).
+- Test in-game thật sự chạy qua `./gradlew runBoze` (dùng thư mục `run/` của project riêng, KHÔNG phải `.minecraft` thật) -- config module nằm ở `run/boze/addons/1337/config.json`, log ở `run/logs/latest.log`. Copy jar vào `$APPDATA/.minecraft/mods` chỉ cần nếu test qua launcher thật, không ảnh hưởng `runBoze`.
+- Sponge Mixin 2 ràng buộc cứng gặp phải khi làm mixin mới (Bước 0):
+  1. Class bên trong `@Mixin`-annotated class KHÔNG được có method non-private static -- `InvalidMixinException: contains non-private static method` khi apply. Registry/API công khai (register/unregister) phải sống ở 1 class THƯỜNG bên ngoài, mixin chỉ gọi vào nó từ 1 `@Inject` private.
+  2. mixins.json có `"package": "com.example.addon.mixin"` -- SPONGE MIXIN CHIẾM TOÀN BỘ package đó làm mixin-only. Bất kỳ class thường (không phải mixin) nằm trong package này mà bị gọi trực tiếp từ code khác sẽ bị `IllegalClassLoadError: ... is in a defined mixin package ... and cannot be referenced directly`. Class registry/hỗ trợ phải đặt ở package KHÁC (vd `com.example.addon.util`), không được đặt cùng `com.example.addon.mixin` dù không tự nó là mixin.
