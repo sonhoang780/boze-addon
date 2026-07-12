@@ -22,16 +22,22 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
  * EBounce+ — "Ground Build" recast mode, ported from lambda-client's BounceElytraFly
- * (github.com/lambda-client/lambda, elytrafly/modes/BounceElytraFly.kt), minus obstacle
- * passing (no PasserSettings/ObstaclePassingMode equivalent here) and Y-motion diagonal
- * sneak-assist (obstacle-adjacent, needs a RotationManager/line-projection stack this
- * codebase doesn't have -- see conversation, skipped by explicit choice).
+ * (github.com/lambda-client/lambda, elytrafly/modes/BounceElytraFly.kt), plus obstacle
+ * passing (ObstaclePassingMode/PasserSettings, via Baritone reflection -- see
+ * handlePassingObstacles()), minus Y-motion diagonal sneak-assist (obstacle-adjacent,
+ * needs a RotationManager/line-projection stack this codebase doesn't have -- skipped by
+ * explicit choice).
  *
  * Core mechanism, matching lambda instead of the old fold/pendingFold/recastPhase state
  * machine: HOLD JUMP every tick while isFallFlying (mirrors their
@@ -87,7 +93,6 @@ import java.util.Deque;
  *   bare item-type check.
  *
  * NOT ported:
- * - Obstacle passing (ObstaclePassingMode/PasserSettings) -- explicitly out of scope.
  * - Y-motion diagonal sneak-assist -- obstacle-adjacent, no rotation-request/line-math
  *   infra here; skipped by explicit choice rather than half-built speculatively.
  */
@@ -123,6 +128,16 @@ public class EBouncePlus extends AddonModule {
 
     public final SliderOption oldBypassDelay = new SliderOption(this, "OldBypassDelay",
         "Ticks to freeze all outgoing packets for after a recast trigger.", 4, 1, 20, 1);
+
+    // Ported from lambda's ObstaclePassingMode.kt/PasserSettings -- raycasts ahead along the
+    // flight line for obstructions and paths around them via Baritone (reflection, this addon
+    // has no compile-time Baritone dependency). Hidden entirely when Baritone isn't installed
+    // (visibility supplier), not just disabled -- there's nothing useful to configure without it.
+    public final ToggleOption passObstacles = new ToggleOption(this, "PassObstacles",
+        "Automatically paths around obstacles in the flight line using Baritone.", false, EBouncePlus::isBaritoneAvailable);
+
+    public final SliderOption obstacleLookAhead = new SliderOption(this, "ObstacleLookAhead",
+        "Blocks to look ahead for obstacles / step by when pathing around one.", 8, 0, 50, 1, EBouncePlus::isBaritoneAvailable);
 
     public final ToggleOption putOnElytra = new ToggleOption(this, "PutOnElytra",
         "Safety net, independent of the glide logic above: if the elytra ends up off the chest slot -- unequipped into the inventory, or stuck on the cursor from an interrupted swap (any module's, not just this one) -- immediately equip/place it back. Falls back to an empty inventory slot, or swaps with an arbitrary occupied one if the inventory is full, when the cursor is the one holding it and the chest slot swap alone doesn't clear it.", true);
@@ -172,6 +187,17 @@ public class EBouncePlus extends AddonModule {
     // captured a second time, same idea as sendPacketSilently but for the receive side.
     private final Deque<ClientboundPingPacket> pingPacketQueue = new ArrayDeque<>();
 
+    // lambda's Speedometer HUD module (real position-delta-per-tick speed, sampled in
+    // TickEvent.Post, alwaysListen -- NOT raw getDeltaMovement()). ObstaclePassingMode's
+    // notProgressing check uses Speedometer.calculateSpeed(true, BlocksPerSecond), which is
+    // actual displacement -- immune to the touch-ground/recast velocity dips that make raw
+    // velocity read near-zero for a tick or two even while genuinely still moving forward.
+    // Using raw velocity there (an earlier version of this port) caused false
+    // notProgressing during a perfectly clear bounce chain, spamming Baritone goal-sets with
+    // no obstacle in front (reported in-game).
+    private Vec3 speedPrevPos = Vec3.ZERO;
+    private Vec3 speedCurrPos = Vec3.ZERO;
+
     public EBouncePlus() {
         super("EBounce+", "Infinite Durability for recast, Fuck your boze client.");
     }
@@ -188,6 +214,10 @@ public class EBouncePlus extends AddonModule {
         prevJumpKeyDown = false;
         Minecraft mcEnable = Minecraft.getInstance();
         startY = mcEnable.player != null ? mcEnable.player.getY() : 0.0;
+        obstacleStartPos = mcEnable.player != null ? mcEnable.player.position() : Vec3.ZERO;
+        obstaclePassingToPos = null;
+        speedPrevPos = obstacleStartPos;
+        speedCurrPos = obstacleStartPos;
         // Step 1 re-enabled, re-ported to match lambda exactly: jump-key edge-detect (not
         // "every tick while grounded") + real Player#startFallFlying() (not raw
         // EntityFlagAccessor reflection write). See earlyTickForceTakeoff() for the writeup
@@ -204,6 +234,8 @@ public class EBouncePlus extends AddonModule {
         oldBypassFreezeTicksLeft = 0;
         prevGliding = false;
         EarlyTickHooks.unregister(earlyTickForceTakeoffRef);
+        if (obstaclePassingToPos != null) cancelObstaclePath();
+        obstaclePassingToPos = null;
         Minecraft mc = Minecraft.getInstance();
         flushPackets(mc);
         if (pitchOverrideActive) {
@@ -309,6 +341,26 @@ public class EBouncePlus extends AddonModule {
         flushPackets(mc);
         if (debug.getValue()) {
             debugLog(mc, "FLAG detected (position-correction packet) -- pausing " + flagPauseTicksLeft + " ticks");
+        }
+
+        // walkWhenFlagged (hardcoded true, lambda's onFlag hook): proactively walk a bit
+        // forward via Baritone right when we get flagged, same as lambda -- deferred to the
+        // main thread (mc.execute, matches lambda's runGameScheduled) since this event can
+        // fire off the render thread (e.g. Netty IO) and Baritone's API isn't meant to be
+        // driven from there.
+        if (passObstacles.getValue() && isBaritoneAvailable() && !PathFinder.INSTANCE.getState()
+                && mc.player != null) {
+            // Snapshot dir/line NOW (matches lambda: getSnappedDir()/findClosestPointOnLine()
+            // run synchronously inside onFlag, only the Baritone goal-set call is deferred via
+            // runGameScheduled). Deferring the snapshot itself (previous version) let the
+            // player move an extra tick before the direction/line were computed.
+            Vec3 snappedDir = getSnappedObstacleDir(mc);
+            Vec3 closestLinePoint = findClosestPointOnObstacleLine(mc.player.position(), snappedDir);
+            mc.execute(() -> {
+                if (mc.player == null) return;
+                Vec3 pathToPoint = closestLinePoint.add(snappedDir.scale(obstacleLookAhead.getValue().doubleValue()));
+                pathToValidObstaclePoint(mc, pathToPoint, snappedDir, false);
+            });
         }
     }
 
@@ -466,6 +518,12 @@ public class EBouncePlus extends AddonModule {
     private void onTickPost(EventTick.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.getConnection() == null) return;
+
+        // Speedometer sample -- lambda's TickEvent.Post alwaysListen block, runs regardless
+        // of the freeze/pause state below (a real HUD module ticking independently).
+        speedPrevPos = speedCurrPos;
+        speedCurrPos = mc.player.position();
+
         if (flagPauseTicksLeft > 0) return; // frozen -- see onPacketReceive
 
         // A ground touch was detected in Pre this tick -- reassert the glide command so
@@ -517,6 +575,15 @@ public class EBouncePlus extends AddonModule {
         }
 
         if (oldBypassFreezeTicksLeft > 0) oldBypassFreezeTicksLeft--;
+
+        // Obstacle passing takes over entirely this tick if it engages (matches lambda's
+        // `if (handlePassingObstacles()) return@listen`, called before the flagPause check
+        // so it still runs during a freeze). Clear doJump so a stale jump-hold from a
+        // previous tick doesn't fire while Baritone is trying to walk normally.
+        if (handlePassingObstacles(mc)) {
+            doJump = false;
+            return;
+        }
 
         // Frozen after a server flag: do nothing at all this tick (no sprint force, no
         // pitch override, no jump-hold) -- let real client/server state settle before
@@ -636,23 +703,226 @@ public class EBouncePlus extends AddonModule {
     }
 
     /**
-     * baritone.api.BaritoneAPI#getProvider() -> getPrimaryBaritone() -> getElytraProcess()
-     * -> IBaritoneProcess#isActive(). Same reflection pattern as PathFinder.java's
-     * getElytraProcess()/isProcessActive() (kept local here rather than exposing PathFinder's
-     * private internals publicly for one caller). Fails closed: any missing class/method
-     * (baritone not loaded, PathFinder not running #elytra) reads as "not active".
+     * baritone.api.BaritoneAPI#getProvider() -> getPrimaryBaritone(). Shared lookup for
+     * every Baritone reflection call in this class. Fails closed (null) if baritone isn't
+     * loaded at all.
      */
-    private static boolean isBaritoneElytraActive() {
+    private static Object getPrimaryBaritone() {
         try {
             Class<?> apiClass = Class.forName("baritone.api.BaritoneAPI");
             Object provider = apiClass.getMethod("getProvider").invoke(null);
-            Object baritone = provider.getClass().getMethod("getPrimaryBaritone").invoke(provider);
+            return provider.getClass().getMethod("getPrimaryBaritone").invoke(provider);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static boolean isBaritoneAvailable() {
+        return getPrimaryBaritone() != null;
+    }
+
+    /**
+     * -> IBaritone#getElytraProcess() -> IBaritoneProcess#isActive(). Same reflection
+     * pattern as PathFinder.java's getElytraProcess()/isProcessActive() (kept local here
+     * rather than exposing PathFinder's private internals publicly for one caller). Fails
+     * closed: any missing class/method (baritone not loaded, PathFinder not running
+     * #elytra) reads as "not active".
+     */
+    private static boolean isBaritoneElytraActive() {
+        try {
+            Object baritone = getPrimaryBaritone();
+            if (baritone == null) return false;
             Object elytraProcess = baritone.getClass().getMethod("getElytraProcess").invoke(baritone);
             if (elytraProcess == null) return false;
             return (boolean) elytraProcess.getClass().getMethod("isActive").invoke(elytraProcess);
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    // ── Obstacle passing (ported from lambda's ObstaclePassingMode.kt) ──────
+
+    // Flight-line reference, captured once at enable -- lambda's `onEnable { startPos =
+    // player.pos }`.
+    private Vec3 obstacleStartPos = Vec3.ZERO;
+    // Non-null while Baritone is actively pathing around a detected obstacle.
+    private Vec3 obstaclePassingToPos = null;
+
+    // Hardcoded lambda PasserSettings defaults not exposed as options (user chose to trim
+    // the option surface to just PassObstacles + ObstacleLookAhead):
+    private static final double OBSTACLE_MIN_HEIGHT = 0.063;
+    private static final boolean OBSTACLE_HEAD_HITTERS = true;
+    private static final double OBSTACLE_ACCEPTABLE_OFFSET = 2.0;
+    private static final double OBSTACLE_DIRECTION_STEP = 45.0;
+    /**
+     * Direction from obstacleStartPos to the player's current position, snapped to the
+     * nearest OBSTACLE_DIRECTION_STEP degrees -- lambda's getSnappedDir()/lockYawToStep().
+     * Corrected to match verbatim: lambda normalizes the FULL 3D travel vector first
+     * (`player.pos.subtract(startPos).normalize()`), THEN zeroes y -- a steep dive "spends"
+     * some of that unit length on the vertical component, so the resulting horizontal
+     * vector's magnitude shrinks the steeper the dive. An earlier version of this method
+     * normalized by horizontal-length-only, which always produced a unit-horizontal vector
+     * regardless of dive angle -- same snapped ANGLE (atan2 is scale-invariant for a
+     * uniformly-scaled x/z pair) but a different final magnitude, which matters since it's
+     * later used as a step size (dir.multiply(lookAhead) etc). y is 0 in the result either
+     * way, matching lambda's Vec3d(it.x, 0.0, it.z) fed into lockYawToStep.
+     */
+    private Vec3 getSnappedObstacleDir(Minecraft mc) {
+        Vec3 travelDiff = mc.player.position().subtract(obstacleStartPos);
+        Vec3 travelNorm = travelDiff.lengthSqr() > 1.0E-12 ? travelDiff.normalize() : new Vec3(0, 0, 1);
+        double x = travelNorm.x;
+        double z = travelNorm.z;
+
+        double yawDeg = Math.toDegrees(Math.atan2(z, x));
+        double normalizedYaw = ((yawDeg % 360.0) + 360.0) % 360.0;
+        double steps = normalizedYaw / OBSTACLE_DIRECTION_STEP;
+        double lockedYawDeg = Math.round(steps) * OBSTACLE_DIRECTION_STEP;
+        double normalizedLockedYawDeg = ((lockedYawDeg % 360.0) + 360.0) % 360.0;
+        double lockedYaw = Math.toRadians(normalizedLockedYawDeg);
+
+        double horizontalLength = Math.sqrt(x * x + z * z);
+        return new Vec3(Math.cos(lockedYaw) * horizontalLength, 0.0, Math.sin(lockedYaw) * horizontalLength);
+    }
+
+    /** lambda's Vec3d.findClosestPointOnLine(): projects pos onto the line through
+     *  obstacleStartPos along snappedDir. */
+    private Vec3 findClosestPointOnObstacleLine(Vec3 pos, Vec3 snappedDir) {
+        Vec3 startToCurrent = pos.subtract(obstacleStartPos);
+        double denom = snappedDir.dot(snappedDir);
+        double t = denom > 1.0E-9 ? startToCurrent.dot(snappedDir) / denom : 0.0;
+        return obstacleStartPos.add(snappedDir.scale(t));
+    }
+
+    /** lambda's Vec3d.rayCastObstructed(): a single block-collider raycast up to
+     *  ObstacleLookAhead blocks along dir. */
+    private boolean obstacleRayCastObstructed(Minecraft mc, Vec3 from, Vec3 dir) {
+        double lookAhead = obstacleLookAhead.getValue().doubleValue();
+        if (lookAhead <= 0) return false;
+        Vec3 dirNorm = dir.length() > 1.0E-6 ? dir.normalize() : new Vec3(0, 0, 1);
+        Vec3 to = from.add(dirNorm.scale(lookAhead));
+        BlockHitResult hit = mc.level.clip(new ClipContext(
+            from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
+        return hit.getType() == HitResult.Type.BLOCK;
+    }
+
+    /** lambda's Vec3d.isObstructed(): block below must be solid (else it's a drop, not an
+     *  obstacle), plus raycasts at OBSTACLE_MIN_HEIGHT and (if headHitters) at 1.01/1.99. */
+    private boolean isObstacleObstructed(Minecraft mc, Vec3 pos, Vec3 dir) {
+        BlockPos below = BlockPos.containing(pos.x, pos.y, pos.z).below();
+        boolean groundSolid = mc.level.getBlockState(below).isFaceSturdy(mc.level, below, net.minecraft.core.Direction.UP);
+        if (!groundSolid) return true;
+
+        if (obstacleRayCastObstructed(mc, pos.add(0, OBSTACLE_MIN_HEIGHT, 0), dir)) return true;
+        if (OBSTACLE_HEAD_HITTERS) {
+            if (obstacleRayCastObstructed(mc, pos.add(0, 1.01, 0), dir)) return true;
+            if (obstacleRayCastObstructed(mc, pos.add(0, 1.99, 0), dir)) return true;
+        }
+        return false;
+    }
+
+    /** lambda's pathToValidPoint(): steps along dir by ObstacleLookAhead until an
+     *  unobstructed point is found, then hands it to Baritone. */
+    private void pathToValidObstaclePoint(Minecraft mc, Vec3 startSearchPos, Vec3 dir, boolean initialBlockedCheck) {
+        double lookAhead = Math.max(1.0, obstacleLookAhead.getValue().doubleValue());
+        Vec3 dirNorm = dir.length() > 1.0E-6 ? dir.normalize() : new Vec3(0, 0, 1);
+        boolean skippingFirstCheck = !initialBlockedCheck;
+        Vec3 searchPos = startSearchPos;
+        int guard = 0;
+        while ((skippingFirstCheck || isObstacleObstructed(mc, searchPos, dirNorm)) && guard++ < 200) {
+            searchPos = searchPos.add(dirNorm.scale(lookAhead));
+            skippingFirstCheck = false;
+        }
+        passObstacleTo(searchPos);
+    }
+
+    /** baritone.api.pathing.goals.GoalGetToBlock(BlockPos) -> IBaritone#getCustomGoalProcess()
+     *  -> ICustomGoalProcess#setGoalAndPath(Goal). Verified against the real loaded jar
+     *  (mods/26.1/baritone-1.17.0+26.1.2.jar) via javap -- IPathingBehavior has NO
+     *  setGoalAndPath at all (an earlier version of this method called it there and silently
+     *  no-op'd, caught by the catch-all below with zero visibility into the failure). */
+    private void passObstacleTo(Vec3 pos) {
+        obstaclePassingToPos = pos;
+        try {
+            Object baritone = getPrimaryBaritone();
+            if (baritone == null) return;
+            BlockPos blockPos = BlockPos.containing(pos.x, pos.y, pos.z);
+            Class<?> goalClass = Class.forName("baritone.api.pathing.goals.Goal");
+            Object goal = Class.forName("baritone.api.pathing.goals.GoalGetToBlock")
+                .getConstructor(BlockPos.class).newInstance(blockPos);
+            Object customGoalProcess = baritone.getClass().getMethod("getCustomGoalProcess").invoke(baritone);
+            customGoalProcess.getClass().getMethod("setGoalAndPath", goalClass).invoke(customGoalProcess, goal);
+            if (debug.getValue()) {
+                debugLog(Minecraft.getInstance(), "OBSTACLE PASS: goal set to " + blockPos);
+            }
+        } catch (Throwable t) {
+            if (debug.getValue()) {
+                debugLog(Minecraft.getInstance(), "OBSTACLE PASS FAILED: " + t);
+            }
+        }
+    }
+
+    /** IBaritone#getPathingBehavior() -> IPathingBehavior#cancelEverything(). */
+    private static void cancelObstaclePath() {
+        try {
+            Object baritone = getPrimaryBaritone();
+            if (baritone == null) return;
+            Object pathingBehavior = baritone.getClass().getMethod("getPathingBehavior").invoke(baritone);
+            pathingBehavior.getClass().getMethod("cancelEverything").invoke(pathingBehavior);
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * lambda's ObstaclePassingMode#handlePassingObstacles(), verbatim in spirit. Returns
+     * true if obstacle-passing took over this tick (caller must short-circuit). Defers
+     * entirely to PathFinder if it's active (this addon's own separate Baritone-#elytra
+     * module) to avoid two systems fighting over the same Baritone goal.
+     */
+    private boolean handlePassingObstacles(Minecraft mc) {
+        if (PathFinder.INSTANCE.getState()) {
+            obstaclePassingToPos = null;
+            return false;
+        }
+        if (!passObstacles.getValue()) return false;
+        if (!isBaritoneAvailable()) return false;
+
+        if (!isBaritoneElytraActive()) obstaclePassingToPos = null;
+
+        Vec3 playerPos = mc.player.position();
+        double distFromStart = Math.sqrt(
+            Math.pow(playerPos.x - obstacleStartPos.x, 2) + Math.pow(playerPos.z - obstacleStartPos.z, 2));
+        if (distFromStart <= 0.1) return false;
+
+        Vec3 snappedDir = getSnappedObstacleDir(mc);
+        Vec3 closestLinePoint = findClosestPointOnObstacleLine(playerPos, snappedDir);
+
+        if (obstaclePassingToPos != null) {
+            if (isObstacleObstructed(mc, obstaclePassingToPos, snappedDir)) {
+                pathToValidObstaclePoint(mc, obstaclePassingToPos, snappedDir, false);
+            }
+            return true;
+        }
+
+        if (!mc.player.onGround()) return false;
+
+        boolean notProgressing = horizontalSpeedometer() < 0.01;
+        if (isFlyingNow(mc) && notProgressing) {
+            pathToValidObstaclePoint(mc, closestLinePoint, snappedDir, false);
+            return true;
+        }
+
+        Vec3 xy = new Vec3(playerPos.x, closestLinePoint.y, playerPos.z);
+        double distanceToLine = xy.distanceTo(closestLinePoint) + Math.min(0.0, playerPos.y - closestLinePoint.y);
+        if (distanceToLine > OBSTACLE_ACCEPTABLE_OFFSET) {
+            pathToValidObstaclePoint(mc, closestLinePoint, snappedDir, true);
+            return true;
+        }
+
+        if (isObstacleObstructed(mc, xy, snappedDir)) {
+            pathToValidObstaclePoint(mc, closestLinePoint, snappedDir, false);
+            return true;
+        }
+
+        return isBaritoneElytraActive();
     }
 
     // Shared "are we gliding" resolution used by both onTickPre and the FakeLag dip-window
@@ -671,6 +941,14 @@ public class EBouncePlus extends AddonModule {
     private static double horizontalSpeed(Minecraft mc) {
         var v = mc.player.getDeltaMovement();
         return Math.sqrt(v.x * v.x + v.z * v.z) * 20.0; // b/t -> b/s
+    }
+
+    /** lambda's Speedometer.calculateSpeed(true, BlocksPerSecond): actual horizontal
+     *  position delta over the last tick, not raw velocity -- see speedPrevPos/speedCurrPos
+     *  comment above for why this matters for notProgressing specifically. */
+    private double horizontalSpeedometer() {
+        Vec3 delta = speedCurrPos.subtract(speedPrevPos);
+        return Math.sqrt(delta.x * delta.x + delta.z * delta.z) * 20.0;
     }
 
     private void reset() {
