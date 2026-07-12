@@ -10,6 +10,7 @@ import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.AuraStep;
 import com.example.addon.modules.AutoPortal;
+import com.example.addon.modules.AutoWalk;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.BetterChams;
 import com.example.addon.modules.ChestButtons;
@@ -83,6 +84,7 @@ public class ExampleAddon extends Addon {
         // modules.add(VanillaEBounce.INSTANCE);
         modules.add(EBouncePlus.INSTANCE);
         modules.add(AutoPortal.INSTANCE);
+        modules.add(AutoWalk.INSTANCE);
         modules.add(ChestButtons.INSTANCE);
         BetterChams.registerTextures();
         com.example.addon.rendering.GlowBlur.registerTextures();

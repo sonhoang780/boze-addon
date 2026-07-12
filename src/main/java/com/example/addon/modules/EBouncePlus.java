@@ -1,6 +1,7 @@
 package com.example.addon.modules;
 
 import com.example.addon.mixin.EntityFlagAccessor;
+import com.example.addon.util.BaritoneUtils;
 import com.example.addon.util.EarlyTickHooks;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInput;
@@ -134,10 +135,22 @@ public class EBouncePlus extends AddonModule {
     // has no compile-time Baritone dependency). Hidden entirely when Baritone isn't installed
     // (visibility supplier), not just disabled -- there's nothing useful to configure without it.
     public final ToggleOption passObstacles = new ToggleOption(this, "PassObstacles",
-        "Automatically paths around obstacles in the flight line using Baritone.", false, EBouncePlus::isBaritoneAvailable);
+        "Automatically paths around obstacles in the flight line using Baritone.", false, BaritoneUtils::isAvailable);
 
     public final SliderOption obstacleLookAhead = new SliderOption(this, "ObstacleLookAhead",
-        "Blocks to look ahead for obstacles / step by when pathing around one.", 8, 0, 50, 1, EBouncePlus::isBaritoneAvailable);
+        "Blocks to look ahead for obstacles / step by when pathing around one.", 8, 0, 50, 1, BaritoneUtils::isAvailable);
+
+    // Not from lambda -- strict servers reject the flying/gliding hitbox+physics through
+    // low gaps Baritone can otherwise walk through fine (1-tall tunnels etc), so gliding
+    // and Baritone's walk control end up fighting each other and the player gets stuck
+    // (see in-game report: 0.00 b/s wedged in a 1-block gap while "passing"). This clears
+    // the real FALL_FLYING flag the moment obstacle-passing engages, so the player is a
+    // genuine walking entity while Baritone navigates. No extra resume logic needed: once
+    // Baritone clears the obstacle and handlePassingObstacles stops engaging, the existing
+    // GROUND-JUMP-HOLD branch below (gated on `takeoff`) already re-jumps and re-glides from
+    // a grounded, non-flying state -- exactly the state this leaves the player in.
+    public final ToggleOption standUpToPass = new ToggleOption(this, "StandUpToPass",
+        "Stops gliding (stands up) while Baritone navigates around an obstacle, then automatically takes off again once clear.", true, BaritoneUtils::isAvailable);
 
     public final ToggleOption putOnElytra = new ToggleOption(this, "PutOnElytra",
         "Safety net, independent of the glide logic above: if the elytra ends up off the chest slot -- unequipped into the inventory, or stuck on the cursor from an interrupted swap (any module's, not just this one) -- immediately equip/place it back. Falls back to an empty inventory slot, or swaps with an arbitrary occupied one if the inventory is full, when the cursor is the one holding it and the chest slot swap alone doesn't clear it.", true);
@@ -348,7 +361,7 @@ public class EBouncePlus extends AddonModule {
         // main thread (mc.execute, matches lambda's runGameScheduled) since this event can
         // fire off the render thread (e.g. Netty IO) and Baritone's API isn't meant to be
         // driven from there.
-        if (passObstacles.getValue() && isBaritoneAvailable() && !PathFinder.INSTANCE.getState()
+        if (passObstacles.getValue() && BaritoneUtils.isAvailable() && !PathFinder.INSTANCE.getState()
                 && mc.player != null) {
             // Snapshot dir/line NOW (matches lambda: getSnappedDir()/findClosestPointOnLine()
             // run synchronously inside onFlag, only the Baritone goal-set call is deferred via
@@ -691,53 +704,15 @@ public class EBouncePlus extends AddonModule {
     // override, jump-hold, recast trigger), it does NOT replace writing the real flag on
     // recast (onTickPre always writes it, matching lambda's startFly()). Lambda also gates
     // on !interrupting (no equivalent -- no obstacle-passing here) and
-    // !BaritoneHandler.isActive (ported below as !isBaritoneElytraActive()): if PathFinder's
+    // !BaritoneHandler.isActive (ported below as !BaritoneUtils.isActive()): if PathFinder's
     // Baritone #elytra process is genuinely driving the path right now, don't mask -- let
     // isFlyingNow track the real flag so this module's pitch-override/jump-hold don't fight
     // Baritone's own landing-disable sequence (MixinChatComponentLandingDetect).
     private boolean isGlidingMasked(Minecraft mc) {
         boolean real = mc.player.isFallFlying();
-        if (prevGliding && flagPauseTicksLeft == 0 && !isBaritoneElytraActive()) return true; // masked -- prevGliding untouched
+        if (prevGliding && flagPauseTicksLeft == 0 && !BaritoneUtils.isActive()) return true; // masked -- prevGliding untouched
         prevGliding = real;
         return real;
-    }
-
-    /**
-     * baritone.api.BaritoneAPI#getProvider() -> getPrimaryBaritone(). Shared lookup for
-     * every Baritone reflection call in this class. Fails closed (null) if baritone isn't
-     * loaded at all.
-     */
-    private static Object getPrimaryBaritone() {
-        try {
-            Class<?> apiClass = Class.forName("baritone.api.BaritoneAPI");
-            Object provider = apiClass.getMethod("getProvider").invoke(null);
-            return provider.getClass().getMethod("getPrimaryBaritone").invoke(provider);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static boolean isBaritoneAvailable() {
-        return getPrimaryBaritone() != null;
-    }
-
-    /**
-     * -> IBaritone#getElytraProcess() -> IBaritoneProcess#isActive(). Same reflection
-     * pattern as PathFinder.java's getElytraProcess()/isProcessActive() (kept local here
-     * rather than exposing PathFinder's private internals publicly for one caller). Fails
-     * closed: any missing class/method (baritone not loaded, PathFinder not running
-     * #elytra) reads as "not active".
-     */
-    private static boolean isBaritoneElytraActive() {
-        try {
-            Object baritone = getPrimaryBaritone();
-            if (baritone == null) return false;
-            Object elytraProcess = baritone.getClass().getMethod("getElytraProcess").invoke(baritone);
-            if (elytraProcess == null) return false;
-            return (boolean) elytraProcess.getClass().getMethod("isActive").invoke(elytraProcess);
-        } catch (Throwable t) {
-            return false;
-        }
     }
 
     // ── Obstacle passing (ported from lambda's ObstaclePassingMode.kt) ──────
@@ -842,8 +817,9 @@ public class EBouncePlus extends AddonModule {
      *  no-op'd, caught by the catch-all below with zero visibility into the failure). */
     private void passObstacleTo(Vec3 pos) {
         obstaclePassingToPos = pos;
+        if (standUpToPass.getValue()) forceStandUpForObstacle(Minecraft.getInstance());
         try {
-            Object baritone = getPrimaryBaritone();
+            Object baritone = BaritoneUtils.getPrimaryBaritone();
             if (baritone == null) return;
             BlockPos blockPos = BlockPos.containing(pos.x, pos.y, pos.z);
             Class<?> goalClass = Class.forName("baritone.api.pathing.goals.Goal");
@@ -852,7 +828,10 @@ public class EBouncePlus extends AddonModule {
             Object customGoalProcess = baritone.getClass().getMethod("getCustomGoalProcess").invoke(baritone);
             customGoalProcess.getClass().getMethod("setGoalAndPath", goalClass).invoke(customGoalProcess, goal);
             if (debug.getValue()) {
-                debugLog(Minecraft.getInstance(), "OBSTACLE PASS: goal set to " + blockPos);
+                boolean activeRightAfter = (boolean) customGoalProcess.getClass().getMethod("isActive").invoke(customGoalProcess);
+                Object goalReadback = customGoalProcess.getClass().getMethod("getGoal").invoke(customGoalProcess);
+                debugLog(Minecraft.getInstance(), "OBSTACLE PASS: goal set to " + blockPos
+                    + " (isActive right after set=" + activeRightAfter + ", getGoal()=" + goalReadback + ")");
             }
         } catch (Throwable t) {
             if (debug.getValue()) {
@@ -861,10 +840,47 @@ public class EBouncePlus extends AddonModule {
         }
     }
 
+    /**
+     * StandUpToPass: quickly unequips the elytra and re-equips it (chest slot -> empty
+     * inventory slot -> chest slot), instead of just clearing the local FALL_FLYING flag.
+     * Per user's report (a similar "StrictStop" option from another client: "Stops flying
+     * more reliably by quickly taking the elytra off and putting it back on. Use this if
+     * you keep gliding when the module tries to stop") -- a client-side flag write is only
+     * ever a local hint; the server derives gliding from its own state and can keep
+     * reporting/enforcing it regardless. Actually unequipping sends a real equipment-change
+     * packet the server has no choice but to honor (no elytra worn = physically cannot
+     * glide), guaranteeing a real stop instead of hoping the flag write sticks.
+     * Only invoked from passObstacleTo() (fresh goal / re-path), not every tick of an
+     * ongoing pass -- 4 container-click packets every tick would spam and visibly flicker
+     * the chest slot for no reason once already unequipped.
+     */
+    private void forceStandUpForObstacle(Minecraft mc) {
+        if (mc.player == null || !mc.player.isFallFlying()) return;
+        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) return;
+        int empty = findEmptyInventorySlot(mc);
+        if (empty == -1) {
+            // No inventory room -- fall back to the flag-only clear rather than doing
+            // nothing (still better than fighting Baritone with gliding physics active).
+            ((EntityFlagAccessor) (Object) mc.player).invokeSetSharedFlag(EntityFlagAccessor.getFlagFallFlying(), false);
+            if (debug.getValue()) {
+                debugLog(mc, "STAND-UP-TO-PASS: inventory full, fell back to flag-only clear");
+            }
+            return;
+        }
+        int syncId = mc.player.inventoryMenu.containerId;
+        mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(syncId, empty, 0, ContainerInput.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(syncId, empty, 0, ContainerInput.PICKUP, mc.player);
+        mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
+        if (debug.getValue()) {
+            debugLog(mc, "STAND-UP-TO-PASS: unequipped/re-equipped elytra for obstacle passing");
+        }
+    }
+
     /** IBaritone#getPathingBehavior() -> IPathingBehavior#cancelEverything(). */
     private static void cancelObstaclePath() {
         try {
-            Object baritone = getPrimaryBaritone();
+            Object baritone = BaritoneUtils.getPrimaryBaritone();
             if (baritone == null) return;
             Object pathingBehavior = baritone.getClass().getMethod("getPathingBehavior").invoke(baritone);
             pathingBehavior.getClass().getMethod("cancelEverything").invoke(pathingBehavior);
@@ -883,9 +899,9 @@ public class EBouncePlus extends AddonModule {
             return false;
         }
         if (!passObstacles.getValue()) return false;
-        if (!isBaritoneAvailable()) return false;
+        if (!BaritoneUtils.isAvailable()) return false;
 
-        if (!isBaritoneElytraActive()) obstaclePassingToPos = null;
+        if (!BaritoneUtils.isActive()) obstaclePassingToPos = null;
 
         Vec3 playerPos = mc.player.position();
         double distFromStart = Math.sqrt(
@@ -896,6 +912,7 @@ public class EBouncePlus extends AddonModule {
         Vec3 closestLinePoint = findClosestPointOnObstacleLine(playerPos, snappedDir);
 
         if (obstaclePassingToPos != null) {
+            if (standUpToPass.getValue()) forceStandUpForObstacle(mc);
             if (isObstacleObstructed(mc, obstaclePassingToPos, snappedDir)) {
                 pathToValidObstaclePoint(mc, obstaclePassingToPos, snappedDir, false);
             }
@@ -922,7 +939,7 @@ public class EBouncePlus extends AddonModule {
             return true;
         }
 
-        return isBaritoneElytraActive();
+        return BaritoneUtils.isActive();
     }
 
     // Shared "are we gliding" resolution used by both onTickPre and the FakeLag dip-window
