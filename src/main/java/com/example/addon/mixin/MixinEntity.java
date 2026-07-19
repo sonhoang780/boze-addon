@@ -3,6 +3,7 @@ package com.example.addon.mixin;
 
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.ControlRocket;
+import com.example.addon.modules.HoleSnap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -31,6 +32,8 @@ public abstract class MixinEntity {
         if (ControlRocket.cameraOverrideActive)       { cir.setReturnValue(ControlRocket.savedCameraPitch);       return; }
 
         if (EBouncePlus.pitchOverrideActive)     { cir.setReturnValue(EBouncePlus.savedCameraPitch);   return; }
+
+        if (HoleSnap.cameraOverrideActive)       { cir.setReturnValue(HoleSnap.savedCameraPitch);       return; }
     }
 
     @Inject(method = "getYRot(F)F", at = @At("HEAD"), cancellable = true)
@@ -38,6 +41,10 @@ public abstract class MixinEntity {
         Minecraft mc = Minecraft.getInstance();
         if (ControlRocket.cameraOverrideActive && mc != null && mc.player == (Object) this) {
             cir.setReturnValue(ControlRocket.savedCameraYaw);
+            return;
+        }
+        if (HoleSnap.cameraOverrideActive && mc != null && mc.player == (Object) this) {
+            cir.setReturnValue(HoleSnap.savedCameraYaw);
             return;
         }
     }

@@ -375,7 +375,22 @@ public class ControlRocket extends AddonModule {
         savedCameraYaw   = mc.player.getYRot();
         savedCameraPitch = mc.player.getXRot();
 
-        double yawRad = Math.toRadians(savedCameraYaw);
+        // Third-person-front (F5 x2, "mirrored") camera renders from IN FRONT of the
+        // player looking back at them -- vanilla's own Camera.setPosition does this by
+        // rendering at (entity.yRot + 180, -entity.xRot) whenever CameraType.isMirrored()
+        // (verified via javap on Camera.class, minecraft-merged-1c9175fa40-26.1.2.jar:
+        // the isMirrored() branch calls setRotation(yRot+180, -xRot)). WASD direction here
+        // was built straight off player.getYRot(), which is only equal to what the player
+        // actually SEES in first-person/third-back; in mirrored view it's 180° off from the
+        // real camera facing, so W walked the player AWAY from what they were looking at
+        // (user report, 2026-07-19). Only the movement-basis yaw needs the correction --
+        // savedCameraYaw/Pitch (restored in Post, read by MixinEntity) stay the real raw
+        // player rotation, since vanilla's own mirrored-camera math already derives the
+        // correct render angle from that raw value on its own.
+        float moveYaw = savedCameraYaw;
+        if (mc.options.getCameraType().isMirrored()) moveYaw += 180f;
+
+        double yawRad = Math.toRadians(moveYaw);
         double sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
 
         double dx = 0, dz = 0;

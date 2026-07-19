@@ -7,6 +7,7 @@ import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
+import com.example.addon.commands.SaveConfigCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.AuraStep;
@@ -21,8 +22,10 @@ import com.example.addon.modules.Dummy;
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.EbookReader;
 import com.example.addon.modules.ElytraFix;
+import com.example.addon.modules.FastWeb;
 import com.example.addon.modules.GifHUD;
 import com.example.addon.modules.HUDEditor;
+import com.example.addon.modules.HoleSnap;
 import com.example.addon.modules.InvMovePlus;
 import com.example.addon.modules.InventoryCleaner;
 import com.example.addon.modules.InventorySorter;
@@ -49,8 +52,8 @@ import dev.boze.api.addon.Addon;
 public class ExampleAddon extends Addon {
 
     public static final String ID = "1337";
-    public static final String NAME = "SmoothCamera";
-    public static final String DESCRIPTION = "SmoothCamera";
+    public static final String NAME = "BozeAddon";
+    public static final String DESCRIPTION = "BozePlus";
     public static final String VERSION = "1.0.0";
 
     public ExampleAddon() {
@@ -70,6 +73,12 @@ public class ExampleAddon extends Addon {
                 "Chestplate Mode", "ChestplateMode",
                 "ChestplateMode",  "FakeFly",
                 "Swap Mode",       "Swap"
+            ),
+            "WebBrowser", Map.of(
+                "Open Key", "OpenKey"
+            ),
+            "BedAura", Map.of(
+                "AutoCraft Bind", "AutoCraftBind"
             )
         ));
         dispatcher.registerCommand(ItemDropCommand.INSTANCE);
@@ -78,7 +87,11 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         dispatcher.registerCommand(com.example.addon.commands.StashFinderCommand.INSTANCE);
         dispatcher.registerCommand(HoodResearchCommand.INSTANCE);
+        dispatcher.registerCommand(SaveConfigCommand.INSTANCE);
+        dispatcher.registerCommand(com.example.addon.commands.SetBindCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
+        modules.add(com.example.addon.modules.bedaura.BedAura.INSTANCE);
+        modules.add(com.example.addon.modules.pistoncrystal.PistonCrystal.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(Dummy.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
@@ -89,19 +102,22 @@ public class ExampleAddon extends Addon {
         modules.add(AutoWalk.INSTANCE);
         modules.add(ChestButtons.INSTANCE);
         BetterChams.registerTextures();
-        com.example.addon.rendering.GlowBlur.registerTextures();
+        com.example.addon.render.GlowBlur.registerTextures();
         modules.add(BetterChams.INSTANCE);
         AuraStep.registerTextures();
         modules.add(AuraStep.INSTANCE);
+        modules.add(com.example.addon.modules.Trails.INSTANCE);
         modules.add(com.example.addon.modules.Bubble.INSTANCE);
         TungTungSahur.registerTextures();
         CustomSky.registerTextures();
         modules.add(EbookReader.INSTANCE);
+        modules.add(FastWeb.INSTANCE);
         modules.add(ElytraFix.INSTANCE);
         modules.add(ControlRocket.INSTANCE);
         modules.add(EvilRekit.INSTANCE);
         modules.add(GifHUD.INSTANCE);
         modules.add(HUDEditor.INSTANCE);
+        modules.add(HoleSnap.INSTANCE);
         modules.add(InventoryCleaner.INSTANCE);
         modules.add(InventorySorter.INSTANCE);
         modules.add(LoadingScreen.INSTANCE);

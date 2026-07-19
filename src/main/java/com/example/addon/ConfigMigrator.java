@@ -172,4 +172,54 @@ public class ConfigMigrator {
             // this method existed.
         }
     }
+
+    /**
+     * Force-writes every module's CURRENT live option values into config.json right now,
+     * instead of waiting on whatever Boze's own auto-save timing normally is -- insurance
+     * against losing changes to an alt-F4/crash. Unlike {@link #fillMissingOptions}, this
+     * overwrites existing keys too, not just missing ones.
+     *
+     * @param addonId the addon's string ID (matches the "id" field in config.json)
+     * @param modules the live module list (option values read directly off each module's
+     *                Option instances, not off whatever was last written to disk)
+     */
+    public static void saveAllNow(String addonId, List<AddonModule> modules) {
+        Path configPath = FabricLoader.getInstance().getGameDir()
+                .resolve("boze").resolve("addons").resolve(addonId).resolve("config.json");
+
+        JsonObject root;
+        if (Files.exists(configPath)) {
+            try {
+                root = JsonParser.parseString(Files.readString(configPath, StandardCharsets.UTF_8)).getAsJsonObject();
+            } catch (Exception e) {
+                root = new JsonObject();
+            }
+        } else {
+            root = new JsonObject();
+        }
+        if (!root.has("id")) root.addProperty("id", addonId);
+
+        JsonObject modulesObject = root.has("modules") ? root.getAsJsonObject("modules") : new JsonObject();
+        if (!root.has("modules")) root.add("modules", modulesObject);
+
+        for (AddonModule module : modules) {
+            JsonObject moduleObj = modulesObject.has(module.getName())
+                ? modulesObject.getAsJsonObject(module.getName())
+                : new JsonObject();
+            if (!modulesObject.has(module.getName())) modulesObject.add(module.getName(), moduleObj);
+
+            moduleObj.addProperty("enabled", module.getState());
+            for (Option<?> option : module.options) {
+                moduleObj.add(option.name, option.toJson());
+            }
+        }
+
+        try {
+            Files.createDirectories(configPath.getParent());
+            String written = new GsonBuilder().setPrettyPrinting().create().toJson(root);
+            Files.writeString(configPath, written, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to write config.json", e);
+        }
+    }
 }

@@ -65,9 +65,9 @@ public class WebBrowser extends AddonModule {
     private double posY = com.example.addon.util.HudPositions.getY("WebBrowser", 50.0);
     public final SliderOption width = new SliderOption(this, "Width", "", 320.0, 100.0, 1000.0, 1.0);
     public final SliderOption height = new SliderOption(this, "Height", "", 180.0, 60.0, 600.0, 1.0);
-    public final BindOption openKey = new BindOption(this, "Open Key", "Key that opens the interactive browser screen.", GLFW.GLFW_KEY_B, false);
+    public final BindOption openKey = new BindOption(this, "OpenKey", "Key that opens the interactive browser screen.", GLFW.GLFW_KEY_B, false);
     public final ToggleOption showHud = new ToggleOption(this, "ShowHud",
-        "Shows the floating browser tile HUD. Independent of the browser process itself -- disable to hide the tile while still being able to open the full-screen browser via Open Key (the CEF message loop keeps pumping either way, so tabs opened in the full-screen browser keep working).", true);
+        "Shows the floating browser tile HUD. Independent of the browser process itself -- disable to hide the tile while still being able to open the full-screen browser via OpenKey (the CEF message loop keeps pumping either way, so tabs opened in the full-screen browser keep working).", true);
     public final ToggleOption forceWhiteText = new ToggleOption(this, "ForceWhiteText",
         "Injects CSS forcing all page text white. Keeps the site's own background/theme -- only overrides low-contrast text colors (placeholders, timestamps, muted secondary labels) some dark themes render too dim to read comfortably.", false);
 

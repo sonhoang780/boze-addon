@@ -135,6 +135,4 @@ public class ObjMesh {
     }
 
     private static float f(String s) { return Float.parseFloat(s); }
-
-    public int getTriangleCount() { return triangleCount; }
 }

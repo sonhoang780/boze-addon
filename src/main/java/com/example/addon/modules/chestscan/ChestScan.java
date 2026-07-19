@@ -56,8 +56,38 @@ public class ChestScan extends AddonModule {
     private int chainTicks = 0;
     private Set<BlockPos> lastInferredEmpty = Collections.emptySet();
 
+    // Debounces store.remove() in onWorldRender: right after a relog/teleport, a chunk
+    // can report hasChunk()==true while its block/section data is still settling, so
+    // getBlockState briefly reads a tracked chest's position as non-chest for one or
+    // more frames even though the chest is really there. Only pruning after the
+    // mismatch holds for real wall-clock time (not just one frame) stops that transient
+    // false negative from permanently deleting the record (user report 2026-07-15:
+    // chests inside ScanRadius silently lost on relog/teleport-back; chests outside
+    // ScanRadius -- never checked here -- were unaffected, which pointed straight here).
+    private final Map<BlockPos, Long> missingSinceMs = new HashMap<>();
+    private static final long PRUNE_GRACE_MS = 1500;
+
     private ChestScan() {
         super("ChestScan", "Highlights opened chests by contents (empty/partial/full), with optional hopper-chain inference.");
+        // onTick bails out the instant mc.player/mc.level go null (line below: "if
+        // (mc.player == null || mc.level == null) return;"), which happens almost
+        // immediately on disconnect -- the SAME tick that would otherwise detect
+        // "chest screen just closed" (wasChestMenuOpenLastTick -> false transition)
+        // and call finalizeChestState() never gets the chance to run it, so a chest
+        // opened right before disconnecting was never persisted at all (user report,
+        // 2026-07-16: "thoát ra vào lại server, phần render vừa rồi mất luôn"). This
+        // fires BEFORE that teardown (same disconnect hook already proven for
+        // HoodResearch's own stale-task bug this session) and finalizes any chest
+        // that's still open at that moment using whatever's already in memory.
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
+            (handler, client) -> {
+                if (openChestPos != null && lastSnapshotStatus != null) {
+                    finalizeChestState(client, openChestPos, lastSnapshotStatus);
+                }
+                openChestPos = null;
+                lastSnapshotStatus = null;
+                wasChestMenuOpenLastTick = false;
+            });
     }
 
     @Override
@@ -73,6 +103,7 @@ public class ChestScan extends AddonModule {
         wasChestMenuOpenLastTick = false;
         openChestPos = null;
         lastSnapshotStatus = null;
+        missingSinceMs.clear();
     }
 
     private void maybeReloadStoreForWorld() {
@@ -80,6 +111,7 @@ public class ChestScan extends AddonModule {
         if (!key.equals(lastWorldKey)) {
             store.loadForWorld();
             lastWorldKey = key;
+            missingSinceMs.clear();
         }
     }
 
@@ -156,9 +188,15 @@ public class ChestScan extends AddonModule {
             // otherwise just skip rendering this tick without touching the store.
             if (!mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) continue;
             if (!(mc.level.getBlockState(pos).getBlock() instanceof ChestBlock)) {
-                store.remove(pos);
+                long now = System.currentTimeMillis();
+                Long since = missingSinceMs.putIfAbsent(pos, now);
+                if (since != null && now - since >= PRUNE_GRACE_MS) {
+                    store.remove(pos);
+                    missingSinceMs.remove(pos);
+                }
                 continue;
             }
+            missingSinceMs.remove(pos);
             WorldDrawer.box(colorFor(store.get(pos)), FILL_OPACITY, OUTLINE_OPACITY, new AABB(pos));
         }
 
@@ -200,7 +238,12 @@ public class ChestScan extends AddonModule {
 
     private void finalizeChestState(Minecraft mc, BlockPos pos, ChestScanStore.ChestStatus status) {
         if (pos == null || status == null) return;
-        store.put(pos, status);
+        store.put(pos, status); // primary persist -- doesn't need mc.level, always runs
+        // Double-chest partner lookup needs a live level; the disconnect hook that
+        // also calls this method may run with mc.level already null depending on
+        // exact teardown ordering -- skip the partner rather than NPE, the primary
+        // chest is still saved either way.
+        if (mc == null || mc.level == null) return;
         BlockState state = mc.level.getBlockState(pos);
         if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
             BlockPos other = ChestBlock.getConnectedBlockPos(pos, state);

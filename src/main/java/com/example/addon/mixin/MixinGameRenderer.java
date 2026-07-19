@@ -82,14 +82,14 @@ public abstract class MixinGameRenderer {
         // entityOutlineTarget (world entities always; hand too if it has already
         // been drawn into the same target by the time this fires this frame).
         if (!com.example.addon.modules.BetterChams.INSTANCE.getState()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineOn() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) return;
 
         net.minecraft.resources.Identifier handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "hand_outline");
         if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue()
-                && (com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off || com.example.addon.modules.BetterChams.INSTANCE.outlineToggle.getValue())) {
+                && (com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() != com.example.addon.modules.BetterChams.FillMode.Off || com.example.addon.modules.BetterChams.INSTANCE.outlineOn())) {
             handOutlineId = net.minecraft.resources.Identifier.fromNamespaceAndPath("example-addon", "fill_only_hand_outline");
         }
         net.minecraft.client.renderer.ShaderManager shaderManager = mc.getShaderManager();
@@ -101,7 +101,7 @@ public abstract class MixinGameRenderer {
 
         // Render the custom frag shader if active
         if (com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Shader) {
-            com.example.addon.rendering.ChamsCustomShader.renderCustomShader();
+            com.example.addon.render.ChamsCustomShader.renderCustomShader();
         }
 
         // Compute the JFA distance field over the completed silhouette target (world
@@ -109,7 +109,7 @@ public abstract class MixinGameRenderer {
         // resolve pass. Replaced the old dual-Kawase blur pyramid, whose 8-bit field
         // banded visibly once glow_resolve.fsh's halo remap stretched a thin alpha
         // slice into the full gradient (see docs/superpowers/specs/2026-07-04-jfa-glow-design.md).
-        com.example.addon.rendering.JfaField.render(outlineTarget);
+        com.example.addon.render.JfaField.render(outlineTarget);
 
         activePostChain.process(outlineTarget, com.mojang.blaze3d.resource.GraphicsResourceAllocator.UNPOOLED);
     }
@@ -123,7 +123,7 @@ public abstract class MixinGameRenderer {
     )
     private void betterchams$flushHandOutline(net.minecraft.client.renderer.state.level.CameraRenderState state, float tickDelta, org.joml.Matrix4fc projMat, CallbackInfo ci) {
         if (!com.example.addon.modules.BetterChams.INSTANCE.getState() || !com.example.addon.modules.BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineToggle.getValue() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineOn() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.renderBuffers() == null || mc.renderBuffers().outlineBufferSource() == null) return;

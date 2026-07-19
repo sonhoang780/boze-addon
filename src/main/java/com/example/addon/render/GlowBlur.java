@@ -1,4 +1,4 @@
-package com.example.addon.rendering;
+package com.example.addon.render;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.resources.Identifier;

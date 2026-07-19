@@ -46,10 +46,35 @@ public abstract class MixinAvatarRenderer {
 
         // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
         // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
-        if (!bc.glowOn() && !bc.flareToggle.getValue() && !bc.outlineToggle.getValue() && bc.fillMode.getValue() == BetterChams.FillMode.Off) return;
+        // Opacity alone (everything else off) is also a reason to proceed -- it sets
+        // isInvisible below, and without this the early return skipped that too when
+        // no other effect was enabled (2026-07-16, same gap fixed for crystal).
+        if (!bc.glowOn() && !bc.flareToggle.getValue() && !bc.outlineOn() && bc.fillMode.getValue() == BetterChams.FillMode.Off
+                && bc.opacity.getValue() >= 0.999) return;
 
         bc.reportGlowDistance(player);
         state.outlineColor = BetterChams.ENTITY_OUTLINE_COLOR;
+        // Stash the real UUID onto the render state -- states carry no entity back-ref
+        // by design, but GelParticleSystem needs a stable per-player key at flush time
+        // (ModelFeatureRenderer.renderModel, see MixinModelFeatureRenderer) to keep a
+        // particle's Brownian history continuous across frames instead of respawning
+        // it from scratch every frame.
+        ((com.example.addon.render.GelUuidCarrier) (Object) state).exampleAddon$setGelUuid(player.getUUID());
+
+        // Opacity < 1: the fill overlay alone can't make the body see-through -- the
+        // real model still renders fully opaque underneath it (user report
+        // 2026-07-13: "texture của nhân vật còn nguyên"). Setting isInvisible (while
+        // isInvisibleToPlayer stays false) routes LivingEntityRenderer.submit into its
+        // ghost-translucent branch (translucent RenderType + a tint constant --
+        // verified in submit()'s bytecode: `iload translucent ? 654311423 : -1`, i.e.
+        // 0x26FFFFFF, fed through ARGB.multiply with the model's own tint right before
+        // submitModel). submitModel STILL runs, so the silhouette/outline/JFA pipeline
+        // keeps working. MixinLivingEntityRendererGhost redirects that ARGB.multiply
+        // call to substitute the Opacity slider's alpha for vanilla's fixed 0x26,
+        // giving a real continuous slider instead of the old hardcoded ~15%.
+        if (bc.opacity.getValue() < 0.999) {
+            state.isInvisible = true;
+        }
     }
 
     @Redirect(
@@ -69,9 +94,21 @@ public abstract class MixinAvatarRenderer {
         TextureAtlasSprite sprite
     ) {
         int outlineColor = 0;
-        if (BetterChams.isRenderingHand && BetterChams.INSTANCE.getState() && BetterChams.INSTANCE.handToggle.getValue()) {
+        int tint = -1; // opaque white -- vanilla default, unchanged unless Opacity applies below
+        BetterChams bc = BetterChams.INSTANCE;
+        if (BetterChams.isRenderingHand && bc.getState() && bc.handToggle.getValue()) {
             outlineColor = BetterChams.HAND_OUTLINE_COLOR;
+            // renderHand's own RenderType is RenderTypes.entityTranslucent(texture)
+            // (verified via javap on AvatarRenderer.renderHand's bytecode,
+            // minecraft-merged-1c9175fa40-26.1.2.jar) -- already alpha-blending, so
+            // unlike the player body (which needs isInvisible to force vanilla's
+            // ghost-translucent branch) the hand needs NO RenderType swap at all, just
+            // the tint's alpha byte reduced directly.
+            if (bc.opacity.getValue() < 0.999) {
+                int alpha = Math.round((float) (bc.opacity.getValue() * 255.0)) & 0xFF;
+                tint = (alpha << 24) | 0xFFFFFF;
+            }
         }
-        collector.submitModelPart(part, poseStack, renderType, light, overlay, sprite, false, false, -1, null, outlineColor);
+        collector.submitModelPart(part, poseStack, renderType, light, overlay, sprite, false, false, tint, null, outlineColor);
     }
 }

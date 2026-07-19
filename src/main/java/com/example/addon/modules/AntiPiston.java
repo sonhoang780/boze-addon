@@ -54,9 +54,6 @@ public class AntiPiston extends AddonModule {
             "Min ms between crystal attacks (0 = every tick).", 0.0, 0.0, 500.0, 1.0);
     public final ToggleOption antiWeakness = new ToggleOption(this, "AntiWeakness",
             "Swap to sword when under Weakness effect.", true);
-    // Surround: fill 4 adjacent foot blocks so crystals can't be placed/pushed there.
-    public final ToggleOption surround = new ToggleOption(this, "Surround",
-            "Fill adjacent foot positions with obsidian each tick.", false);
 
     private volatile Vec3 rotateTarget = null;
     private long lastAttackTime = 0;
@@ -208,26 +205,8 @@ public class AntiPiston extends AddonModule {
             lastAttackTime = now;
         }
 
-        // Surround: fill 4 adjacent foot positions each tick.
-        if (surround.getValue()) doSurround(mc);
-
         // Tick-based piston scan: fill push targets with obsidian.
         doPistonScan(mc);
-    }
-
-    private void doSurround(Minecraft mc) {
-        int obsSlot = InvHelper.find(Items.OBSIDIAN);
-        if (obsSlot == -1) return;
-        BlockPos feet = mc.player.blockPosition();
-        for (Direction dir : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            // Lower tier (feet level) + upper tier (feet+1 = head level) — 2-block tall wall.
-            for (int dy = 0; dy <= 1; dy++) {
-                BlockPos pos = feet.relative(dir).above(dy);
-                if (mc.level.getBlockState(pos).canBeReplaced()) {
-                    placeBlockSilently(mc, pos, obsSlot);
-                }
-            }
-        }
     }
 
     private void doPistonScan(Minecraft mc) {

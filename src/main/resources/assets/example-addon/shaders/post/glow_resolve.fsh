@@ -113,6 +113,10 @@ void main() {
     // Blue byte of outline-params row 0 was unused -- carries the Glow ModeOption
     // (BetterChams.GlowMode): 0 = Soft, 255 = Neon.
     bool neonMode = outlineData.b > 0.5;
+    // Alpha byte carries OutlineMode==Complex. Hoisted to main() scope (was local to
+    // the interior branch) so the EXTERIOR crisp-outline test can also read it: in
+    // Complex mode the crisp silhouette outline is restricted to HAND pixels only.
+    bool isComplexOutline = outlineData.a > 0.5;
 
     bool flareEnabled = flareData.r > 0.5;
     float flareYawOffset = flareData.g * 180.0 - 90.0;
@@ -216,11 +220,21 @@ void main() {
             return;
         }
 
+        // fillEnabled is a packed 3-state value: 0 = no fill, ~0.5 = flat FillColor fill
+        // (Image Fill mode == Off), ~1.0 = image/gif-textured fill tinted by FillColor.
         vec4 fillResult = vec4(0.0);
-        bool hasFill = fillEnabled > 0.5;
-        if (hasFill) {
+        bool hasFill = fillEnabled > 0.25;
+        // Hands now get the SAME deep linear-gradient InnerGlow as players/crystals
+        // in Complex mode (user request 2026-07-16 -- previously hands were excluded
+        // and kept the thin 6px rim). isHandPixel still matters below for the
+        // distance unscale (hand un-scales to its own on-screen size).
+        bool isHandPixel = orig.b < 0.995;
+        bool complexHere = isComplexOutline;
+        if (fillEnabled > 0.75) {
             vec4 img = texture(ImageSampler, flippedUv);
             fillResult = vec4(img.rgb * fillTint.rgb, img.a * fillOpacity * fillTint.a);
+        } else if (hasFill) {
+            fillResult = vec4(fillTint.rgb, fillOpacity * fillTint.a);
         }
 
         // Inner-rim glow: a soft bleed of glowTint just inside the silhouette edge.
@@ -244,7 +258,15 @@ void main() {
             // Interior pixel: the raw marker itself already tells us hand vs entity
             // (no field/boundary ambiguity possible here), see isOurs's comment.
             float unscalePixel = (orig.b < 0.995) ? unscaleHand : unscaleEntity;
-            float rimPx = clamp(glowRatio * unscalePixel * fieldRadiusPx * 0.5, 1.0, 6.0);
+            // Complex outline wants InnerGlow to bleed noticeably far into the model --
+            // user wants it reaching roughly 1/3 of each limb box's depth (tay/chân/
+            // thân/đầu), well past the old 40px cap (2026-07-16). No per-part geometry
+            // is available in this 2D silhouette march (see rimCapPx's old comment), so
+            // this is an approximation: a bigger cap + a bigger reach multiplier than
+            // Simple's thin-rim formula. Only Complex gets the deeper reach; Simple
+            // keeps the original thin-rim look.
+            float rimCapPx = complexHere ? 120.0 : 6.0;
+            float rimPx = clamp(glowRatio * unscalePixel * fieldRadiusPx * (complexHere ? 1.2 : 0.5), 1.0, rimCapPx);
             int rimSteps = int(ceil(rimPx));
             vec2 texelStep = 1.0 / OutSize;
             float nearestEdgeDist = 1e6;
@@ -268,24 +290,79 @@ void main() {
                     float sigma = max(thicknessPxInner * 0.6, 0.5);
                     edgeFactor = exp(-(nearestEdgeDist * nearestEdgeDist) / (2.0 * sigma * sigma));
                 }
+
+                // Gel: continuous linear fade going inward, not discrete stepped bands
+                // (user request, 2026-07-16 -- replaces the earlier quantized-layer
+                // look). Still the same real per-pixel inward march against
+                // OriginalSampler (the raw silhouette) as the rest of InnerGlow --
+                // explicitly NOT the JFA distance field (InSampler): JFA self-seeds
+                // every interior pixel at distance 0 and would give a degenerate/
+                // deformed banding at range (per the user's explicit ban on using it
+                // here).
+                if (complexHere) {
+                    float depthT = clamp(nearestEdgeDist / max(rimPx, 0.5), 0.0, 1.0); // 0 at edge, 1 at rimPx deep
+                    edgeFactor *= mix(1.0, 0.15, depthT);
+                }
             }
         }
 
+        // base = fill + inner rim (the original interior result).
+        vec4 base;
         if (edgeFactor > 0.0) {
             vec4 rimColor = vec4(glowTint.rgb, edgeFactor * glowIntensity * glowTint.a);
-            fragColor = hasFill ? mix(fillResult, rimColor, rimColor.a) : rimColor;
-            return;
+            base = hasFill ? mix(fillResult, rimColor, rimColor.a) : rimColor;
+        } else if (hasFill) {
+            base = fillResult;
+        } else {
+            // MUST write transparent black instead of discard: a discarded pixel keeps
+            // whatever the swap target held from the previous pass. With fill off this
+            // must read as fully transparent, not stale content from a previous frame.
+            base = vec4(0.0);
         }
 
-        if (hasFill) {
-            fragColor = fillResult;
-            return;
+        // Cross-class glow/outline OVER the fill: this pixel is interior to ONE class,
+        // but the OTHER class's silhouette (e.g. a held block, hand-class, moving into
+        // a player's fill, entity-class) is overwritten out of this buffer here, so the
+        // exterior halo/outline pass below never fires over the overlap -- the block's
+        // outline/glow vanished exactly where it entered the fill (user report,
+        // 2026-07-15; reference shows the block's outline must stay crisp over the
+        // fill). Re-emit the nearest OTHER-class silhouette's halo + crisp outline on
+        // top of the fill, using that class's own field distance + radius formula.
+        {
+            bool thisIsHand = orig.b < 0.995;                    // hand marker has b<1
+            float otherDist  = thisIsHand ? entityDistPx : handDistPx;
+            bool  otherValid = thisIsHand ? entityValid  : handValid;
+            float otherUnscale = thisIsHand ? unscaleEntity : unscaleHand;
+            if (otherValid) {
+                float crossHaloA = 0.0;
+                if (glowEnabled) {
+                    float effRatio = clamp(glowRatio * otherUnscale, 0.0, 1.0);
+                    float thick = max(effRatio * fieldRadiusPx, 1.0);
+                    if (neonMode) {
+                        float coreWidthPx = max(1.5, thick * 0.15);
+                        float core = exp(-otherDist / coreWidthPx);
+                        float haloWidthPx = max(thick * 0.5, 0.5);
+                        crossHaloA = clamp(core + 0.45 * exp(-otherDist / haloWidthPx), 0.0, 1.0);
+                    } else {
+                        float sigma = max(thick * 0.5, 0.5);
+                        crossHaloA = exp(-(otherDist * otherDist) / (2.0 * sigma * sigma));
+                    }
+                    crossHaloA *= glowIntensity;
+                }
+                if (crossHaloA > 0.0) {
+                    base = vec4(mix(base.rgb, glowTint.rgb, crossHaloA * glowTint.a),
+                                max(base.a, crossHaloA * glowTint.a));
+                }
+                // Crisp Outline (Simple mode) of the other class, on top of everything.
+                bool  xOutlineOn = outlineData.r > 0.5;
+                float xOutlineRadPx = outlineData.g * 5.0;
+                if (xOutlineOn && otherDist <= xOutlineRadPx) {
+                    base = vec4(outlineTintData.rgb, 1.0);
+                }
+            }
         }
 
-        // MUST write transparent black instead of discard: a discarded pixel keeps
-        // whatever the swap target held from the previous pass. With fill off this
-        // must read as fully transparent, not stale content from a previous frame.
-        fragColor = vec4(0.0);
+        fragColor = base;
         return;
     }
 
@@ -302,8 +379,20 @@ void main() {
     // Chebyshev march; revisit if that reads wrong against vanilla's outline.)
     bool outlineEnabled  = outlineData.r > 0.5;
     float outlineRadiusPx = outlineData.g * 5.0;
-    float outlineEdge = (outlineEnabled && distValid && distPx <= outlineRadiusPx) ? 1.0 : 0.0;
+    // In Complex mode the crisp silhouette outline is HAND-only (players/crystals use
+    // the world-space wireframe boxes) -- test against the hand field there; Simple
+    // outlines every silhouette via the combined min-distance.
+    float outlineTestDist  = isComplexOutline ? (handValid ? handDistPx : 1e6) : distPx;
+    bool  outlineTestValid = isComplexOutline ? handValid : distValid;
+    float outlineEdge = (outlineEnabled && outlineTestValid && outlineTestDist <= outlineRadiusPx) ? 1.0 : 0.0;
     vec4 outlineContribution = vec4(outlineTintData.rgb, outlineEdge);
+
+    // Gel's outline used to be a screen-space shell-ring shader effect here; replaced
+    // with a real 3D wireframe box per body part (GelParticleSystem.renderOutlineBoxes,
+    // reusing the same per-part AABB the particles already compute) per explicit user
+    // request + reference image (2026-07-13) -- a shader halo can't reproduce "each
+    // body part boxed by a slightly bigger wireframe cube" since it has no per-part
+    // geometry, only a flat 2D silhouette distance field.
 
     if (!glowEnabled && flareLum <= 0.003 && outlineEdge <= 0.0) {
         fragColor = vec4(0.0); // not discard -- see the interior branch's comment

@@ -1,7 +1,7 @@
 package com.example.addon.modules;
 
-import com.example.addon.rendering.ChamsImageTexture;
-import com.example.addon.rendering.CustomSkyRenderer;
+import com.example.addon.render.ChamsImageTexture;
+import com.example.addon.render.CustomSkyRenderer;
 import com.example.addon.screens.ImagePickerScreen;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;

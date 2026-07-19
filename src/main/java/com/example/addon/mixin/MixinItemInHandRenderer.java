@@ -16,7 +16,13 @@ public abstract class MixinItemInHandRenderer {
     @Inject(method = "renderHandsWithItems", at = @At("HEAD"))
     private void betterchams$startHand(float tickDelta, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, LocalPlayer localPlayer, int light, CallbackInfo ci) {
         if (!BetterChams.INSTANCE.getState() || !BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!BetterChams.INSTANCE.glowOn() && !BetterChams.INSTANCE.flareToggle.getValue() && !BetterChams.INSTANCE.outlineToggle.getValue() && BetterChams.INSTANCE.fillMode.getValue() == BetterChams.FillMode.Off) return;
+        // Same opacity-only gap already fixed for Player (MixinAvatarRenderer) and
+        // Crystal (MixinEndCrystalRenderer) but missed HERE -- isRenderingHand gates
+        // betterchams$redirectArmSubmit's opacity tint too, so an Opacity-only config
+        // (every other effect off) never set it true, silently no-opping hand opacity
+        // entirely (user report, 2026-07-16: "Opacity không hoạt động khi tay cầm items").
+        if (!BetterChams.INSTANCE.glowOn() && !BetterChams.INSTANCE.flareToggle.getValue() && !BetterChams.INSTANCE.outlineOn() && BetterChams.INSTANCE.fillMode.getValue() == BetterChams.FillMode.Off
+                && BetterChams.INSTANCE.opacity.getValue() >= 0.999) return;
 
         BetterChams.isRenderingHand = true;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();

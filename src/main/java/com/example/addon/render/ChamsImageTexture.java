@@ -1,4 +1,4 @@
-package com.example.addon.rendering;
+package com.example.addon.render;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
@@ -241,10 +241,6 @@ public class ChamsImageTexture extends AbstractTexture {
             this.textureView = inner.getTextureView();
             this.sampler     = inner.getSampler();
         }
-    }
-
-public void cancelPendingDecode() {
-        loadGeneration++;
     }
 
     public boolean hasImage() {

@@ -465,27 +465,38 @@ public class GifHUD extends AddonModule {
                 BufferedImage canvas = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D g2 = canvas.createGraphics();
 
-                List<byte[]> rawFrames = new ArrayList<>();
+                // Direct pixel copy into NativeImage -- SAME method as BetterChams'
+                // Image Fill GIF path (ChamsImageTexture.loadGifAsync). The old code
+                // PNG-encoded every frame here then PNG-decoded it back on the main
+                // thread; per-frame DEFLATE compression was the real cost behind slow
+                // GIF loads (~1min for heavy GIFs). Copying composited ARGB pixels
+                // straight into a NativeImage skips that whole round-trip -- it's plain
+                // CPU pixel data, safe to build off the render thread; only the
+                // DynamicTexture/GL upload below needs the main thread.
+                List<NativeImage> decodedFrames = new ArrayList<>();
+                int[] row = new int[gifW];
                 for (int i = 0; i < numFrames; i++) {
                     g2.drawImage(reader.read(i), 0, 0, null);
-                    BufferedImage baked = new BufferedImage(gifW, gifH, BufferedImage.TYPE_INT_ARGB);
-                    java.awt.Graphics2D gc = baked.createGraphics();
-                    gc.drawImage(canvas, 0, 0, null);
-                    gc.dispose();
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(baked, "png", baos);
-                    rawFrames.add(baos.toByteArray());
+                    NativeImage img = new NativeImage(NativeImage.Format.RGBA, gifW, gifH, false);
+                    for (int y = 0; y < gifH; y++) {
+                        canvas.getRGB(0, y, gifW, 1, row, 0, gifW);
+                        for (int x = 0; x < gifW; x++) {
+                            int argb = row[x];
+                            int abgr = (argb & 0xFF000000) | ((argb & 0xFF) << 16) | (argb & 0x00FF00) | ((argb >> 16) & 0xFF);
+                            img.setPixelABGR(x, y, abgr);
+                        }
+                    }
+                    decodedFrames.add(img);
                 }
                 g2.dispose(); reader.dispose(); iis.close();
 
                 mc.execute(() -> {
                     clearFrames();
                     try {
-                        for (int i = 0; i < rawFrames.size(); i++) {
+                        for (int i = 0; i < decodedFrames.size(); i++) {
                             final int fi = i;
-                            NativeImage img = NativeImage.read(new ByteArrayInputStream(rawFrames.get(fi)));
                             Identifier fid = Identifier.fromNamespaceAndPath("gifhud", "frame_" + System.nanoTime() + "_" + fi);
-                            DynamicTexture tex = new DynamicTexture(() -> "gifhud_" + fi, img);
+                            DynamicTexture tex = new DynamicTexture(() -> "gifhud_" + fi, decodedFrames.get(fi));
                             mc.getTextureManager().register(fid, tex);
                             gifFrames.add(fid);
                             frameTextures.add(tex);

@@ -1,4 +1,4 @@
-package com.example.addon.rendering;
+package com.example.addon.render;
 
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.pipeline.RenderTarget;

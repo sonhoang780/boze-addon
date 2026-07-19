@@ -1,4 +1,4 @@
-package com.example.addon.rendering;
+package com.example.addon.render;
 
 import com.example.addon.modules.CustomSky;
 import net.minecraft.client.Minecraft;

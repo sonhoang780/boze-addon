@@ -38,9 +38,23 @@ public class EbookReader extends AddonModule {
     private String currentBookTitle = "";
     private float readerFontSize = 14f;
 
+    // pageFlipProgress: 0 -> 1 over FLIP_DURATION_MS. While < 1, `flippingSide` page is
+    // physically curling (mesh warp, see renderCurlMesh) and `currentPageIndex` still
+    // points at the OLD sheet -- flipped to `pendingSheetIndex` the instant progress
+    // reaches 1 (paintCurlingPage below draws the destination sheet underneath the
+    // whole time, so the curl always reveals real incoming content, not a blank page).
     private float pageFlipProgress = 1.0f;
     private int pageFlipDir = 1;
     private long lastFrameTime = 0L;
+    private static final long FLIP_DURATION_MS = 550L;
+    private static final float CURL_RADIUS_FRAC = 0.22f; // fraction of half-page width
+
+    private enum FlipSide { LEFT, RIGHT }
+    private FlipSide flippingSide = null;
+    private int flippingPageIndex = -1;   // index into currentPages of the page physically curling
+    private int pendingSheetIndex = 0;    // currentPageIndex value to commit to when progress hits 1
+    private Image flipSourceImage = null; // snapshot of flippingPageIndex's content, taken once when the flip starts
+    private float flipSourceW = 0, flipSourceH = 0;
 
     private CachedSkiaTexture panelTex;
 
@@ -102,6 +116,13 @@ public class EbookReader extends AddonModule {
         }
         globalTokens.clear();
         currentPages.clear();
+        clearFlipState();
+    }
+
+    private void clearFlipState() {
+        if (flipSourceImage != null) { flipSourceImage.close(); flipSourceImage = null; }
+        flippingSide = null;
+        flippingPageIndex = -1;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -222,6 +243,8 @@ public class EbookReader extends AddonModule {
         return tokens;
     }
 
+    private String lastImageLoadError = "";
+
     private Image loadZipImage(ZipFile zip, String path) {
         try {
             ZipEntry e = zip.getEntry(path);
@@ -233,11 +256,14 @@ public class EbookReader extends AddonModule {
                     if (ze.getName().equalsIgnoreCase(path)) { e = ze; break; }
                 }
             }
-            if (e == null) return null;
+            if (e == null) { lastImageLoadError = "zip entry not found: " + path; return null; }
             try (InputStream is = zip.getInputStream(e)) {
                 return Image.makeFromEncoded(is.readAllBytes());
             }
-        } catch (Exception ex) { return null; }
+        } catch (Exception ex) {
+            lastImageLoadError = ex.getClass().getSimpleName() + ": " + ex.getMessage();
+            return null;
+        }
     }
 
     private String decodeEntities(String s) {
@@ -266,10 +292,27 @@ public class EbookReader extends AddonModule {
         return null;
     }
 
+    /**
+     * "../Images/Cover.jpg" resolved against "OEBPS/Text/" used to come out as
+     * "OEBPS/Text/.Images/Cover.jpg" -- every epub image (cover, illustrations,
+     * chapter headers) silently failed to load (zip entry not found). Root cause,
+     * confirmed via runtime log: the old `path.replace("./", "")` ran BEFORE the
+     * ".." collapse and matched blindly on the substring "./" wherever it appeared
+     * -- including inside "../", where characters 1-2 spell exactly "./" -- so
+     * "../Images" got mangled into ".Images" (the real "Images" segment eaten)
+     * before the "/../" collapse loop ever got a chance to run on the (already
+     * corrupted) path. Segment-based normalization sidesteps the whole class of
+     * bug: split on "/", drop "." segments, pop the previous real segment on "..".
+     */
     private String normalizeZipPath(String path) {
-        path = path.replace("./", "");
-        while (path.contains("/../")) path = path.replaceFirst("[^/]+/\\.\\./", "");
-        return path;
+        String[] parts = path.split("/", -1);
+        java.util.Deque<String> stack = new java.util.ArrayDeque<>();
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            if (part.equals("..")) { if (!stack.isEmpty()) stack.removeLast(); continue; }
+            stack.addLast(part);
+        }
+        return String.join("/", stack);
     }
 
     private File getEbookDir() {
@@ -392,7 +435,11 @@ public class EbookReader extends AddonModule {
             }
         }
         if (!curPage.cmds.isEmpty() || currentPages.isEmpty()) currentPages.add(curPage);
-        if (currentPageIndex >= currentPages.size()) currentPageIndex = Math.max(0, currentPages.size() - 1);
+        // currentPageIndex always names the LEFT page of a 2-page spread -- keep it even
+        // and in range (odd trailing "sheet" just shows a blank right page, handled at
+        // render time).
+        if (currentPageIndex >= currentPages.size()) currentPageIndex = Math.max(0, (currentPages.size() - 1) & ~1);
+        if (currentPageIndex < 0) currentPageIndex = 0;
     }
 
 
@@ -507,50 +554,68 @@ public class EbookReader extends AddonModule {
 
         @Override public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
             long now = System.currentTimeMillis(); float deltaMs = lastFrameTime == 0 ? 16f : (now - lastFrameTime); lastFrameTime = now;
-            if (pageFlipProgress < 1.0f) { pageFlipProgress += deltaMs / 280.0f; if (pageFlipProgress > 1.0f) pageFlipProgress = 1.0f; }
+            if (pageFlipProgress < 1.0f) {
+                pageFlipProgress += deltaMs / (float) FLIP_DURATION_MS;
+                if (pageFlipProgress >= 1.0f) {
+                    pageFlipProgress = 1.0f;
+                    currentPageIndex = pendingSheetIndex;
+                    clearFlipState();
+                }
+            }
 
             context.fill(0, 0, this.width, this.height, 0x66000000);
 
-            float baseW = 400, baseH = 480;
+            // Wider than the old single-page panel -- two half-pages side by side plus a
+            // spine gutter, like an open book instead of one sheet.
+            float baseW = 620, baseH = 480;
             float panelW = baseW * zoomScale, panelH = baseH * zoomScale;
             float winX = (this.width - panelW) / 2f, winY = (this.height - panelH) / 2f;
 
-            float slideOffset = 0f;
-            if (pageFlipProgress < 1.0f) slideOffset = (1f - (1f - (float)Math.pow(1f - pageFlipProgress, 3))) * 40f * pageFlipDir;
+            int drawX = (int) winX, drawY = (int) winY, drawW = (int) panelW, drawH = (int) panelH;
 
-            int drawX = (int) (winX + slideOffset);
-            int drawY = (int) winY;
-            int drawW = (int) panelW;
-            int drawH = (int) panelH;
-            
             context.fill(drawX, drawY, drawX + drawW, drawY + drawH, new Color(15, 15, 15, 210).getRGB());
             context.fill(drawX, drawY,       drawX + drawW, drawY + 1,   0x3CFFFFFF);
             context.fill(drawX, drawY + drawH - 1, drawX + drawW, drawY + drawH, 0x3CFFFFFF);
             context.fill(drawX, drawY,       drawX + 1,   drawY + drawH, 0x3CFFFFFF);
             context.fill(drawX + drawW - 1, drawY, drawX + drawW, drawY + drawH, 0x3CFFFFFF);
+            // Spine shadow down the middle of the open book.
+            int spineX = (int) (winX + panelW / 2f);
+            context.fill(spineX - 2, drawY + 2, spineX + 2, drawY + drawH - 2, 0x33000000);
 
             int contentTop = (int) winY + 14;
             if (showTitle.getValue()) {
-                context.text(minecraft.font, currentBookTitle, (int)(winX + slideOffset + (panelW - minecraft.font.width(currentBookTitle)) / 2f), contentTop, 0xFFFFFFFF, true);
+                context.text(minecraft.font, currentBookTitle, (int)(winX + (panelW - minecraft.font.width(currentBookTitle)) / 2f), contentTop, 0xFFFFFFFF, true);
                 contentTop += 16;
             }
 
             buildFonts(readerFontSize * zoomScale);
-            layoutPagesIfNeeded(panelW - 36, panelH - (contentTop - winY) - 40);
+            float gutter = 10f * zoomScale;
+            float outerMargin = 18f * zoomScale;
+            float halfPageW = (panelW - outerMargin * 2f - gutter) / 2f;
+            float pageH = panelH - (contentTop - winY) - 40;
+            layoutPagesIfNeeded(halfPageW, pageH);
 
-            int textAlpha = (int)(255 * Math.min(1f, pageFlipProgress * 1.6f));
+            float leftX = winX + outerMargin;
+            float rightX = leftX + halfPageW + gutter;
+
+            // While flipping, keep showing the OLD sheet underneath -- the destination
+            // sheet's content must not appear at all until the curl finishes (commit
+            // happens above, the instant progress hits 1.0f). The single page actually
+            // curling is skipped in paintSpread below (the mesh alone represents it).
+            int displayLeft = currentPageIndex;
+            int displayRight = displayLeft + 1;
+
             if (!currentPages.isEmpty()) {
-                drawRichPage(context, currentPages.get(currentPageIndex), winX + slideOffset + 18, contentTop, textAlpha);
+                drawSpread(context, displayLeft, displayRight, leftX, rightX, contentTop, halfPageW, pageH);
             }
 
-
-
-            // ── LOGIC HIỂN THỊ VÀ CLICK CHỌN TRANG ──
-            String pageInfo = (currentPageIndex + 1) + " / " + Math.max(1, currentPages.size());
+            // ── LOGIC HIỂN THỊ VÀ CLICK CHỌN TRANG (đếm theo tờ/sheet, 2 trang/tờ) ──
+            int totalSheets = Math.max(1, (currentPages.size() + 1) / 2);
+            String pageInfo = (currentPageIndex / 2 + 1) + " / " + totalSheets;
             int pageInfoW = minecraft.font.width(pageInfo);
-            int pageInfoX = (int)(winX + slideOffset + (panelW - pageInfoW) / 2f);
+            int pageInfoX = (int)(winX + (panelW - pageInfoW) / 2f);
             int pageInfoY = (int)(winY + panelH - 16);
-            
+
             // Hover đổi màu báo hiệu cho user biết có thể click được
             boolean hoverPage = mouseX >= pageInfoX && mouseX <= pageInfoX + pageInfoW && mouseY >= pageInfoY && mouseY <= pageInfoY + 9;
 
@@ -563,11 +628,11 @@ public class EbookReader extends AddonModule {
             }
 
             int btnY = (int)(winY + panelH - 30);
-            int btnPrevX = (int)(winX + slideOffset + panelW / 2f - 26);
-            int btnNextX = (int)(winX + slideOffset + panelW / 2f + 14);
+            int btnPrevX = (int)(winX + panelW / 2f - 26);
+            int btnNextX = (int)(winX + panelW / 2f + 14);
             boolean hoverPrev = mouseX >= btnPrevX && mouseX <= btnPrevX + 16 && mouseY >= btnY && mouseY <= btnY + 16;
             boolean hoverNext = mouseX >= btnNextX && mouseX <= btnNextX + 16 && mouseY >= btnY && mouseY <= btnY + 16;
-            
+
             // Prev Button
             context.fill(btnPrevX, btnY, btnPrevX + 16, btnY + 16, hoverPrev ? 0xFF444444 : 0xFF222222);
             context.fill(btnPrevX, btnY, btnPrevX + 16, btnY + 1, 0x3CFFFFFF);
@@ -575,7 +640,7 @@ public class EbookReader extends AddonModule {
             context.fill(btnPrevX, btnY, btnPrevX + 1, btnY + 16, 0x3CFFFFFF);
             context.fill(btnPrevX + 15, btnY, btnPrevX + 16, btnY + 16, 0x3CFFFFFF);
             context.text(minecraft.font, "<", btnPrevX + 4, btnY + 4, 0xFFFFFFFF, true);
-            
+
             // Next Button
             context.fill(btnNextX, btnY, btnNextX + 16, btnY + 16, hoverNext ? 0xFF444444 : 0xFF222222);
             context.fill(btnNextX, btnY, btnNextX + 16, btnY + 1, 0x3CFFFFFF);
@@ -585,10 +650,10 @@ public class EbookReader extends AddonModule {
             context.text(minecraft.font, ">", btnNextX + 5, btnY + 4, 0xFFFFFFFF, true);
 
             int zoomBtnY = (int) winY + 8;
-            int zOutX = (int)(winX + slideOffset + panelW - 48), zInX = (int)(winX + slideOffset + panelW - 24);
+            int zOutX = (int)(winX + panelW - 48), zInX = (int)(winX + panelW - 24);
             boolean hZOut = mouseX >= zOutX && mouseX <= zOutX + 16 && mouseY >= zoomBtnY && mouseY <= zoomBtnY + 16;
             boolean hZIn  = mouseX >= zInX  && mouseX <= zInX + 16  && mouseY >= zoomBtnY && mouseY <= zoomBtnY + 16;
-            
+
             // Zoom Out Button
             context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 16, hZOut ? 0xFF444444 : 0xFF222222);
             context.fill(zOutX, zoomBtnY, zOutX + 16, zoomBtnY + 1, 0x3CFFFFFF);
@@ -596,7 +661,7 @@ public class EbookReader extends AddonModule {
             context.fill(zOutX, zoomBtnY, zOutX + 1, zoomBtnY + 16, 0x3CFFFFFF);
             context.fill(zOutX + 15, zoomBtnY, zOutX + 16, zoomBtnY + 16, 0x3CFFFFFF);
             context.text(minecraft.font, "-", zOutX + 6, zoomBtnY + 4, 0xFFFFFFFF, true);
-            
+
             // Zoom In Button
             context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 16, hZIn ? 0xFF444444 : 0xFF222222);
             context.fill(zInX, zoomBtnY, zInX + 16, zoomBtnY + 1, 0x3CFFFFFF);
@@ -621,15 +686,15 @@ public class EbookReader extends AddonModule {
                     if (hoverPage) {
                         // Kích hoạt ô gõ chữ
                         isEditingPage = true;
-                        pageInputWidget.setValue(String.valueOf(currentPageIndex + 1));
+                        pageInputWidget.setValue(String.valueOf(currentPageIndex / 2 + 1));
                         pageInputWidget.setVisible(true);
                         this.setFocused(pageInputWidget);
                         pageInputWidget.setFocused(true);
                     } else if (leftClick) {
-                        if (hoverPrev && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; }
-                        else if (hoverNext && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; }
-                        else if (hZOut) { zoomScale = Math.max(0.6f, zoomScale - 0.1f); currentLayoutW = -1; }
-                        else if (hZIn) { zoomScale = Math.min(2.0f, zoomScale + 0.1f); currentLayoutW = -1; }
+                        if (hoverPrev) startFlip(-1);
+                        else if (hoverNext) startFlip(1);
+                        else if (hZOut) { zoomScale = Math.max(0.6f, zoomScale - 0.1f); currentLayoutW = -1; clearFlipState(); pageFlipProgress = 1f; }
+                        else if (hZIn) { zoomScale = Math.min(2.0f, zoomScale + 0.1f); currentLayoutW = -1; clearFlipState(); pageFlipProgress = 1f; }
                     }
                 }
             }
@@ -639,45 +704,151 @@ public class EbookReader extends AddonModule {
             super.extractRenderState(context, mouseX, mouseY, delta);
         }
 
+        /** Starts a page-turn: dir=+1 next sheet (right page curls), dir=-1 prev sheet (left page curls). No-op mid-flip or at a book edge. */
+        private void startFlip(int dir) {
+            if (pageFlipProgress < 1.0f) return;
+            int newLeft = currentPageIndex + dir * 2;
+            if (newLeft < 0 || newLeft >= currentPages.size()) return;
+
+            int sourcePageIdx = dir > 0 ? currentPageIndex + 1 : currentPageIndex;
+            FlipSide side = dir > 0 ? FlipSide.RIGHT : FlipSide.LEFT;
+            Image snapshot = null;
+            if (sourcePageIdx >= 0 && sourcePageIdx < currentPages.size() && currentLayoutW > 0 && currentLayoutH > 0) {
+                snapshot = renderPageToImage(currentPages.get(sourcePageIdx), currentLayoutW, currentLayoutH);
+            }
+
+            clearFlipState();
+            flipSourceImage = snapshot;
+            flipSourceW = currentLayoutW;
+            flipSourceH = currentLayoutH;
+            flippingSide = side;
+            flippingPageIndex = sourcePageIdx;
+            pendingSheetIndex = newLeft;
+            pageFlipDir = dir;
+            pageFlipProgress = 0f;
+        }
+
         private void submitPageInput() {
             try {
-                int targetPage = Integer.parseInt(pageInputWidget.getValue().trim());
-                int totalPages = Math.max(1, currentPages.size());
-                // ÉP KHUNG GIỚI HẠN: Nếu gõ lố > max hoặc gõ số 0, tự động ép về giới hạn
-                targetPage = Math.max(1, Math.min(targetPage, totalPages));
-                
-                int newIndex = targetPage - 1;
-                if (newIndex != currentPageIndex) {
-                    pageFlipDir = (newIndex > currentPageIndex) ? 1 : -1;
-                    currentPageIndex = newIndex;
-                    pageFlipProgress = 0f; // Kích hoạt animation trượt trang
+                int targetSheet = Integer.parseInt(pageInputWidget.getValue().trim());
+                int totalSheets = Math.max(1, (currentPages.size() + 1) / 2);
+                targetSheet = Math.max(1, Math.min(targetSheet, totalSheets));
+
+                int newLeft = (targetSheet - 1) * 2;
+                if (newLeft != currentPageIndex) {
+                    // Direct page-jump skips the curl animation entirely (no single
+                    // source page makes sense for an arbitrary multi-page jump) --
+                    // snaps straight to the target sheet, same as before this feature.
+                    clearFlipState();
+                    currentPageIndex = newLeft;
+                    pageFlipProgress = 1f;
                 }
-            } catch (Exception ignored) {} 
-            
+            } catch (Exception ignored) {}
+
             isEditingPage = false;
             pageInputWidget.setVisible(false);
         }
 
-        /**
-         * Renders the page's text + images GPU-side via SkiaPipRenderer (same mechanism
-         * MusicHUD uses) instead of the CachedSkiaTexture CPU-raster path this used to
-         * use. That path keyed its cache on (page identity, size, alpha) -- alpha changes
-         * on EVERY frame of the page-turn fade, so during a page turn it was doing a
-         * full CPU Skija raster (every text run + image in the page) once per frame for
-         * the whole fade duration, which is what dropped fps. GPU Skija redraws every
-         * frame too, but a direct GPU draw call is far cheaper than CPU raster + pixel
-         * readback + texture upload, so redrawing every frame is fine here.
-         */
-        private void drawRichPage(GuiGraphicsExtractor context, Page page, float startX, float startY, int alpha) {
+        /** One PIP paint covering the whole 2-page spread's bounding box (both static pages + the curling mesh, in that draw order). */
+        private void drawSpread(GuiGraphicsExtractor context, int leftIdx, int rightIdx, float leftX, float rightX, float startY, float halfW, float pageH) {
             int margin = 4;
-            int x0 = Math.round(startX) - margin, y0 = Math.round(startY) - margin;
-            int x1 = Math.round(startX + currentLayoutW) + margin, y1 = Math.round(startY + currentLayoutH) + margin;
+            int x0 = Math.round(leftX) - margin, y0 = Math.round(startY) - margin;
+            int x1 = Math.round(rightX + halfW) + margin, y1 = Math.round(startY + pageH) + margin;
             ((GuiGraphicsExtractorAccessor) context).getGuiRenderState()
                 .addPicturesInPictureState(new EbookPagePipState(
-                    canvas -> paintRichPage(canvas, page, startX, startY, alpha), x0, y0, x1, y1));
+                    canvas -> paintSpread(canvas, leftIdx, rightIdx, leftX, rightX, startY, halfW, pageH), x0, y0, x1, y1));
         }
 
-        /** Painter for drawRichPage's SkiaPipState -- canvas is already in absolute GUI-logical coordinates. */
+        private void paintSpread(Canvas canvas, int leftIdx, int rightIdx, float leftX, float rightX, float startY, float halfW, float pageH) {
+            // The page actually curling this frame is skipped here -- the mesh below is
+            // its ONLY visual representation, so nothing of the destination sheet (or a
+            // stale duplicate of the departing page) can show through behind it.
+            boolean leftIsFlipping = flippingSide == FlipSide.LEFT && leftIdx == flippingPageIndex;
+            boolean rightIsFlipping = flippingSide == FlipSide.RIGHT && rightIdx == flippingPageIndex;
+            if (!leftIsFlipping && leftIdx >= 0 && leftIdx < currentPages.size()) paintRichPage(canvas, currentPages.get(leftIdx), leftX, startY, 255);
+            if (!rightIsFlipping && rightIdx >= 0 && rightIdx < currentPages.size()) paintRichPage(canvas, currentPages.get(rightIdx), rightX, startY, 255);
+            if (flippingSide != null && flipSourceImage != null && !flipSourceImage.isClosed()) {
+                float pageX = flippingSide == FlipSide.LEFT ? leftX : rightX;
+                renderCurlMesh(canvas, flipSourceImage, flipSourceW, flipSourceH, pageX, startY, halfW, pageH, flippingSide, pageFlipProgress);
+            }
+        }
+
+        /**
+         * Renders a single page's content into an offscreen raster surface, snapshotted
+         * once when a flip starts (see startFlip) -- the curl mesh below re-textures this
+         * one static image every frame instead of re-rastering the page's text/images on
+         * every frame of the animation.
+         */
+        private Image renderPageToImage(Page page, float w, float h) {
+            int iw = Math.max(1, Math.round(w)), ih = Math.max(1, Math.round(h));
+            try (Surface surface = Surface.makeRasterN32Premul(iw, ih)) {
+                if (surface == null) return null;
+                Canvas canvas = surface.getCanvas();
+                canvas.clear(0);
+                paintRichPage(canvas, page, 0, 0, 255);
+                return surface.makeImageSnapshot();
+            }
+        }
+
+        private static final int CURL_COLS = 24;
+
+        /**
+         * Real mesh-warp page curl (cylinder-wrap model, not a flat slide/fade): the page
+         * splits at a fold line that sweeps from its outer edge to the spine as `progress`
+         * goes 0->1. Columns short of the fold stay flat; columns past it wrap around an
+         * imaginary cylinder of radius `pageW * CURL_RADIUS_FRAC` (`x' = foldX + R*sin(θ)`),
+         * darkening toward the roll's edge-on midpoint for the shadow-gradient look. Only
+         * needs 2 rows (top/bottom) since the curl amount is a pure function of the
+         * horizontal distance from the spine -- every row at a given column warps
+         * identically, so a full grid would just duplicate the same math per row.
+         */
+        private void renderCurlMesh(Canvas canvas, Image src, float srcW, float srcH, float pageX, float pageY, float pageW, float pageH, FlipSide side, float progress) {
+            if (src == null || src.isClosed() || srcW <= 0 || srcH <= 0 || pageW <= 0) return;
+            float radius = Math.max(1f, pageW * CURL_RADIUS_FRAC);
+            float foldS = pageW * (1f - progress);
+
+            int cols = CURL_COLS;
+            Point[] positions = new Point[(cols + 1) * 2];
+            Point[] texCoords = new Point[(cols + 1) * 2];
+            int[] colors = new int[(cols + 1) * 2];
+
+            for (int i = 0; i <= cols; i++) {
+                float s = pageW * i / (float) cols; // distance from the spine, 0..pageW
+                float u = srcW * (side == FlipSide.RIGHT ? (s / pageW) : (1f - s / pageW));
+
+                float xLocal;
+                float shade;
+                if (s <= foldS) {
+                    xLocal = s;
+                    shade = 1f;
+                } else {
+                    float d = s - foldS;
+                    float theta = Math.min((float) Math.PI, d / radius);
+                    xLocal = foldS + radius * (float) Math.sin(theta);
+                    shade = 0.25f + 0.75f * (float) Math.cos(Math.min(theta, (float) (Math.PI / 2)));
+                }
+
+                float xScreen = side == FlipSide.RIGHT ? (pageX + xLocal) : (pageX + pageW - xLocal);
+
+                int idx = i * 2;
+                positions[idx]     = new Point(xScreen, pageY);
+                positions[idx + 1] = new Point(xScreen, pageY + pageH);
+                texCoords[idx]     = new Point(u, 0);
+                texCoords[idx + 1] = new Point(u, srcH);
+
+                int shadeByte = Math.max(0, Math.min(255, (int) (shade * 255)));
+                int argb = (255 << 24) | (shadeByte << 16) | (shadeByte << 8) | shadeByte;
+                colors[idx] = argb;
+                colors[idx + 1] = argb;
+            }
+
+            try (Paint paint = new Paint()) {
+                paint.setShader(src.makeShader());
+                canvas.drawTriangleStrip(positions, colors, texCoords, null, paint);
+            }
+        }
+
+        /** Painter for drawSpread's SkiaPipState -- canvas is already in absolute GUI-logical coordinates. */
         private void paintRichPage(Canvas canvas, Page page, float startX, float startY, int alpha) {
             try (Paint paint = new Paint()) {
                 paint.setAntiAlias(true);
@@ -730,8 +901,8 @@ public class EbookReader extends AddonModule {
             }
 
             if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { this.onClose(); return true; }
-            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT && currentPageIndex > 0) { currentPageIndex--; pageFlipDir = -1; pageFlipProgress = 0f; return true; }
-            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT && currentPageIndex < currentPages.size() - 1) { currentPageIndex++; pageFlipDir = 1; pageFlipProgress = 0f; return true; }
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT) { startFlip(-1); return true; }
+            if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT) { startFlip(1); return true; }
             
             return super.keyPressed(input);
         }

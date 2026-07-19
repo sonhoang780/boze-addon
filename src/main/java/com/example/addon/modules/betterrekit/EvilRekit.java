@@ -5,10 +5,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.event.EventWorldRender;
 import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
+import dev.boze.api.render.WorldDrawer;
 import dev.boze.api.utility.ChatHelper;
+import dev.boze.api.utility.interaction.BreakHelper;
 import dev.boze.api.utility.interaction.InvHelper;
 import dev.boze.api.utility.interaction.PlaceHelper;
 import dev.boze.api.utility.interaction.SwapType;
@@ -52,6 +55,26 @@ public class EvilRekit extends AddonModule {
     public final ToggleOption auto = new ToggleOption(this, "Auto", "Auto pull shulkers from ender chest", false);
     public final ModeOption<SwapType> swapMode = new ModeOption<>(this, "SwapMode",
         "Swap type used when placing shulkers and swapping to a breaking tool in Auto mode.", SwapType.Alt);
+    // findShulkerInContainer normally ranks candidates purely by matching CONTENTS --
+    // two shulkers of the same color/kind can score identically (or the wrong one can
+    // even score HIGHER by coincidence, e.g. holding spare kit items) even though only
+    // one of them is actually the labeled kit shulker (user report, 2026-07-17: "tránh
+    // lấy lộn shulker dù cùng màu"). When enabled, a shulker whose custom name matches
+    // activeKitName gets an overriding bonus so it always wins regardless of content
+    // score -- content score alone still decides among UNNAMED shulkers.
+    public final ToggleOption considerShulkerName = new ToggleOption(this, "ConsiderShulkerName",
+        "Prefer the shulker whose custom name matches the active kit's name, overriding content-based scoring.", false);
+    // Keybind version of the place->open->pull->close->break cycle, WITHOUT the ender
+    // chest fetch/return steps (user spec, 2026-07-17: "tự đặt shulker ra, mở ra và
+    // đóng vào khi rekit xong, sau đó đập đi") -- operates on whatever shulker is
+    // already in the player's inventory. Reuses the SAME AutoState machine as the
+    // continuous Auto toggle (PLACE_SHULKER -> OPEN_SHULKER -> PULL_ITEMS ->
+    // BREAK_SHULKER -> RETURN_SHULKER), just entered directly at PLACE_SHULKER instead
+    // of via FIND_SHULKER/GRAB_SHULKER. RETURN_SHULKER already no-ops straight to IDLE
+    // when enderChestPos is null, so no ender-chest-specific handling was needed there.
+    public final dev.boze.api.option.BindOption autoPlaceBind = new dev.boze.api.option.BindOption(
+        this, "AutoPlace", "Keybind: places the shulker in your inventory, opens it, pulls kit items, "
+        + "closes, then breaks it. No ender chest involved -- similar to Auto but one-shot.", -1, false);
 
     // Preferred enchant per gear category when several candidates of the kit's item type
     // exist in the container -- ties into scoreCandidate(), which also prefers higher
@@ -91,9 +114,61 @@ public class EvilRekit extends AddonModule {
     private int emptyTicks = 0;
     private int shulkerEnderSlot = -1;       // slot in ender chest holding the shulker
     private BlockPos placedShulkerPos = null; // world position of placed shulker
+    private long placedShulkerRenderMs = 0;   // when placedShulkerPos was set -- drives the grow-in box animation
     private BlockPos enderChestPos = null;    // position of the ender chest block
+    // breakingStarted now doubles as "BreakHelper.breakBlock succeeded this attempt"
+    // (BreakHelper handles its own reach/tool/packet internals -- see BREAK_SHULKER).
     private boolean breakingStarted = false;
-    private boolean toolSwappedForBreak = false;
+    // PLACE_SHULKER: true once ensureHotbar's SWAP packet has been given a tick to
+    // settle client-side before InvHelper.swapToSlot + PlaceHelper.place() run -- see
+    // its use below for why this only matters when the shulker wasn't already in the
+    // hotbar (i.e. GRAB_SHULKER landed it in main inventory because the hotbar was full).
+    private boolean hotbarSwapSettled = false;
+    // How many times ensureHotbar's swap has been retried THIS placement attempt --
+    // one settle-wait tick occasionally isn't enough (a dropped/slow packet), and the
+    // old code gave up after exactly one attempt, bailing straight to RETURN_SHULKER
+    // (user report, 2026-07-16: "lấy shulker để vào inventory xong lại nhét vào
+    // enderchest"). Reset whenever PLACE_SHULKER is (re)entered.
+    private int hotbarSwapAttempts = 0;
+    private static final int MAX_HOTBAR_SWAP_ATTEMPTS = 3;
+    // Hard breaker for the whole GRAB->PLACE->RETURN cycle: if placement fails this
+    // many times in a row without EVER reaching OPEN_SHULKER, something is genuinely
+    // stuck (no valid spot, server rejecting the swap, etc) -- looping forever is
+    // worse than stopping and telling the user, and it's also why the ender chest GUI
+    // never closed (it only closes via isKitComplete(), which can never become true
+    // if no shulker ever actually gets placed/pulled).
+    private int placeFailStreak = 0;
+    private static final int MAX_PLACE_FAIL_STREAK = 3;
+    // pullFromContainerTick: mirrors InventorySorter's cursorWaitTicks -- let the
+    // player manually place a picked-up item themselves instead of Rekit immediately
+    // dumping it into the first empty slot (user report 2026-07-15).
+    private int cursorWaitTicks = 0;
+    private static final int CURSOR_DUMP_AFTER_TICKS = 20; // ~1 second at 20 TPS, desync guard only
+    // Hotbar-full displacement cycle (user spec, 2026-07-16): when GRAB_SHULKER finds
+    // the hotbar completely full, the shulker gets SWAPPED straight into a hotbar slot,
+    // shoving whatever was there into the ender chest at the shulker's old slot instead
+    // of falling back to a main-inventory slot. displacedHotbarSlot/displacedEnderSlot
+    // remember that pairing so RETURN_SHULKER can undo it exactly (shulker -> the exact
+    // ender slot the displaced item landed in, displaced item -> back to its original
+    // hotbar slot) instead of just dumping the shulker in whatever empty ender slot it
+    // finds first. -1 means "not in a displacement cycle".
+    private int displacedHotbarSlot = -1;
+    private int displacedEnderSlot = -1;
+
+    // 2026-07-18, "tôi nhấc item ra khỏi slot được vài giây nó lại tự đặt xuống": a kit
+    // slot going correct -> incorrect can ONLY happen externally (our own logic only ever
+    // ADDS the correct item to a kit slot, never removes it without immediately replacing
+    // it) -- so any such transition is the player manually taking the item out. Give that
+    // slot a grace window where the fill loop leaves it alone instead of instantly
+    // re-yanking a replacement back into the exact slot the player just cleared; if the
+    // kit still needs topping up during the grace window, it goes to a different empty
+    // slot instead, per user request ("tôi phải được đặt xuống slot khác chứ").
+    private final Map<Integer, Boolean> kitSlotWasCorrect = new HashMap<>();
+    private final Map<Integer, Long> kitSlotClearedAtMs = new HashMap<>();
+    private static final long KIT_SLOT_CLEAR_GRACE_MS = 3000L;
+
+    private boolean autoPlaceActive = false;   // true while a bind-triggered one-shot cycle is running
+    private boolean autoPlaceBindWasDown = false;
 
     public EvilRekit() {
         super("EvilRekit", "Better Regear");
@@ -243,7 +318,52 @@ public class EvilRekit extends AddonModule {
         placedShulkerPos = null;
         enderChestPos = null;
         breakingStarted = false;
-        toolSwappedForBreak = false;
+        hotbarSwapSettled = false;
+        cursorWaitTicks = 0;
+        displacedHotbarSlot = -1;
+        displacedEnderSlot = -1;
+        autoPlaceActive = false;
+        autoPlaceBindWasDown = false;
+        kitSlotWasCorrect.clear();
+        kitSlotClearedAtMs.clear();
+    }
+
+    @EventHandler
+    private void onAutoPlaceBindCheck(EventTick.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        // isBindDown polls raw GLFW key state, bypassing Minecraft's screen/focus routing --
+        // typing the bound letter into chat (or any other GUI text field) still reads as
+        // "physically down" and fired the bind mid-typing. Any open screen means we're not
+        // in normal gameplay input, so skip the raw poll entirely.
+        if (mc.screen != null) { autoPlaceBindWasDown = false; return; }
+        boolean down = isBindDown(autoPlaceBind);
+        if (down && !autoPlaceBindWasDown && autoState == AutoState.IDLE
+                && !mc.player.isCreative() && !mc.player.isSpectator()
+                && findShulkerInInventory(mc) != -1) {
+            autoPlaceActive = true;
+            autoState = AutoState.PLACE_SHULKER;
+            autoTicks = 0;
+            hotbarSwapSettled = false;
+            hotbarSwapAttempts = 0;
+        }
+        autoPlaceBindWasDown = down;
+    }
+
+    /**
+     * BindOption exposes only getBind()/isButton() -- no "is currently pressed"
+     * accessor exists in this API. Polling GLFW directly, same pattern already used
+     * elsewhere in this codebase (BedAura.java, EbookReader.java, GifHUD.java).
+     */
+    private static boolean isBindDown(dev.boze.api.option.BindOption bindOption) {
+        int code = bindOption.getBind();
+        if (code < 0) return false;
+        Minecraft mc = Minecraft.getInstance();
+        long handle = mc.getWindow().handle();
+        int state = bindOption.isButton()
+            ? org.lwjgl.glfw.GLFW.glfwGetMouseButton(handle, code)
+            : org.lwjgl.glfw.GLFW.glfwGetKey(handle, code);
+        return state == org.lwjgl.glfw.GLFW.GLFW_PRESS;
     }
 
     @EventHandler
@@ -252,7 +372,7 @@ public class EvilRekit extends AddonModule {
         if (mc.player == null) return;
         if (mc.player.isCreative() || mc.player.isSpectator()) return;
 
-        if (auto.getValue()) {
+        if (auto.getValue() || autoPlaceActive) {
             handleAutoTick(mc);
             return;
         }
@@ -261,6 +381,28 @@ public class EvilRekit extends AddonModule {
         if (!(mc.screen instanceof AbstractContainerScreen)) return;
         if (mc.screen instanceof InventoryScreen) return;
         manualPullTick(mc);
+    }
+
+    // Grow-in marker on the placed shulker: linear scale 15% -> 100% over
+    // PLACE_ANIM_MS, then holds at full size for as long as placedShulkerPos stays
+    // set (cleared once BREAK_SHULKER confirms the block is gone) -- a steady visual
+    // of where the shulker actually landed while it's being opened/broken, not just a
+    // one-shot spawn flash (user request, 2026-07-16: "box to dần từ trong ra ngoài").
+    private static final long PLACE_ANIM_MS = 400;
+    private static final dev.boze.api.render.ClientColor YELLOW = dev.boze.api.render.ColorMaker.staticColor(255, 220, 0);
+
+    @EventHandler
+    private void onWorldRender(EventWorldRender event) {
+        if (!auto.getValue() || placedShulkerPos == null) return;
+        long elapsed = System.currentTimeMillis() - placedShulkerRenderMs;
+        float t = Math.min(1.0f, elapsed / (float) PLACE_ANIM_MS);
+        float scale = 0.15f + 0.85f * t; // linear interpolation, small -> full block size
+        double cx = placedShulkerPos.getX() + 0.5, cy = placedShulkerPos.getY() + 0.5, cz = placedShulkerPos.getZ() + 0.5;
+        double half = 0.5 * scale;
+
+        WorldDrawer.start();
+        WorldDrawer.box(YELLOW, 0.25f, 0.9f, cx - half, cy - half, cz - half, cx + half, cy + half, cz + half);
+        WorldDrawer.draw(event.matrices);
     }
 
     /** One manual-mode pull pass (delay + actionsPerTick respected). Shared by manual mode
@@ -286,6 +428,10 @@ public class EvilRekit extends AddonModule {
 
         // IDLE: wait for ender chest to be opened
         if (autoState == AutoState.IDLE) {
+            // Re-arms the AutoPlace bind for its next press, and is a harmless no-op
+            // when IDLE was reached via the normal Auto-toggle path instead (it's
+            // already false there).
+            autoPlaceActive = false;
             if (screenOpen) {
                 // Manually opened shulker (or any container with no ender chest around):
                 // behave exactly like manual mode instead of hijacking/aborting. Auto's
@@ -315,6 +461,33 @@ public class EvilRekit extends AddonModule {
         if (autoState == AutoState.FIND_SHULKER) {
             if (!screenOpen) return; // wait for screen
             if (isKitComplete(mc)) {
+                // Same close-before-idle RETURN_SHULKER already does (its own comment,
+                // 2026-07-15) -- this is the OTHER place isKitComplete can flip true:
+                // if RETURN_SHULKER's last atomicSwap lands on a frame where its own
+                // isKitComplete() check reads stale (pre-settle) slot state, it takes
+                // the "loop: find next shulker" branch instead of closing, and control
+                // arrives HERE next tick with the kit now actually complete -- but
+                // this branch never closed the screen, leaving the ender chest (and
+                // whatever inventory-adjacent GUI was stacked with it) open forever
+                // (user report, 2026-07-16: "nhét được shulker vào enderchest... vẫn
+                // không đóng được cái Gui").
+                //
+                // Every close in this class now uses player.closeContainer() -- NOT
+                // mc.setScreen(null). setScreen(null) only calls Screen.removed()
+                // (client-side widget cleanup); it never sends
+                // ServerboundContainerClosePacket, so the SERVER's player.containerMenu
+                // stayed pointed at the ender chest menu forever. The next real
+                // container click (opening your own inventory and clicking an item)
+                // got silently dropped server-side as "Ignoring click in mismatching
+                // container" -- the exact same rejection already verified this session
+                // in MultiPlayerGameMode.handleContainerInput's bytecode.
+                // closeContainer() sends the close packet AND resets local state
+                // (verified via javap: LocalPlayer.closeContainer() ->
+                // clientSideCloseContainer() -> also calls setScreen(null) itself, so
+                // this one call fully replaces the old one) (user report, 2026-07-16:
+                // "mở lại inventory, tôi không thể thao tác với items ... chỉ fixed
+                // khi đóng inventory và mở lại").
+                mc.player.closeContainer();
                 autoState = AutoState.IDLE;
                 return;
             }
@@ -322,7 +495,17 @@ public class EvilRekit extends AddonModule {
             if (containerSize <= 0) return;
             shulkerEnderSlot = findShulkerInContainer(mc, containerSize);
             if (shulkerEnderSlot == -1) {
+                // No shulker in the chest holds anything the kit still needs, yet the kit
+                // isn't complete (isKitComplete was checked above) -- genuinely unfillable.
+                // Leaving autoState=IDLE with the screen still OPEN made IDLE's own
+                // screenOpen branch immediately re-enter FIND_SHULKER next tick: an infinite
+                // FIND_SHULKER<->IDLE spin that never closed the ender chest+inventory GUI
+                // (user report, 2026-07-16: "cất được shulker vào inventory rồi mà không
+                // đóng nổi cái gui"). Close it and stop instead of spinning.
+                error("Auto stopped: no shulker has the items this kit still needs.");
+                mc.player.closeContainer(); // NOT setScreen(null) -- see FIND_SHULKER's isKitComplete branch for why
                 autoState = AutoState.IDLE;
+                auto.setValue(false);
                 return;
             }
             autoState = AutoState.GRAB_SHULKER;
@@ -344,28 +527,56 @@ public class EvilRekit extends AddonModule {
                 return;
             }
 
-            // find empty unassigned inventory slot
-            int emptyInvSlot = findEmptyUnassignedHandlerSlot(handler, containerSize);
-            if (emptyInvSlot == -1) {
-                autoState = AutoState.IDLE;
-                return;
+            // Prefer moving the shulker straight into an EMPTY HOTBAR slot with a SWAP
+            // click on the STILL-OPEN ender chest menu -- the server accepts it because
+            // that container is genuinely open, so the shulker is guaranteed in the hotbar
+            // before the screen ever closes. The old path grabbed into any empty slot
+            // (often MAIN inventory when the hotbar was busy) and relied on ensureHotbar's
+            // SWAP against the CLOSED inventoryMenu (id 0) afterward -- which the server
+            // rejected as a container mismatch (its own player.containerMenu was still the
+            // ender chest for that in-flight moment), so the shulker never actually reached
+            // the hotbar server-side and placement read an empty main hand (user report,
+            // 2026-07-16: "lấy shulker vào người rồi mà không đặt ra được, không biết đổi
+            // từ inventory về hot bar"). ContainerInput.SWAP: slotId = source ender-chest
+            // slot, button = destination hotbar index 0-8 (verified against
+            // AbstractContainerMenu.clicked bytecode: SWAP requires button in [0,9) or 40
+            // and swaps player Inventory.getItem(button) with slots.get(slotId)).
+            int emptyHotbar = firstEmptyHotbarSlot(mc);
+            if (emptyHotbar != -1) {
+                mc.gameMode.handleContainerInput(handler.containerId, shulkerEnderSlot, emptyHotbar, ContainerInput.SWAP, mc.player);
+            } else {
+                // Hotbar completely full -- SWAP the shulker straight into a hotbar slot on
+                // the STILL-OPEN ender chest menu, displacing whatever's there into the
+                // ender chest at the shulker's old slot. Placing the shulker then empties
+                // that hotbar slot naturally -- exactly the "always leave 1 slot free to
+                // pick the shulker back up" the user specced, since it's the slot the shulker
+                // itself just vacated. RETURN_SHULKER's displaced-item branch restores the
+                // original item to that same hotbar slot once the cycle is done.
+                int hotbarSlot = mc.player.getInventory().getSelectedSlot() == 0 ? 1 : 0;
+                mc.gameMode.handleContainerInput(handler.containerId, shulkerEnderSlot, hotbarSlot, ContainerInput.SWAP, mc.player);
+                displacedHotbarSlot = hotbarSlot;
+                displacedEnderSlot = shulkerEnderSlot;
             }
-
-            // atomic swap: shulker from ender chest → player inventory
-            atomicSwap(mc, handler.containerId, shulkerEnderSlot, emptyInvSlot);
             autoState = AutoState.PLACE_SHULKER;
             autoTicks = 0;
+            hotbarSwapSettled = false;
+            hotbarSwapAttempts = 0;
             return;
         }
 
         // PLACE_SHULKER: close ender chest screen, place shulker on ground
         if (autoState == AutoState.PLACE_SHULKER) {
             if (screenOpen) {
-                mc.setScreen(null);
+                mc.player.closeContainer(); // NOT setScreen(null) -- see FIND_SHULKER's isKitComplete branch for why
                 return; // wait next tick after closing
             }
 
-            // wait a tick for screen close to propagate
+            // Wait a tick for screen close to propagate. NOT a network-latency wait --
+            // user confirmed singleplayer (zero real RTT) still hit this, ruling out
+            // the server-race theory as the actual cause; see findPlaceableSpot's
+            // enderChestPos exclusion for the real root cause of "shulker won't
+            // place" (2026-07-16). hotbarSwapAttempts below still covers whatever
+            // genuine multiplayer lag exists.
             if (autoTicks < 1) { autoTicks++; return; }
 
             // find the shulker in inventory
@@ -375,9 +586,42 @@ public class EvilRekit extends AddonModule {
                 return;
             }
 
+            // Normal swap (below) = Inventory.setSelectedSlot, which CRASHES on slots >8
+            // ("Invalid selected slot") -- move the shulker into the hotbar first if it
+            // isn't there. ensureHotbar sends its OWN container-click packet (separate
+            // from the swapToSlot+place below); when GRAB_SHULKER had to land the
+            // shulker outside the hotbar (hotbar was full of other items, so
+            // findEmptyUnassignedHandlerSlot skipped straight to main inventory), that
+            // packet needs a tick to actually settle in the local menu/inventory before
+            // PlaceHelper.place() reads the main-hand item -- placing in the SAME tick
+            // read the stale (pre-swap) held item and silently failed (user report,
+            // 2026-07-15: "không đặt được shulker khi hotbar đã full slot"). Skipped
+            // entirely when the shulker is already in the hotbar (no swap needed).
+            if (shulkerInvSlot > 8 && !hotbarSwapSettled) {
+                ensureHotbar(mc, shulkerInvSlot);
+                hotbarSwapSettled = true;
+                return; // let the swap settle; retry next tick
+            }
+
+            // The settle-wait fires once per attempt (hotbarSwapSettled), but the
+            // shulker can still be outside the hotbar afterward (a slow/dropped
+            // packet) -- re-arm and retry rather than immediately giving up, up to
+            // MAX_HOTBAR_SWAP_ATTEMPTS times.
+            if (shulkerInvSlot > 8) {
+                hotbarSwapAttempts++;
+                if (hotbarSwapAttempts > MAX_HOTBAR_SWAP_ATTEMPTS) {
+                    placeFailStreak++;
+                    autoState = AutoState.RETURN_SHULKER;
+                    return;
+                }
+                hotbarSwapSettled = false; // re-arm for another attempt next tick
+                return;
+            }
+
             // find placeable spot near player
             BlockPos placePos = findPlaceableSpot(mc);
             if (placePos == null) {
+                placeFailStreak++;
                 autoState = AutoState.RETURN_SHULKER; // try to return it
                 return;
             }
@@ -385,6 +629,7 @@ public class EvilRekit extends AddonModule {
             // swap shulker to hand and place
             BlockHitResult hit = getHitResultForPlace(mc, placePos);
             if (hit == null) {
+                placeFailStreak++;
                 autoState = AutoState.RETURN_SHULKER;
                 return;
             }
@@ -394,14 +639,36 @@ public class EvilRekit extends AddonModule {
             // what PlaceHelper actually sees locally), which is why the shulker never landed
             // and OPEN_SHULKER kept timing out with "Could not open placed shulker". Placement
             // always uses a real (Normal) swap regardless of the configured SwapMode.
-            // Normal swap = Inventory.setSelectedSlot, which CRASHES on slots >8 ("Invalid
-            // selected slot") -- move the shulker into the hotbar first if it isn't there.
-            shulkerInvSlot = ensureHotbar(mc, shulkerInvSlot);
+            // By now the shulker is guaranteed in the hotbar (either it started there, or
+            // the settle-wait above already moved it and gave it a tick to apply).
+            shulkerInvSlot = findShulkerInInventory(mc);
+            if (shulkerInvSlot < 0 || shulkerInvSlot > 8) {
+                placeFailStreak++;
+                autoState = AutoState.RETURN_SHULKER; // still not in hotbar -- bail rather than crash setSelectedSlot
+                return;
+            }
             InvHelper.swapToSlot(shulkerInvSlot, SwapType.Normal);
-            PlaceHelper.place(InteractionMode.NCP, hit, InteractionHand.MAIN_HAND);
-            // swapBack deferred to OPEN_SHULKER — hand must be empty to right-click shulker
+            // PlaceHelper's own docs recommend isEmpty(pos) before casting and its
+            // place() return value tells you whether it actually happened -- this
+            // code checked neither. A candidate close to the player (small ±2 search
+            // radius near an obstacle-dense spot, e.g. standing right at the ender
+            // chest) can pass findPlaceableSpot's block-state filter yet still be
+            // occupied by an ENTITY (most commonly the player's OWN hitbox bleeding
+            // into an adjacent tile) -- place() then silently fails server-side, but
+            // the old code barreled on into OPEN_SHULKER anyway, right-clicking empty
+            // air for 60 ticks, then BREAK_SHULKER's "block already gone" branch, then
+            // RETURN_SHULKER -- burning ~100+ ticks to fail every time near the chest
+            // (user report, 2026-07-16). Checking the actual result fails fast instead.
+            boolean placed = PlaceHelper.place(InteractionMode.NCP, hit, InteractionHand.MAIN_HAND);
+            if (!placed) {
+                InvHelper.swapBack(); // abandoning this attempt -- restore the held item now
+                placeFailStreak++;
+                autoState = AutoState.RETURN_SHULKER;
+                return;
+            }
 
             placedShulkerPos = placePos;
+            placedShulkerRenderMs = System.currentTimeMillis(); // starts the grow-in box animation, see onWorldRender
             autoState = AutoState.OPEN_SHULKER;
             autoTicks = 0;
             return;
@@ -416,14 +683,15 @@ public class EvilRekit extends AddonModule {
                 autoState = AutoState.PULL_ITEMS;
                 autoTicks = 0;
                 emptyTicks = 0;
+                placeFailStreak = 0; // a shulker actually got placed+opened -- not stuck
                 return;
             }
 
-            // wait for block placement to settle before first attempt
-            if (autoTicks < 3) { autoTicks++; return; }
-
-            // retry useItemOn every 4 ticks (5 attempts per second)
-            if (autoTicks % 4 == 0) {
+            // Try immediately (tick 0), not after a settle delay -- shrinks the window a
+            // high-efficiency tool has to break the shulker before it's opened. Worst case
+            // the block hasn't appeared client-side yet and this attempt is a no-op; the
+            // retry loop below (every 4 ticks) still covers that.
+            if (autoTicks == 0 || autoTicks % 4 == 0) {
                 BlockHitResult hit = new BlockHitResult(
                     Vec3.atCenterOf(placedShulkerPos),
                     Direction.UP,
@@ -482,7 +750,6 @@ public class EvilRekit extends AddonModule {
                 autoState = AutoState.BREAK_SHULKER;
                 autoTicks = 0;
                 breakingStarted = false;
-                toolSwappedForBreak = false;
             }
             return;
         }
@@ -490,7 +757,7 @@ public class EvilRekit extends AddonModule {
         // BREAK_SHULKER: close screen, break the placed shulker block
         if (autoState == AutoState.BREAK_SHULKER) {
             if (screenOpen) {
-                mc.setScreen(null);
+                mc.player.closeContainer(); // NOT setScreen(null) -- see FIND_SHULKER's isKitComplete branch for why
                 return;
             }
 
@@ -511,7 +778,6 @@ public class EvilRekit extends AddonModule {
                     if (autoTicks < 100) { autoTicks++; return; } // ~5s to walk over/collect it
                     // give up waiting, but still attempt RETURN_SHULKER in case it's just late
                 }
-                if (toolSwappedForBreak) { InvHelper.swapBack(); toolSwappedForBreak = false; }
                 autoState = AutoState.RETURN_SHULKER;
                 autoTicks = 0;
                 return;
@@ -519,30 +785,30 @@ public class EvilRekit extends AddonModule {
 
             // timeout: 200 ticks (10 seconds) for breaking
             if (autoTicks > 200) {
-                if (toolSwappedForBreak) { InvHelper.swapBack(); toolSwappedForBreak = false; }
                 autoState = AutoState.RETURN_SHULKER; // try to return (shulker still placed)
                 autoTicks = 0;
                 return;
             }
 
-            if (!breakingStarted) {
-                // Shulker boxes have no requiresCorrectToolForDrops() (see
-                // Blocks#shulkerBoxProperties) -- any tool, including bare hand, always
-                // drops the shulker with contents intact. Swapping to a pickaxe here is
-                // purely a speed nicety, not a safety requirement; skip it if none found.
-                var shulkerState = mc.level.getBlockState(placedShulkerPos);
-                if (!mc.player.getMainHandItem().isCorrectToolForDrops(shulkerState)) {
-                    int toolSlot = findBreakingTool(shulkerState);
-                    if (toolSlot != -1) {
-                        // Normal swap only accepts hotbar slots (setSelectedSlot crashes on >8).
-                        if (swapMode.getValue() == SwapType.Normal) toolSlot = ensureHotbar(mc, toolSlot);
-                        toolSwappedForBreak = InvHelper.swapToSlot(toolSlot, swapMode.getValue());
-                    }
-                }
-                mc.gameMode.startDestroyBlock(placedShulkerPos, Direction.UP);
-                breakingStarted = true;
-            }
-            mc.gameMode.continueDestroyBlock(placedShulkerPos, Direction.UP);
+            // BreakHelper.breakBlock: packet-based break (dev.boze.api.utility.
+            // interaction.BreakHelper), replacing the old manual startDestroyBlock/
+            // continueDestroyBlock survival-mining simulation (user request,
+            // 2026-07-16: "thử dùng BreakHelper for block breaking").
+            //
+            // REGRESSION FIXED (2026-07-16, same day): the first version gated this
+            // behind "if (!breakingStarted)", calling breakBlock() exactly ONCE per
+            // BREAK_SHULKER entry and never again -- breakBlock()'s return value means
+            // "a break attempt was sent this call", NOT "the block is now broken", so
+            // one failed/incomplete attempt (reach edge, timing, whatever) latched
+            // breakingStarted=true FOREVER with the shulker still standing, silently
+            // idling for the full 200-tick timeout, then bouncing to RETURN_SHULKER,
+            // finding the block still placed, bouncing BACK to BREAK_SHULKER -- an
+            // infinite oscillation that never actually broke the block (user report,
+            // 2026-07-16, screenshot showing the placement marker still on an intact
+            // shulker: "shulker không hề vỡ"). Call it every tick, like the old
+            // continueDestroyBlock loop did, until the canBeReplaced() check above
+            // catches the real break.
+            breakingStarted = BreakHelper.breakBlock(placedShulkerPos);
             autoTicks++;
             return;
         }
@@ -585,7 +851,6 @@ public class EvilRekit extends AddonModule {
                     autoState = AutoState.BREAK_SHULKER;
                     autoTicks = 0;
                     breakingStarted = false;
-                    toolSwappedForBreak = false;
                     return;
                 }
                 autoState = AutoState.FIND_SHULKER;
@@ -597,25 +862,62 @@ public class EvilRekit extends AddonModule {
             if (containerSize <= 0) return;
             AbstractContainerMenu handler = mc.player.containerMenu;
 
-            // find empty slot in ender chest
-            int emptyEnderSlot = -1;
-            for (int i = 0; i < containerSize; i++) {
-                if (handler.getSlot(i).getItem().isEmpty()) {
-                    emptyEnderSlot = i;
-                    break;
+            if (displacedHotbarSlot != -1) {
+                // Undo the hotbar-full displacement: put the shulker back into the EXACT
+                // ender slot the displaced item landed in, then move that item back to its
+                // original hotbar slot. A straight 2-slot swap can't do this 3-way
+                // relocation (shulker's current inventory slot -> ender slot -> hotbar
+                // slot), so it's done as a 3-click PICKUP rotation, same primitive
+                // atomicSwap uses. Relies on displacedHotbarSlot being empty at this point
+                // (it is, by design -- the shulker vacated it on placement and nothing else
+                // in this state machine writes there).
+                int shulkerHandlerSlot = getPlayerHandlerSlot(containerSize, shulkerInvSlot);
+                click(mc, handler.containerId, shulkerHandlerSlot, 0, ContainerInput.PICKUP); // cursor = shulker
+                click(mc, handler.containerId, displacedEnderSlot, 0, ContainerInput.PICKUP);  // ender slot = shulker, cursor = displaced item
+                int origHandlerSlot = getPlayerHandlerSlot(containerSize, displacedHotbarSlot);
+                click(mc, handler.containerId, origHandlerSlot, 0, ContainerInput.PICKUP);     // hotbar slot = displaced item, cursor empty
+                displacedHotbarSlot = -1;
+                displacedEnderSlot = -1;
+            } else {
+                // find empty slot in ender chest
+                int emptyEnderSlot = -1;
+                for (int i = 0; i < containerSize; i++) {
+                    if (handler.getSlot(i).getItem().isEmpty()) {
+                        emptyEnderSlot = i;
+                        break;
+                    }
                 }
-            }
-            if (emptyEnderSlot == -1) {
-                autoState = AutoState.IDLE;
-                return;
-            }
+                if (emptyEnderSlot == -1) {
+                    autoState = AutoState.IDLE;
+                    return;
+                }
 
-            int playerHandlerSlot = getPlayerHandlerSlot(containerSize, shulkerInvSlot);
-            atomicSwap(mc, handler.containerId, playerHandlerSlot, emptyEnderSlot);
+                int playerHandlerSlot = getPlayerHandlerSlot(containerSize, shulkerInvSlot);
+                atomicSwap(mc, handler.containerId, playerHandlerSlot, emptyEnderSlot);
+            }
 
             placedShulkerPos = null;
             shulkerEnderSlot = -1;
-            if (isKitComplete(mc)) {
+            // Hard breaker: this shulker just went back into the chest UNPLACED
+            // (placeFailStreak only survives this far when it never reached
+            // OPEN_SHULKER) -- looping back into FIND_SHULKER would just grab the
+            // same shulker again and repeat forever, which is also why the chest GUI
+            // never closed (isKitComplete() can never go true if nothing ever gets
+            // placed/pulled). Stop and tell the user instead of spinning (user report,
+            // 2026-07-16: "infinite loop", "vẫn không đóng được gui enderchest").
+            if (placeFailStreak >= MAX_PLACE_FAIL_STREAK) {
+                error("Auto stopped: could not place/open a shulker after " + placeFailStreak + " attempts.");
+                mc.player.closeContainer(); // NOT setScreen(null) -- see FIND_SHULKER's isKitComplete branch for why
+                autoState = AutoState.IDLE;
+                auto.setValue(false);
+                placeFailStreak = 0;
+            } else if (isKitComplete(mc)) {
+                // Every other transition out of an open container closes the screen
+                // before moving on (PLACE_SHULKER, BREAK_SHULKER) -- this final one
+                // didn't, so the ender chest was left open forever after a completed
+                // regear (user report, 2026-07-15). IDLE's own screenOpen branch would
+                // otherwise see it still open and immediately restart FIND_SHULKER.
+                mc.player.closeContainer(); // NOT setScreen(null) -- see FIND_SHULKER's isKitComplete branch for why
                 autoState = AutoState.IDLE;
             } else {
                 autoState = AutoState.FIND_SHULKER; // loop: find next shulker
@@ -687,6 +989,13 @@ public class EvilRekit extends AddonModule {
                     }
                 }
             }
+            // Overriding bonus (dwarfs any possible content score) for a shulker whose
+            // custom name matches the active kit -- see considerShulkerName's javadoc.
+            if (considerShulkerName.getValue() && !activeKitName.isEmpty()
+                    && stack.has(DataComponents.CUSTOM_NAME)
+                    && stack.getHoverName().getString().equalsIgnoreCase(activeKitName)) {
+                score += 1_000_000;
+            }
             if (score > bestScore) {
                 bestScore = score;
                 bestSlot = i;
@@ -697,14 +1006,6 @@ public class EvilRekit extends AddonModule {
         // item) and just kept pulling shulker after shulker forever instead of stopping.
         if (bestScore <= 0) return -1;
         return bestSlot;
-    }
-
-    // Vanilla's own tool-correctness check against the actual shulker block state
-    // (isCorrectToolForDrops) instead of guessing by item id suffix -- shulker boxes
-    // require minecraft:mineable/pickaxe specifically; an axe breaks them but drops
-    // nothing.
-    private int findBreakingTool(net.minecraft.world.level.block.state.BlockState shulkerState) {
-        return InvHelper.find(stack -> !stack.isEmpty() && stack.isCorrectToolForDrops(shulkerState));
     }
 
     /**
@@ -729,24 +1030,83 @@ public class EvilRekit extends AddonModule {
         return -1;
     }
 
+    /** First empty hotbar slot (0-8), or -1 if the hotbar is full. */
+    private int firstEmptyHotbarSlot(Minecraft mc) {
+        for (int i = 0; i <= 8; i++) {
+            if (mc.player.getInventory().getItem(i).isEmpty()) return i;
+        }
+        return -1;
+    }
+
+    // 2026-07-18, "nếu có player đang pvp với tôi thì đặt xa player đó ra": vanilla's own
+    // combat tracker (LivingEntity.getLastHurtByMob/getLastHurtByMobTimestamp) already
+    // tracks "who am I actively fighting" -- no custom damage-event wiring needed. A hit
+    // older than this window means the fight's likely over; fall back to nearest-to-self.
+    private static final long RECENT_COMBAT_TICKS = 100L; // ~5s at 20 TPS
+
+    private net.minecraft.world.entity.player.Player getActiveCombatOpponent(Minecraft mc) {
+        net.minecraft.world.entity.LivingEntity last = mc.player.getLastHurtByMob();
+        if (!(last instanceof net.minecraft.world.entity.player.Player opponent)) return null;
+        long ticksSinceHit = mc.level.getGameTime() - mc.player.getLastHurtByMobTimestamp();
+        return ticksSinceHit <= RECENT_COMBAT_TICKS ? opponent : null;
+    }
+
     private BlockPos findPlaceableSpot(Minecraft mc) {
         BlockPos base = mc.player.blockPosition();
-        // search in a small radius around the player's feet
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
+        net.minecraft.world.entity.player.Player opponent = getActiveCombatOpponent(mc);
+        // Search out to the player's real interact reach (not a fixed +-2) -- user
+        // explicitly doesn't need it near themselves, only openable, so widening this is
+        // required for "away from the opponent" to have anywhere meaningful to go.
+        int r = (int) Math.ceil(mc.player.blockInteractionRange());
+
+        // Raster scan order used to return the FIRST valid candidate hit, which is very
+        // often a corner of the search box even when the tile right at the player's feet
+        // was already valid -- placed shulker ended up needlessly far, forcing a walk to
+        // pick it back up after breaking (user report, 2026-07-16). Collect every valid
+        // candidate and pick by actual distance instead of scan order: nearest-to-self by
+        // default, or FARTHEST-from-opponent when actively being fought (still gated by
+        // the reach radius above, so it stays within interact range of the player).
+        BlockPos best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
                 BlockPos candidate = base.offset(dx, 0, dz);
+                if (candidate.distSqr(base) > r * (double) r) continue;
+                // Never place ON TOP of the ender chest itself -- its top face passes
+                // the "solid block below" check below just like any other block, so
+                // without this exclusion the search radius (which always covers the
+                // chest the player is standing next to) could pick that exact spot.
+                // getHitResultForPlace then targets the chest's own UP face, and
+                // right-clicking a block with its own GUI (the ender chest) OPENS IT
+                // instead of placing the held shulker -- which is exactly "won't place
+                // while still in range to open the ender chest" (user report,
+                // 2026-07-16), and the unexpected reopened ender-chest screen is also
+                // why Rekit could never cleanly close it afterward.
+                if (candidate.below().equals(enderChestPos)) continue;
+                // PlaceHelper's own docs: "recommended to check isEmpty before
+                // casting" -- catches ENTITIES occupying the tile (most commonly the
+                // player's own hitbox bleeding into an adjacent candidate at small
+                // search radius, e.g. standing right next to the ender chest), which
+                // the raw block-state checks below can't see at all (2026-07-16).
+                if (!PlaceHelper.isEmpty(candidate)) continue;
                 // need air at candidate AND solid block below
                 if (mc.level.getBlockState(candidate).canBeReplaced()
                     && !mc.level.getBlockState(candidate.below()).canBeReplaced()
                     && !mc.level.getBlockState(candidate.below()).is(Blocks.AIR)) {
                     // also need air above for shulker to open (shulker is 1 block tall)
                     if (mc.level.getBlockState(candidate.above()).canBeReplaced()) {
-                        return candidate;
+                        double score = opponent != null
+                            ? -candidate.distSqr(opponent.blockPosition()) // maximize distance from opponent
+                            : dx * dx + dz * dz;                          // minimize distance from self
+                        if (score < bestScore) {
+                            bestScore = score;
+                            best = candidate;
+                        }
                     }
                 }
             }
         }
-        return null;
+        return best;
     }
 
     private BlockHitResult getHitResultForPlace(Minecraft mc, BlockPos placePos) {
@@ -806,7 +1166,16 @@ public class EvilRekit extends AddonModule {
         if (containerSize <= 0) return false;
 
         if (!handler.getCarried().isEmpty()) {
-            // ponytail: dirty cursor blocks all pulling — clear it into container or empty player slot
+            // Let the player manually click an item, pick it up, and place it themselves
+            // -- Rekit must not auto-dump whatever's on the cursor the instant they pick
+            // something up (user report, 2026-07-15; same fix as InventorySorter's
+            // cursorWaitTicks). Only dump as a desync guard after it's sat there for a
+            // while (e.g. a server-rejected click left OUR OWN cursor stuck, not the
+            // player's manual pickup).
+            cursorWaitTicks++;
+            if (cursorWaitTicks < CURSOR_DUMP_AFTER_TICKS) return false;
+            cursorWaitTicks = 0;
+
             int clearSlot = -1;
             for (int i = 0; i < containerSize; i++) {
                 if (handler.getSlot(i).getItem().isEmpty()) { clearSlot = i; break; }
@@ -823,6 +1192,7 @@ public class EvilRekit extends AddonModule {
             }
             return false; // nowhere to dump carried item
         }
+        cursorWaitTicks = 0;
 
         for (int i = 0; i < 36; i++) {
             KitItem kit = activeKit.get(i);
@@ -831,10 +1201,30 @@ public class EvilRekit extends AddonModule {
             int playerSlot = getPlayerHandlerSlot(containerSize, i);
             ItemStack playerStack = handler.getSlot(playerSlot).getItem();
             if (isShulkerBox(playerStack)) continue;
-            if (!isCorrectItem(playerStack, kit)) {
+
+            boolean correctNow = isCorrectItem(playerStack, kit);
+            // A kit slot going correct -> incorrect can only be the player's own action (see
+            // field doc above) -- start/refresh this slot's grace window on that transition.
+            if (Boolean.TRUE.equals(kitSlotWasCorrect.get(i)) && !correctNow) {
+                kitSlotClearedAtMs.put(i, System.currentTimeMillis());
+            }
+            kitSlotWasCorrect.put(i, correctNow);
+
+            if (!correctNow) {
+                boolean inGrace = System.currentTimeMillis() - kitSlotClearedAtMs.getOrDefault(i, 0L) < KIT_SLOT_CLEAR_GRACE_MS;
                 int containerSlot = findBestItemInContainer(handler, containerSize, kit);
                 if (containerSlot != -1) {
-                    atomicSwap(mc, handler.containerId, containerSlot, playerSlot);
+                    int emptySlot = inGrace ? findEmptyUnassignedHandlerSlot(handler, containerSize) : -1;
+                    if (emptySlot != -1 && emptySlot != playerSlot) {
+                        atomicSwap(mc, handler.containerId, containerSlot, emptySlot);
+                    } else {
+                        // No redirect target (or not in grace) -- fill the designated slot
+                        // directly. Waiting out the grace window here would only stall a
+                        // wanted refill for no benefit (2026-07-18, "cho item vào ender chest
+                        // mà đợi 1 lúc mới lấy" -- there was nowhere to redirect to, so it
+                        // just sat idle until the grace timer ran out on its own).
+                        atomicSwap(mc, handler.containerId, containerSlot, playerSlot);
+                    }
                     return true;
                 }
             }

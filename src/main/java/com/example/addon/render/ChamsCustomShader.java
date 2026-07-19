@@ -1,4 +1,4 @@
-package com.example.addon.rendering;
+package com.example.addon.render;
 
 import com.example.addon.modules.BetterChams;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -15,8 +15,6 @@ import java.nio.file.Path;
 
 public class ChamsCustomShader {
     private static final Logger LOGGER = LoggerFactory.getLogger(ChamsCustomShader.class);
-
-    public static final Identifier OUTLINE_TEX_ID = Identifier.fromNamespaceAndPath("example-addon", "textures/effect/betterchamsoutline.png");
 
     private static int program = -1;
     public static int fillFbo = -1;

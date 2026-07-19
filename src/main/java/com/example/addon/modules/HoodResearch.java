@@ -585,13 +585,27 @@ public class HoodResearch extends AddonModule {
 
     private final Random random = new Random();
     private SoundInstance currentMusic;
+    // Bumped on every enable/disable -- an in-flight askAiAndAnswer task compares its
+    // captured value against this to detect a stale cycle (see onDisable/askAiAndAnswer).
+    private volatile long taskGen = 0;
 
     public HoodResearch() {
         super("HoodResearch", "Asks a random physics/biology/life trivia question and plays music while enabled.");
+        // onDisable() only fires when the MODULE's own toggle turns off -- if the user
+        // just quits/relogs a world while HoodResearch stays enabled the whole time,
+        // onDisable() never runs, taskGen never bumps, and an in-flight askAiAndAnswer
+        // task (still sleeping/waiting on the Groq HTTP response from the OLD session)
+        // survives into the NEW session and spams its stale answer there once it
+        // finally completes (user report, 2026-07-16). World disconnect must invalidate
+        // in-flight tasks independently of the module's own enabled state -- reusing
+        // onDisable() here does exactly that (bumps taskGen, stops the music) without
+        // touching the module's toggle/option state at all.
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
+            (handler, client) -> onDisable());
     }
 
-    @Override
     public void onEnable() {
+        long gen = ++taskGen;
         String question = QUESTIONS[random.nextInt(QUESTIONS.length)];
         Minecraft mc = Minecraft.getInstance();
         // Real outgoing chat message (goes to the server, which broadcasts it like any
@@ -601,7 +615,7 @@ public class HoodResearch extends AddonModule {
         if (mc.getConnection() != null && mc.getConnection().getConnection().isConnected()) {
             mc.getConnection().sendChat("$ Q: " + question);
         }
-        askAiAndAnswer(question);
+        askAiAndAnswer(question, gen);
 
         // MASTER category so it plays regardless of Minecraft's own "Music" volume
         // slider (per explicit request) -- forMusic() hardcodes SoundSource.MUSIC,
@@ -614,8 +628,12 @@ public class HoodResearch extends AddonModule {
         mc.getSoundManager().play(currentMusic);
     }
 
-    @Override
     public void onDisable() {
+        // Bumping invalidates any in-flight askAiAndAnswer task (see its gen check) --
+        // otherwise a task started before a disable/quit/relog can still be mid-sleep
+        // when the module re-enables later, and its stale send would land alongside
+        // (or instead of) the new question's answer.
+        ++taskGen;
         if (currentMusic != null) {
             Minecraft.getInstance().getSoundManager().stop(currentMusic);
             currentMusic = null;
@@ -635,16 +653,18 @@ public class HoodResearch extends AddonModule {
     private static final int CHAT_LINE_MAX = 245;
     private static final long LINE_DELAY_MS = 1500L;
 
-    private void askAiAndAnswer(String question) {
+    private void askAiAndAnswer(String question, long gen) {
         CompletableFuture.runAsync(() -> {
             try {
                 Thread.sleep(2000);
             } catch (InterruptedException ignored) {
                 return;
             }
+            if (taskGen != gen) return; // module disabled/re-enabled while waiting -- stale, drop it
             String answer = fetchAiAnswer(question);
             java.util.List<String> lines = splitIntoChatLines(answer);
             for (int i = 0; i < lines.size(); i++) {
+                if (taskGen != gen) return; // same guard before every line, not just once up front
                 // "A: " only on the first line -- continuation lines are the same
                 // sentence spilling over, repeating it on every line would read wrong.
                 String prefix = i == 0 ? "$ A: " : "$ ";
@@ -660,8 +680,11 @@ public class HoodResearch extends AddonModule {
                     // deep in Connection.doSendPacket/Netty's own async task executor).
                     // Checking the raw Connection's isConnected(), not just the listener
                     // reference, matches the same guard EBouncePlus#flushPackets already
-                    // uses for exactly this reason.
-                    if (mc.getConnection() != null && mc.getConnection().getConnection().isConnected()) {
+                    // uses for exactly this reason. The taskGen check on top of that is
+                    // what stops a leftover answer from a PREVIOUS enable/quit/relog cycle
+                    // from reappearing once the player reconnects (isConnected() alone
+                    // goes back to true then, but this is no longer today's question).
+                    if (taskGen == gen && mc.getConnection() != null && mc.getConnection().getConnection().isConnected()) {
                         mc.getConnection().sendChat(line);
                     }
                 });
@@ -703,9 +726,12 @@ public class HoodResearch extends AddonModule {
             return "(AI answer unavailable: no Groq API key set -- use .research key <APIKEY>)";
         }
 
-        String prompt = "Give a detailed, thorough, lecture-style explanation answering this "
-            + "question, as if delivering a short speech (several sentences, real substance, "
-            + "not a one-liner): " + question;
+        // Was a "lecture-style ... short speech" prompt -- read like a professor,
+        // ran long (many chat lines). User request (2026-07-16): answer like an
+        // ordinary person explaining it casually, short, no deep jargon.
+        String prompt = "Answer this question briefly, like a regular person explaining it to a "
+            + "friend in casual conversation -- 2-3 short sentences, plain everyday language, "
+            + "no jargon or lecture tone: " + question;
 
         com.google.gson.JsonObject message = new com.google.gson.JsonObject();
         message.addProperty("role", "user");

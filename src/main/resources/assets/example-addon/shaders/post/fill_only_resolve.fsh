@@ -13,6 +13,21 @@ uniform sampler2D OutlineParamsSampler; // see BetterChams.OUTLINE_PARAMS_ID
 in vec2 texCoord;
 out vec4 fragColor;
 
+// Gel is meant to be genuinely see-through (reference image: the ground is visible
+// straight through the body), NOT a solid color getting progressively more opaque
+// toward the center -- that was the previous version's mistake (2026-07-13 user
+// correction). The real depth/brightness cue is InnerGlow bleeding GlowColor inward
+// from the edge, but InnerGlow needs glowEnabled -- and THIS chain only ever runs
+// when Glow AND Flare are both off (see the file comment below), so it can never
+// show that cue. This flat low-alpha tint is all Gel fill shows when routed here;
+// for the full look (transparent fill + glow bleeding in) Glow/InnerGlow need to be
+// on, which routes through glow_resolve.fsh instead.
+const float GEL_FILL_ALPHA_SCALE = 0.15;
+
+vec4 gelFill(vec4 fillTint, float fillOpacity) {
+    return vec4(fillTint.rgb, fillOpacity * fillTint.a * GEL_FILL_ALPHA_SCALE);
+}
+
 // Flare is NOT handled here: the fill_only chains are only routed to when Flare is
 // off (see MixinLevelRenderer/MixinGameRenderer gating) -- Flare needs the blurred
 // silhouette field that only the glow-style chains produce, so with Flare on the
@@ -43,9 +58,17 @@ void main() {
         return;
     }
 
-    if (ours && fillEnabled > 0.5) {
+    // fillEnabled is a packed 3-state value: 0 = no fill, ~0.5 = flat FillColor fill
+    // (Image Fill mode == Off), ~1.0 = image/gif-textured fill tinted by FillColor.
+    if (ours && fillEnabled > 0.75) {
         vec4 img = texture(ImageSampler, flippedUv);
         fragColor = vec4(img.rgb * fillTint.rgb, img.a * fillOpacity * fillTint.a);
+        return;
+    }
+    if (ours && fillEnabled > 0.25) {
+        bool isGel = texelFetch(OutlineParamsSampler, ivec2(0, 0), 0).a > 0.5;
+        fragColor = isGel ? gelFill(fillTint, fillOpacity)
+                           : vec4(fillTint.rgb, fillOpacity * fillTint.a);
         return;
     }
 

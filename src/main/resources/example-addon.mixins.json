@@ -16,6 +16,7 @@
     "MixinGameRenderer",
     "MixinLivingEntity",
     "MixinLivingEntityRenderer",
+    "MixinLivingEntityRendererGhost",
     "MixinEntity",
     "EntityFlagAccessor",
     "MixinMultiPlayerGameMode",
@@ -34,6 +35,10 @@
     "MixinChatComponent",
     "MixinSoundManager",
     "MixinGuiRenderState",
-    "MixinChatComponentLandingDetect"
+    "MixinChatComponentLandingDetect",
+    "MixinEntityRenderStateGelUuid",
+    "MixinModelFeatureRenderer",
+    "MixinDeltaTrackerTimer",
+    "MixinItemFeatureRenderer"
   ]
 }

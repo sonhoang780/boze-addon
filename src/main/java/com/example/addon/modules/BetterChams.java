@@ -1,6 +1,6 @@
 package com.example.addon.modules;
 
-import com.example.addon.rendering.ChamsImageTexture;
+import com.example.addon.render.ChamsImageTexture;
 import com.example.addon.screens.ImagePickerScreen;
 import com.mojang.blaze3d.platform.NativeImage;
 import dev.boze.api.addon.AddonModule;
@@ -69,6 +69,14 @@ public class BetterChams extends AddonModule {
     // (both views), 2026-07-04. With green-250 the isOurs guard can now REJECT
     // exact pure white as foreign.
     public static final int ENTITY_OUTLINE_COLOR = 0xFFFFFAFF;
+
+    // Crystals need their own sub-marker so glow_resolve.fsh can tell "Player" (8
+    // InnerGlow layers) apart from "Crystal" (4 layers) within the shared entity
+    // class. R (always 255 in both HAND/ENTITY markers -- an unused bit until now)
+    // drops to 250 instead, still passing isOurs's r>0.97 test (250/255=0.98), while
+    // G/B keep the EXACT entity pattern (250/255) so the existing hand-vs-entity
+    // split (which reads G/B, see isOurs and the b<0.995 checks) is untouched.
+    public static final int CRYSTAL_OUTLINE_COLOR = 0xFFFAFAFF;
 
     // Current frame's field radius in px -- read by JfaField to pick its jump-flood
     // reach (more/bigger jump steps = wider distance search for big Glow Thickness /
@@ -185,13 +193,28 @@ public class BetterChams extends AddonModule {
     public final SliderOption flareSize = new SliderOption(this, "Flare Size",
         "", 48.0, 8.0, 128.0, 1.0);
 
-    public final ToggleOption outlineToggle = new ToggleOption(this, "Outline",
-        "", false);
+    public enum OutlineMode {
+        Off, Simple, Complex
+    }
+    // Named "OutlineMode" (not "Outline") deliberately: the old option was a
+    // ToggleOption named "Outline" (boolean true/false) -- same JSON-type-collision
+    // hazard as GlowMode replacing "Glow", see that enum's comment. Simple = the
+    // original crisp JFA-edge outline. Complex = the old Gel Fill mode's outline
+    // (GelParticleSystem wireframe box cage + Brownian dust + deep InnerGlow layers),
+    // now decoupled from Image Fill entirely since Gel mode was removed.
+    public final dev.boze.api.option.ModeOption outlineMode = new dev.boze.api.option.ModeOption(this, "OutlineMode",
+        "Simple: crisp edge outline. Complex: wireframe box cage + Brownian dust + deep inner glow.", OutlineMode.Off);
     public final SliderOption outlineRadius = new SliderOption(this, "Outline Radius",
         "Outline thickness", 2.0, 1.0, 5.0, 1.0);
     public final dev.boze.api.option.ColorOption outlineTint = new dev.boze.api.option.ColorOption(this, "OutlineColor",
         "", dev.boze.api.render.ColorMaker.staticColor(255, 255, 255), 1.0f);
-
+    // Independent of OutlineMode -- previously a hardcoded ~15% alpha (0x26FFFFFF)
+    // applied only to players in Gel Fill mode via LivingEntityRenderer's isInvisible
+    // ghost branch. Now a real slider driving a dedicated constant-alpha translucent
+    // RenderType applied to both Players and Crystals (see BetterChamsGhostPipeline).
+    // 1.0 = normal opaque rendering, 0.0 = fully invisible.
+    public final SliderOption opacity = new SliderOption(this, "Opacity",
+        "Body opacity for Players, Crystals, and Hands. 1.0 = normal, 0.0 = fully invisible.", 1.0, 0.0, 1.0, 0.01);
     public enum FillMode {
         Off, Image, Gif, Shader
     }
@@ -206,6 +229,17 @@ public class BetterChams extends AddonModule {
         "Open gif picker from boze/gifs/.", false);
     public final ToggleOption selectShader  = new ToggleOption(this, "SelectShader",
         "Open shader picker from boze/shaders/.", false);
+
+    // Complex OutlineMode only (formerly "Gel mode"): Brownian noise particles
+    // drifting inside each body part's box, clipped per-part (see GelParticleSystem).
+    // Values scale a real Java-side particle sim, not a shader effect. Density used to
+    // be a slider -- removed (hardcoded to 1.0 in GelParticleSystem) since particles
+    // are already per-part, not shared across the whole model; a single global
+    // density knob added nothing a per-part volume-based target didn't already give.
+    public final SliderOption gelSpeed = new SliderOption(this, "Gel Speed",
+        "Complex outline: Brownian particle drift speed.", 0.3, 0.0, 2.0, 0.05);
+    public final SliderOption gelTrailLength = new SliderOption(this, "Gel Trail Length",
+        "Complex outline: how many past positions each particle's streak keeps.", 4.0, 1.0, 6.0, 1.0);
 
     public final SliderOption frameDelay    = new SliderOption(this, "FrameDelay",
         "Delay between GIF frames in ms.", 10.0, 0.0, 300.0, 1.0);
@@ -269,6 +303,11 @@ public class BetterChams extends AddonModule {
         return glowMode.getValue() != GlowMode.Off;
     }
 
+    /** True unless OutlineMode is Off. Mirrors glowOn(); every call site reads the current ModeOption value. */
+    public boolean outlineOn() {
+        return outlineMode.getValue() != OutlineMode.Off;
+    }
+
     private FillMode lastFillMode = FillMode.Off;
 
     public void reloadTextureForCurrentMode() {
@@ -294,7 +333,7 @@ public class BetterChams extends AddonModule {
             String savedName = com.example.addon.AddonConfig.get("betterchams_shader", "");
             if (!savedName.isEmpty()) {
                 Path p = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("boze/shaders/" + savedName);
-                if (java.nio.file.Files.exists(p)) com.example.addon.rendering.ChamsCustomShader.loadShader(p);
+                if (java.nio.file.Files.exists(p)) com.example.addon.render.ChamsCustomShader.loadShader(p);
             }
         }
     }
@@ -303,7 +342,7 @@ public class BetterChams extends AddonModule {
         if (path.toString().toLowerCase().endsWith(".frag")) {
             com.example.addon.AddonConfig.set("betterchams_shader", path.getFileName().toString());
             fillMode.setValueByName("Shader");
-            com.example.addon.rendering.ChamsCustomShader.loadShader(path);
+            com.example.addon.render.ChamsCustomShader.loadShader(path);
         } else {
             OUTLINE_TEXTURE.loadSolidColor(0xFFFFFFFF);
             CHAMS_TEXTURE.loadImage(path);
@@ -343,7 +382,7 @@ public class BetterChams extends AddonModule {
         }
         
         if (currentMode == FillMode.Shader) {
-            com.example.addon.rendering.ChamsCustomShader.renderCustomShader();
+            com.example.addon.render.ChamsCustomShader.renderCustomShader();
             // CHAMS_TEXTURE and OUTLINE_TEXTURE are already updated directly by ChamsCustomShader
         } else {
             // Unused textures revert to inner when they are not in Shader mode
@@ -395,10 +434,21 @@ public class BetterChams extends AddonModule {
         NativeImage pixels = tex.getPixels();
         if (pixels == null) return;
 
-        boolean fillOn = on && (fillMode.getValue() != FillMode.Off) && CHAMS_TEXTURE.hasImage();
+        // "Image Fill" == Off used to mean NO fill at all -- now it means a flat
+        // FillColor fill instead (image/gif modes still tint their sampled texture by
+        // FillColor same as before; Off just has no texture to sample from). r packs a
+        // 3-state value the shaders branch on: 0 = no fill, 128 = flat FillColor fill,
+        // 255 = image/gif-textured fill.
+        FillMode fmodeForFill = (FillMode) fillMode.getValue();
+        // Shader mode counts too -- ChamsCustomShader.renderCustomShader() paints
+        // straight into CHAMS_TEXTURE same as Image/Gif, so it needs the same
+        // ImageSampler fill branch (omitting it left Shader mode packing r=0,
+        // i.e. "no fill", even though the texture had already been rendered).
+        boolean imageFillOn = on && (fmodeForFill == FillMode.Image || fmodeForFill == FillMode.Gif || fmodeForFill == FillMode.Shader) && CHAMS_TEXTURE.hasImage();
+        boolean flatFillOn = on && fmodeForFill == FillMode.Off;
         boolean glowFxOn = on && glowOn();
         boolean flareOn = on && flareToggle.getValue();
-        int r = fillOn ? 255 : 0;
+        int r = imageFillOn ? 255 : (flatFillOn ? 128 : 0);
         int g = Math.round((float)(fillOpacity.getValue() * 255)) & 0xFF;
         // Raw pixel radius, unpacked via *255 in shader. The same blurred field doubles
         // as Flare's flame canvas, so when Flare is on the blur must reach at least
@@ -415,7 +465,7 @@ public class BetterChams extends AddonModule {
         // glow_resolve.fsh) instead of its own independent march -- the field must
         // reach at least outlineRadius or a thin Glow Thickness + wide Outline Radius
         // combo would falsely read "no edge found" past the field's search limit.
-        if (outlineToggle.getValue()) blurRadius = Math.max(blurRadius, outlineRadius.getValue());
+        if (outlineOn()) blurRadius = Math.max(blurRadius, outlineRadius.getValue());
 
         // Hard ceiling: self up close in 3rd person can drive `scale` to its 2.0 cap
         // while ALSO already filling most of the frame on its own -- the resulting
@@ -503,8 +553,12 @@ public class BetterChams extends AddonModule {
         NativeImage pixels = outlineParamsTexture.getPixels();
         if (pixels == null) return;
 
-        boolean outlineOn = on && outlineToggle.getValue();
-        int enabled = outlineOn ? 255 : 0;
+        // Crisp silhouette outline is enabled for BOTH Simple and Complex now: in
+        // Complex the shader restricts it to HAND pixels only (players/crystals use the
+        // world-space wireframe boxes), so the hand keeps its Simple-style outline when
+        // the mode switches to Complex (user 2026-07-15: hand outline vanished in Complex).
+        boolean outlineEnabled = on && outlineOn();
+        int enabled = outlineEnabled ? 255 : 0;
         // Outline is deliberately NOT distance-scaled: its radius is pure edge
         // thickness in pixels, and a 1-5px line reads fine at any distance.
         int radiusPacked = Math.round((float)(outlineRadius.getValue() / 5.0 * 255.0)) & 0xFF;
@@ -512,7 +566,14 @@ public class BetterChams extends AddonModule {
         // glow_resolve.fsh can pick Soft (gaussian falloff) vs Neon (core + halo)
         // without a new texture/JSON declaration. 0 = Soft/Off, 255 = Neon.
         int glowModePacked = (glowMode.getValue() == GlowMode.Neon) ? 255 : 0;
-        pixels.setPixelABGR(0, 0, (0xFF << 24) | (glowModePacked << 16) | (radiusPacked << 8) | enabled);
+        // Alpha byte here was always forced to 0xFF (spare) -- carries isComplexOutline
+        // now so the resolve shader can pick the deep multi-layer InnerGlow (formerly
+        // gated on Gel Fill mode) without a new texture. Complex's wireframe box cage
+        // is rendered separately (GelParticleSystem), not a shader effect -- this flag
+        // only controls the InnerGlow depth/layer-count now.
+        boolean isComplexOutline = on && outlineMode.getValue() == OutlineMode.Complex;
+        int complexPacked = isComplexOutline ? 255 : 0;
+        pixels.setPixelABGR(0, 0, (complexPacked << 24) | (glowModePacked << 16) | (radiusPacked << 8) | enabled);
 
         pixels.setPixelABGR(1, 0, packTint(outlineTint.getValue().color));
 

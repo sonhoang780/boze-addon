@@ -54,7 +54,9 @@ public class Notification extends AddonModule {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         MutableComponent line = Component.literal("[Boze] ").setStyle(Style.EMPTY.withColor(BOZE_PREFIX_COLOR))
-            .append(Component.literal(enabled ? "[+] " : "[-] ").withStyle(enabled ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.RED))
+            .append(Component.literal("[").withStyle(net.minecraft.ChatFormatting.WHITE))
+            .append(Component.literal(enabled ? "+" : "-").withStyle(enabled ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.RED))
+            .append(Component.literal("] ").withStyle(net.minecraft.ChatFormatting.WHITE))
             .append(Component.literal(module.getName()).withStyle(net.minecraft.ChatFormatting.WHITE));
         mc.player.sendSystemMessage(line);
     }
