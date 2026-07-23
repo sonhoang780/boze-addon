@@ -265,7 +265,9 @@ void main() {
             // this is an approximation: a bigger cap + a bigger reach multiplier than
             // Simple's thin-rim formula. Only Complex gets the deeper reach; Simple
             // keeps the original thin-rim look.
-            float rimCapPx = complexHere ? 120.0 : 6.0;
+            // Complex cap 120 -> 40: the 8-dir march costs 8*cap fetches per interior
+            // pixel; 120 was the main GPU drop with a close-up model (2026-07-21).
+            float rimCapPx = complexHere ? 40.0 : 6.0;
             float rimPx = clamp(glowRatio * unscalePixel * fieldRadiusPx * (complexHere ? 1.2 : 0.5), 1.0, rimCapPx);
             int rimSteps = int(ceil(rimPx));
             vec2 texelStep = 1.0 / OutSize;

@@ -282,6 +282,35 @@ public class JfaField {
      * (2026-07-04). Running the full seed->jump->finalize pipeline twice (reusing
      * the same ping-pong buffers sequentially) keeps each class's distance exact
      * and lets glow_resolve.fsh compute+combine them independently. */
+    // True once GLOW_TEXTURE holds an all-invalid (cleared) field; lets clearField()
+    // be a no-op on every empty frame after the first instead of re-clearing.
+    private static boolean fieldCleared = false;
+
+    /**
+     * Empty-silhouette fast path: instead of the full seed->jump->finalize chain,
+     * clear GLOW_TEXTURE once to zero (validity flags 0 in all 4 channels), which the
+     * resolve pass reads as "no seed found" for both classes. Idempotent per streak.
+     */
+    public static void clearField() {
+        if (fieldCleared) return;
+        int outTex = GlowBlur.GLOW_TEXTURE.getRawTextureId();
+        if (outTex == -1 || fbo == -1) { fieldCleared = true; return; } // never rendered yet: nothing stale
+        int previousFBO = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        boolean prevScissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        if (prevScissor) GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        int[] prevColorMask = new int[4];
+        GL11.glGetIntegerv(GL11.GL_COLOR_WRITEMASK, prevColorMask);
+        GL11.glColorMask(true, true, true, true);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, outTex, 0);
+        GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glColorMask(prevColorMask[0] != 0, prevColorMask[1] != 0, prevColorMask[2] != 0, prevColorMask[3] != 0);
+        if (prevScissor) GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFBO);
+        fieldCleared = true;
+    }
+
     public static void render(RenderTarget outlineTarget) {
         if (!(outlineTarget.getColorTexture() instanceof GlTexture glTex)) return;
         int fullW = outlineTarget.width, fullH = outlineTarget.height;
@@ -293,6 +322,7 @@ public class JfaField {
 
         ensureResources(fullW, fullH);
         if (seedProgram == -1 || jumpProgram == -1 || finalizeProgram == -1) return;
+        fieldCleared = false; // field is about to hold real data again
 
         int previousFBO = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
         int[] viewport = new int[4];

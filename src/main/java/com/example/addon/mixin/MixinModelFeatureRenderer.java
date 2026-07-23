@@ -1,8 +1,11 @@
 package com.example.addon.mixin;
 
 import com.example.addon.modules.BetterChams;
+import com.example.addon.modules.KillEffect;
 import com.example.addon.render.GelParticleSystem;
 import com.example.addon.render.GelUuidCarrier;
+import com.example.addon.render.KillEffectParticleSystem;
+import com.example.addon.render.ModelCubeCapture;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.model.HumanoidModel;
@@ -79,6 +82,48 @@ public abstract class MixinModelFeatureRenderer {
         } else {
             GelParticleSystem.INSTANCE.updateCrystal(id, (net.minecraft.client.model.object.crystal.EndCrystalModel) modelObj, basePose);
         }
+    }
+
+    /**
+     * KillEffect one-shot capture. Separate from the Gel inject above (which is gated on
+     * BetterChams + Complex): this fires whenever KillEffect owes a dying player a cube
+     * capture, independent of BetterChams. submit.model() is posed exactly as rendered
+     * this frame, so this is the moment to snapshot the body's shape and spawn the burst.
+     * Players only (HumanoidModel); markCaptured clears the pending flag so it fires once.
+     */
+    @Inject(method = "renderModel", at = @At("TAIL"))
+    private void exampleAddon$killEffectCapture(
+        SubmitNodeStorage.ModelSubmit submit,
+        RenderType type,
+        VertexConsumer consumer,
+        OutlineBufferSource outlineBufferSource,
+        MultiBufferSource.BufferSource bufferSource,
+        CallbackInfo ci
+    ) {
+        KillEffect ke = KillEffect.INSTANCE;
+        if (!ke.getState()) return;
+        Object modelObj = submit.model();
+        if (!(modelObj instanceof HumanoidModel<?> humanoid)) return;
+        if (!(submit.state() instanceof GelUuidCarrier carrier)) return;
+        UUID id = carrier.exampleAddon$getGelUuid();
+        if (id == null || !ke.needsCapture(id)) return;
+
+        PoseStack basePose = new PoseStack();
+        basePose.mulPose(submit.pose().pose());
+
+        var cubes = ModelCubeCapture.captureHumanoid(humanoid, basePose, null);
+        if (cubes.isEmpty()) return; // not posed usefully yet -- keep the flag, retry next frame
+
+        net.minecraft.client.Camera camera = net.minecraft.client.Minecraft.getInstance().gameRenderer.getMainCamera();
+        var camPosD = camera.position();
+        org.joml.Vector3f camPos = new org.joml.Vector3f((float) camPosD.x, (float) camPosD.y, (float) camPosD.z);
+
+        KillEffectParticleSystem.INSTANCE.spawn(
+            cubes, camPos,
+            ke.glowColor.getValue().color,
+            ke.getParticleCount(), ke.getExplodeSpeed(), ke.getDuration()
+        );
+        ke.markCaptured(id);
     }
 
     /**

@@ -134,6 +134,25 @@ public class PathFinder extends AddonModule {
         } catch (IllegalArgumentException e) {
             wasOn = false;
         }
+
+        // 2026-07-20: confirmed (reproduced with ZERO addon modules involved) that Boze itself
+        // resets ElytraFly's "Mode" ModeOption to its defaultValue ("Control") the instant the
+        // module's enabled state flips off->on, no matter who/what triggers the toggle. So
+        // capturing here (inside onEnable) can already be too late -- restore target instead
+        // comes from LiveModeCache, which polls every tick all session (see its doc).
+        try {
+            BaseModule fly = ModuleManager.getClientModule(MODULE_ELYTRA_FLY);
+            if (fly != null) {
+                for (Option<?> opt : fly.getOptions()) {
+                    if (opt instanceof ModeOption<?> mo && mo.name.equalsIgnoreCase("mode")) {
+                        flyModeOption = mo;
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        savedFlyModeName = com.example.addon.util.LiveModeCache.INSTANCE.getElytraFlyMode();
+
         if (!wasOn) {
             try {
                 ModuleManager.setState(MODULE_ELYTRA_FLY, true);
@@ -141,19 +160,10 @@ public class PathFinder extends AddonModule {
             } catch (Exception ignored) {}
         }
 
-        try {
-            BaseModule fly = ModuleManager.getClientModule(MODULE_ELYTRA_FLY);
-            if (fly != null) {
-                for (Option<?> opt : fly.getOptions()) {
-                    if (opt instanceof ModeOption<?> mo && mo.name.equalsIgnoreCase("mode")) {
-                        flyModeOption = mo;
-                        savedFlyModeName = mo.getModeName();
-                        mo.setValueByName("Creative");
-                        break;
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
+        if (flyModeOption != null) {
+            com.example.addon.util.LiveModeCache.INSTANCE.suppressElytraFly();
+            try { forceSetModeByName(flyModeOption, "Creative"); } catch (Exception ignored) {}
+        }
     }
 
     @Override
@@ -163,14 +173,21 @@ public class PathFinder extends AddonModule {
         windowStartPos = null;
         windowTicks = 0;
         escapeTicksRemaining = 0;
-        // FIX: KHÔNG trả ElytraFly về mode cũ (Control) nữa -- giữ nguyên "Creative"
-        // (cùng fix đã áp cho ElytraFix.restoreFlyMode). Chỉ dọn dẹp tham chiếu.
-        flyModeOption = null;
-        savedFlyModeName = null;
+        // If WE turned ElytraFly on, disable it BEFORE restoring the mode -- if Boze also
+        // resets ModeOptions on the off transition (symmetric to the confirmed on-transition
+        // reset), restoring first would just get wiped by the disable call right after it.
         if (enabledElytraFly) {
             try { ModuleManager.setState(MODULE_ELYTRA_FLY, false); } catch (Exception ignored) {}
             enabledElytraFly = false;
         }
+        if (flyModeOption != null && savedFlyModeName != null) {
+            try { forceSetModeByName(flyModeOption, savedFlyModeName); } catch (Exception ignored) {}
+        }
+        if (flyModeOption != null) {
+            com.example.addon.util.LiveModeCache.INSTANCE.unsuppressElytraFly();
+        }
+        flyModeOption = null;
+        savedFlyModeName = null;
     }
 
     private void releaseKeys() {
@@ -395,6 +412,31 @@ public class PathFinder extends AddonModule {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Workaround for a real bug in ModeOption.setValueByName/getEnumClass: getEnumClass()
+     * uses {@code value.getClass()}, but a Java enum constant with a body override has its
+     * OWN anonymous subclass, not the real enum class -- getEnumConstants() on that subclass
+     * returns null, so setValueByName's search silently finds nothing no matter what name is
+     * passed. Falls back to the constant's real enum class via getSuperclass() when this
+     * happens, then sets the value directly (setValue, not setValueByName).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static boolean forceSetModeByName(ModeOption<?> modeOpt, String name) {
+        Object current = modeOpt.getValue();
+        if (!(current instanceof Enum<?> currentEnum)) return false;
+        Class<?> cls = currentEnum.getClass();
+        Object[] constants = cls.getEnumConstants();
+        if (constants == null) constants = cls.getSuperclass().getEnumConstants();
+        if (constants == null) return false;
+        for (Object c : constants) {
+            if (c instanceof Enum<?> e && e.name().equalsIgnoreCase(name)) {
+                ((ModeOption) modeOpt).setValue(e);
+                return true;
+            }
+        }
+        return false;
     }
 
     private void disableElytraFlyForLanding() {

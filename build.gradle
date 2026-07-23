@@ -125,34 +125,7 @@ if (!mcefPatchedJar.exists() || mcefPatchedJar.lastModified() < mcefRawJar.lastM
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    // This jitpack coordinate is a plain class library (jar has NO fabric.mod.json,
-    // "modules": [] on jitpack for this tag) -- it can never run as an in-game mod
-    // no matter how it's bundled. PathFinder.java has always expected the REAL
-    // Baritone Fabric mod to be installed separately by the user in mods/ --
-    // compileOnly is correct: compile against its classes, don't bundle a dead jar.
     compileOnly "com.github.cabaletta:baritone:1.2.14"
-    // dev.babbaj:nether-pathfinder was bundled here for the old vendored nether-ceiling
-    // pathfinder -- removed entirely (see PathFinder.java's class doc), but this
-    // dependency lingered and kept bundling nether-pathfinder 1.3.0 into boze-addon.jar
-    // alongside baritone's own bundled 1.4.1 copy of the exact same
-    // dev.babbaj.pathfinder.NetherPathfinder class/native lib. Two versions of the same
-    // JNI-backed class on the classpath is exactly the "shadowed baritone's own bundled
-    // copy" bug the comment already warned about -- caused a real EXCEPTION_ACCESS_VIOLATION
-    // crash (hs_err log) inside the native nether_pathfinder DLL from
-    // ElytraBehavior.clearView -> NetherPathfinder.isVisible the moment Baritone's real
-    // #elytra actually used it, since whichever Java class won classloading no longer
-    // matched the ABI of whichever native .dll got extracted. Nothing in this addon's
-    // source references dev.babbaj.pathfinder anymore -- safe to drop entirely and let
-    // baritone's own bundled 1.4.1 be the only copy loaded.
-    // viafabricplus-api is a stub interface jar only (no real protocol-translation
-    // code) -- the full "viafabricplus" artifact is what actually does the work
-    // and is what must be bundled for it to function in-game.
-    // Pinned to 4.5.5, NOT the latest (4.6.1): 4.5.5's fabric.mod.json declares
-    // "minecraft": ">=26.1 <=26.1.2" -- an exact match for this project's
-    // minecraft_version. 4.6.0+ moved their minimum to "26.2", which Fabric
-    // Loader's dependency check would reject against 26.1.2 (mod refuses to
-    // load, not a bundling problem -- verified directly against the resolved
-    // jars' fabric.mod.json, not guessed).
     compileOnly "com.viaversion:viafabricplus-api:4.5.5"
     implementation "com.viaversion:viafabricplus:4.5.5"
     include "com.viaversion:viafabricplus:4.5.5"

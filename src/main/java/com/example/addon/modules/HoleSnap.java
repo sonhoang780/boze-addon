@@ -5,6 +5,7 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInput;
 import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
@@ -61,6 +62,14 @@ public class HoleSnap extends AddonModule {
         }
     }
 
+    public enum HoleSnapMode { Normal, Strict }
+
+    public final ModeOption<HoleSnapMode> mode = new ModeOption<>(this, "Mode",
+        "Normal = direct-velocity homing, lands exactly on hole center (see Speed). "
+        + "Strict = original WASD-relative approach with a deadzone (real vanilla movement, "
+        + "less precise centering) -- use if Normal's raw-velocity movement gets flagged.",
+        HoleSnapMode.Normal);
+
     public final SliderOption range = new SliderOption(this, "Range",
         "Horizontal range for finding holes.", 3.0, 0.0, 5.0, 1.0);
     public final SliderOption downRange = new SliderOption(this, "DownRange",
@@ -89,6 +98,14 @@ public class HoleSnap extends AddonModule {
     public final SliderOption boostTicks = new SliderOption(this, "BoostTicks",
         "How many ticks to hold the boosted Timer multiplier for after enabling.", 3.0, 1.0, 20.0, 1.0,
         (java.util.function.BooleanSupplier) boost::getValue);
+
+    // Direct per-tick horizontal step. BlackOut's original default (0.2873) assumes no
+    // velocity-based AC -- this server's checks already forced FastWeb down to a known
+    // safe ceiling of 0.08/tick raw velocity (see FastWeb NCP tuning), so default here
+    // matches that instead of BlackOut's, or the server rubberbands the spike back every
+    // tick and HoleSnap looks like it's standing still (2026-07-20).
+    public final SliderOption speed = new SliderOption(this, "Speed",
+        "Per-tick horizontal step toward the hole center (blocks/tick). Keep <=0.08 to avoid velocity-check rubberband on this server.", 0.08, 0.02, 0.3, 0.01);
 
     private static final int COLLISION_LIMIT = 15;
 
@@ -129,6 +146,12 @@ public class HoleSnap extends AddonModule {
             mc.player.setXRot(savedCameraPitch);
             mc.player.yRotO = savedCameraYaw;
             mc.player.xRotO = savedCameraPitch;
+            mc.player.setYHeadRot(savedCameraYaw);
+            mc.player.yHeadRotO = savedCameraYaw;
+            mc.player.yBob = savedCameraYaw;
+            mc.player.yBobO = savedCameraYaw;
+            mc.player.xBob = savedCameraPitch;
+            mc.player.xBobO = savedCameraPitch;
         }
         cameraOverrideActive = false;
     }
@@ -150,7 +173,13 @@ public class HoleSnap extends AddonModule {
         float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
 
         mc.player.setYRot(targetYaw);
-        mc.player.setYBodyRot(targetYaw);
+        // 2026-07-19 fix ("tay nghiêng theo hướng di chuyển"): unlike ControlRocket (whose
+        // targetYaw IS the real flight direction, so forcing yBodyRot there matches actual
+        // movement), HoleSnap moves via WASD-relative strafing that can point anywhere
+        // relative to targetYaw -- forcing the body to face the hole while actually walking
+        // sideways/backward relative to that is what read as a stuck/tilted arm. Leave
+        // yBodyRot alone; vanilla's own movement-follows-body smoothing orients it from
+        // real walking, same as normal unassisted movement.
         cameraOverrideActive = true;
     }
 
@@ -162,6 +191,22 @@ public class HoleSnap extends AddonModule {
         mc.player.setXRot(savedCameraPitch);
         mc.player.yRotO = savedCameraYaw;
         mc.player.xRotO = savedCameraPitch;
+        // Player.aiStep() unconditionally does `yHeadRot = getYRot()` every tick (real
+        // source, verified javap) -- it runs between Pre's fake yRot and this restore,
+        // burning targetYaw into yHeadRot. getViewYRot() (camera/hand render) reads
+        // yHeadRot, not yRot, so leaving it unrestored is what caused the hand to point
+        // toward the movement direction instead of the real look direction (2026-07-19,
+        // "tay lệch khi holesnap đi về bên phải").
+        mc.player.setYHeadRot(savedCameraYaw);
+        mc.player.yHeadRotO = savedCameraYaw;
+        // Freeze the hand's own rotation-smoothing (xBob/yBob, read by
+        // ItemInHandRenderer on top of getViewYRot). applyInput() runs mid-tick and
+        // pulls them toward the raw fake yaw; left unrestored, the moving targetYaw
+        // made the hand sway continuously (2026-07-19 "tay cứ đung đưa").
+        mc.player.yBob = savedCameraYaw;
+        mc.player.yBobO = savedCameraYaw;
+        mc.player.xBob = savedCameraPitch;
+        mc.player.xBobO = savedCameraPitch;
         cameraOverrideActive = false;
     }
 
@@ -186,37 +231,56 @@ public class HoleSnap extends AddonModule {
     // (meteordevelopment.orbit) backs Boze's EventHandler too, confirmed via javap.
     @EventHandler(priority = meteordevelopment.orbit.EventPriority.HIGHEST)
     private void onInput(EventInput event) {
+        if (mode.getValue() == HoleSnapMode.Strict) {
+            onInputStrict(event);
+        } else {
+            onInputNormal(event);
+        }
+    }
+
+    // Normal mode: direct-velocity homing (2026-07-20 "vẫn không căn được vào center của
+    // hole"). BlackOut's real onMove sets ((IVec3) event.movement) directly every tick,
+    // each axis clamped to whichever is smaller in magnitude -- the fixed step or the
+    // remaining distance (`Math.abs(x) < Math.abs(dX) ? x : dX`) -- so it lands EXACTLY
+    // on hole.middle and never needs a separate "already inside" phase. Strict mode (see
+    // onInputStrict) keeps the old WASD-relative approach for whoever needs real vanilla
+    // movement instead of raw-velocity (e.g. a server flags the instant-set spike).
+    private void onInputNormal(EventInput event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
 
         // Real "fell into the hole" check (mirrors BlackOut's HoleUtils.inHole): the
-        // player's OWN feet block is one of a valid hole's cells. Distance-to-center
-        // was wrong here -- standing on the LIP block next to the hole can already be
-        // within a small horizontal tolerance of hole.middle even though the player
-        // never actually dropped in, which is exactly "đứng ở mép hole thì nó nghĩ là
-        // holesnap thành công luôn" (2026-07-16). This checks the actual occupied
-        // block, not a distance heuristic.
-        if (playerInHole(mc)) {
-            event.forward = false;
-            event.backward = false;
-            event.left = false;
-            event.right = false;
-            if (autoDisable.getValue()) setState(false);
-            return;
-        }
-
-        Hole hole = findHole(mc);
+        // player's OWN feet block is one of a valid hole's cells.
+        Hole inHole = holePlayerIsIn(mc);
+        Hole hole = inHole != null ? inHole : findHole(mc);
         if (hole == null) {
             setState(false);
             mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: no hole found"));
             return;
         }
 
+        event.forward = false;
+        event.backward = false;
+        event.left = false;
+        event.right = false;
+
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
 
-        AABB attempt = mc.player.getBoundingBox().move(
-            Math.signum(dx) * 0.05, 0, Math.signum(dz) * 0.05);
+        if (dx == 0.0 && dz == 0.0) {
+            // Exactly centered already (this is only reachable once a previous tick's
+            // clamped step landed dead-on, same as BlackOut's getX()==middle.x check).
+            Vec3 v = mc.player.getDeltaMovement();
+            mc.player.setDeltaMovement(0.0, v.y, 0.0);
+            if (inHole != null && autoDisable.getValue()) setState(false);
+            return;
+        }
+
+        double step = speed.getValue();
+        double vx = Math.abs(step) < Math.abs(dx) ? Math.copySign(step, dx) : dx;
+        double vz = Math.abs(step) < Math.abs(dz) ? Math.copySign(step, dz) : dz;
+
+        AABB attempt = mc.player.getBoundingBox().move(vx, 0, vz);
         if (collides(mc, attempt)) {
             collisions++;
             if (collDisable.getValue() && collisions >= COLLISION_LIMIT) {
@@ -238,9 +302,79 @@ public class HoleSnap extends AddonModule {
             collisions = 0;
         }
 
-        // WASD-relative impulse toward (dx, dz) at the player's REAL current yaw --
-        // see class javadoc for the derivation. A small deadzone avoids flip-flopping
-        // a key on/off from float noise when a component is ~0.
+        Vec3 v = mc.player.getDeltaMovement();
+        mc.player.setDeltaMovement(vx, v.y, vz);
+
+        if (jump.getValue()) {
+            if (jumpTicks > 0) {
+                jumpTicks--;
+            } else if (collides(mc, mc.player.getBoundingBox().move(0, -0.05, 0))) {
+                jumpTicks = jumpCooldown.getValue().intValue();
+                event.jumping = true;
+            }
+        }
+    }
+
+    // Strict mode: the pre-2026-07-20 mechanism, kept for servers that flag Normal's
+    // instant-set raw velocity. Real vanilla WASD movement via event.forward/left/right,
+    // computed WASD-relative from the player's REAL yaw (see class javadoc) with a 0.15
+    // deadzone; once standing in the hole cell, switches to a closed-loop velocity nudge
+    // to settle into the exact center (imprecise close to center vs Normal, but each step
+    // is ordinary vanilla-speed movement).
+    private void onInputStrict(EventInput event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
+
+        Hole inHole = holePlayerIsIn(mc);
+        if (inHole != null) {
+            event.forward = false;
+            event.backward = false;
+            event.left = false;
+            event.right = false;
+
+            double dx = inHole.middle().x - mc.player.getX();
+            double dz = inHole.middle().z - mc.player.getZ();
+            double err2 = dx * dx + dz * dz;
+            double centerTol = 0.012;
+            if (err2 > centerTol * centerTol) {
+                double gain = 0.35;       // P-gain; <1 so it decelerates approaching target
+                double maxSpeed = 0.08;   // clamp so it never lurches
+                double vx = Math.max(-maxSpeed, Math.min(maxSpeed, dx * gain));
+                double vz = Math.max(-maxSpeed, Math.min(maxSpeed, dz * gain));
+                Vec3 v = mc.player.getDeltaMovement();
+                mc.player.setDeltaMovement(vx, v.y, vz);
+            } else {
+                Vec3 v = mc.player.getDeltaMovement();
+                mc.player.setDeltaMovement(0.0, v.y, 0.0);
+                if (autoDisable.getValue()) setState(false);
+            }
+            return;
+        }
+
+        Hole hole = findHole(mc);
+        if (hole == null) {
+            setState(false);
+            mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: no hole found"));
+            return;
+        }
+
+        double dx = hole.middle().x - mc.player.getX();
+        double dz = hole.middle().z - mc.player.getZ();
+
+        AABB attempt = mc.player.getBoundingBox().move(
+            Math.signum(dx) * 0.05, 0, Math.signum(dz) * 0.05);
+        if (collides(mc, attempt)) {
+            collisions++;
+            if (collDisable.getValue() && collisions >= COLLISION_LIMIT) {
+                setState(false);
+                dumpHoleCandidates(mc);
+                mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: collided"));
+                return;
+            }
+        } else {
+            collisions = 0;
+        }
+
         double yawRad = Math.toRadians(mc.player.getYRot());
         double sin = Math.sin(yawRad), cos = Math.cos(yawRad);
         double xxa = dx * cos + dz * sin;   // left(+) / right(-)
@@ -262,8 +396,8 @@ public class HoleSnap extends AddonModule {
         }
     }
 
-    /** True once the player's own feet block is one of the cells of a valid hole (mirrors BlackOut's HoleUtils.inHole). */
-    private boolean playerInHole(Minecraft mc) {
+    /** The hole the player's own feet block belongs to, or null (mirrors BlackOut's HoleUtils.inHole). */
+    private Hole holePlayerIsIn(Minecraft mc) {
         BlockPos pos = mc.player.blockPosition();
         int d = depth.getValue().intValue();
         BlockPos[] offsets = {
@@ -273,10 +407,14 @@ public class HoleSnap extends AddonModule {
             Hole h = getHole(mc, p, d);
             if (h == null) continue;
             for (BlockPos cell : h.positions()) {
-                if (cell.equals(pos)) return true;
+                if (cell.equals(pos)) return h;
             }
         }
-        return false;
+        return null;
+    }
+
+    private boolean playerInHole(Minecraft mc) {
+        return holePlayerIsIn(mc) != null;
     }
 
     // Raw distance isn't enough to rank holes -- a farther hole with a clear straight-

@@ -142,10 +142,15 @@ public class BedAura extends AddonModule {
         lastLoggedNoBed = false;
         lastLoggedNoBedSlot = false;
         clearLock();
+        // Suppress for the module's whole enabled lifetime, not per bed place/detonate cycle --
+        // doing it per-cycle flipped AutoMine's Instant option Strict<->saved every single
+        // clutch (visible thrashing during continuous bed-clutching against a target).
+        suppressAutoMineIfNeeded();
     }
 
     @Override
     public void onDisable() {
+        restoreAutoMineIfNeeded();
     }
 
     // Decide (search/lock-check) and act (place/detonate) run from the SAME onInteract
@@ -602,22 +607,16 @@ public class BedAura extends AddonModule {
         submitRotated(event, action, rot[0], rot[1]);
     }
 
-    // AutoMine mode suppression while a bed is down: switch AutoMine's own "Instant" mode
-    // option to Strict while a bed sits at its target, so it isn't in the specific mode that
-    // instant-breaks whatever occupies instantpos. 2026-07-19: this used to also try
-    // restoring the saved value back after detonating -- removed. PathFinder and ElytraFix
-    // both hit the IDENTICAL symptom forcing OTHER Boze modules' own ModeOptions (ElytraFly's
-    // "Mode" -> Creative): the forced value sticks fine, but writing it back afterward gets
-    // silently reverted by something inside the Boze client itself (confirmed not our bug --
-    // ModeOption.setValue is a plain field write in the real boze-api 3.3 source, nothing
-    // there could reject it). Both of those modules' own fix was to stop trying and just
-    // accept the module stays at the forced value permanently (see PathFinder.onDisable's
-    // "KHÔNG trả ElytraFly về mode cũ" comment, and ElytraFix.restoreFlyMode's identical one).
-    // Applied here the same way: AutoMine simply stays on Strict once the first bed goes down.
+    // AutoMine mode suppression for BedAura's whole enabled lifetime: switch AutoMine's own
+    // "Instant" mode option to Strict on enable, so it isn't in the specific mode that
+    // instant-breaks a freshly-placed bed before it can detonate; restore the saved original
+    // mode on disable. NOT scoped per place/detonate cycle -- that flipped the option on
+    // every single clutch during continuous bed-fighting (visible thrashing).
     private static final String MODULE_AUTOMINE = "AutoMine";
     private static final String TARGET_MODE_NAME = "Strict";
     private boolean autoMineSuppressed = false;
     private boolean suppressAutoMineBroken = false;
+    private boolean autoMineActuallyForced = false; // true only if we called LiveModeCache.suppressAutoMine()
 
     // ModeOption.setValueByName silently no-ops on an unknown name (no exception, no return
     // value), so the actual switch is verified below rather than assumed from "no exception".
@@ -666,6 +665,12 @@ public class BedAura extends AddonModule {
         return false;
     }
 
+    // 2026-07-20: restore target comes from LiveModeCache (polls every tick all session, NOT
+    // a live capture of modeOpt.getModeName() taken here) -- confirmed (reproduced with zero
+    // addon modules involved) that Boze resets a ModeOption to its defaultValue the instant
+    // the OWNING MODULE's enabled state flips off->on, no matter who/what triggers it, so a
+    // capture taken only right here can already be stale/corrupted (e.g. from AutoMine being
+    // toggled off/on earlier in the session, unrelated to BedAura) before this code ever runs.
     private void suppressAutoMineIfNeeded() {
         if (!suppressAutoMine.getValue() || autoMineSuppressed || suppressAutoMineBroken) return;
         try {
@@ -674,15 +679,33 @@ public class BedAura extends AddonModule {
             if (modeOpt == null) { suppressAutoMineBroken = true; return; }
 
             if (!modeOpt.getModeName().equalsIgnoreCase(TARGET_MODE_NAME)) {
+                com.example.addon.util.LiveModeCache.INSTANCE.suppressAutoMine();
+                autoMineActuallyForced = true;
                 forceSetModeByName(modeOpt, TARGET_MODE_NAME);
             }
-            // Mark suppressed regardless of whether the switch actually verified -- there is
-            // no restore path anymore (see field doc), so retrying every cycle would only
-            // matter if it could eventually succeed differently, which it can't (same
-            // deterministic reflection call every time).
             autoMineSuppressed = true;
         } catch (Exception e) {
             suppressAutoMineBroken = true;
+        }
+    }
+
+    /** Restores AutoMine's "Instant" mode to LiveModeCache's last-observed real value. */
+    private void restoreAutoMineIfNeeded() {
+        if (!autoMineSuppressed) return;
+        autoMineSuppressed = false;
+        try {
+            String target = com.example.addon.util.LiveModeCache.INSTANCE.getAutoMineInstantMode();
+            if (target != null) {
+                dev.boze.api.client.module.BaseModule mod = findAutoMineModule();
+                dev.boze.api.option.ModeOption<?> modeOpt = mod != null ? findAutoMineModeOption(mod) : null;
+                if (modeOpt != null) forceSetModeByName(modeOpt, target);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (autoMineActuallyForced) {
+                com.example.addon.util.LiveModeCache.INSTANCE.unsuppressAutoMine();
+                autoMineActuallyForced = false;
+            }
         }
     }
 

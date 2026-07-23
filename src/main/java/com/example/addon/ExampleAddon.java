@@ -12,6 +12,7 @@ import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.AuraStep;
 import com.example.addon.modules.AutoPortal;
+import com.example.addon.modules.AutoShop;
 import com.example.addon.modules.AutoWalk;
 import com.example.addon.modules.BetterBasePlace;
 import com.example.addon.modules.BetterChams;
@@ -29,9 +30,20 @@ import com.example.addon.modules.HoleSnap;
 import com.example.addon.modules.InvMovePlus;
 import com.example.addon.modules.InventoryCleaner;
 import com.example.addon.modules.InventorySorter;
+import com.example.addon.modules.KillEffect;
+import com.example.addon.modules.StashArrange;
 import com.example.addon.modules.LoadingScreen;
+import com.example.addon.modules.BetterOffhand;
+import com.example.addon.modules.MainHand;
+import com.example.addon.modules.NoSlow;
+import com.example.addon.modules.Velocity;
+import com.example.addon.modules.MoreKnockback;
+import com.example.addon.modules.PistonPush;
+import com.example.addon.modules.PistonAura;
+import com.example.addon.modules.IgnoreClimb;
 import com.example.addon.modules.MusicHUD;
 import com.example.addon.modules.PathFinder;
+import com.example.addon.modules.Replenish;
 import com.example.addon.modules.PlayMusic;
 import com.example.addon.modules.SelfWeb;
 import com.example.addon.modules.SpotifyIntegration;
@@ -90,8 +102,19 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(SaveConfigCommand.INSTANCE);
         dispatcher.registerCommand(com.example.addon.commands.SetBindCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
+        modules.add(AutoShop.INSTANCE);
+        modules.add(MainHand.INSTANCE);
+        modules.add(Replenish.INSTANCE);
+        modules.add(BetterOffhand.INSTANCE);
+        modules.add(Velocity.INSTANCE);
+        modules.add(NoSlow.INSTANCE);
+        modules.add(KillEffect.INSTANCE);
+        modules.add(StashArrange.INSTANCE);
         modules.add(com.example.addon.modules.bedaura.BedAura.INSTANCE);
-        modules.add(com.example.addon.modules.pistoncrystal.PistonCrystal.INSTANCE);
+        modules.add(MoreKnockback.INSTANCE);
+        modules.add(PistonPush.INSTANCE);
+        modules.add(PistonAura.INSTANCE);
+        modules.add(IgnoreClimb.INSTANCE);
         modules.add(BetterBasePlace.INSTANCE);
         modules.add(Dummy.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
@@ -149,6 +172,9 @@ public class ExampleAddon extends Addon {
 
         // Register package for event handler
         BozeInstance.INSTANCE.registerPackage("com.example.addon");
+
+        // Always-on listener (not a toggleable module) -- see LiveModeCache's doc.
+        BozeInstance.INSTANCE.subscribe(com.example.addon.util.LiveModeCache.INSTANCE);
 
         return true;
     }

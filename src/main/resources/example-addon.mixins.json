@@ -20,11 +20,13 @@
     "MixinEntity",
     "EntityFlagAccessor",
     "MixinMultiPlayerGameMode",
+    "InvMoveLocalPlayerAccessor",
     "MixinPlayerLikeEntity",
     "GuiGraphicsExtractorAccessor",
     "MixinLocalPlayer",
     "MixinEndCrystalRenderer",
     "MixinAvatarRenderer",
+    "MixinAddressCheck",
     "MixinItemInHandRenderer",
     "MixinItemStackRenderState",
     "LevelRendererAccessor",
@@ -39,6 +41,7 @@
     "MixinEntityRenderStateGelUuid",
     "MixinModelFeatureRenderer",
     "MixinDeltaTrackerTimer",
-    "MixinItemFeatureRenderer"
+    "MixinItemFeatureRenderer",
+    "ClientLevelPredictionInvoker"
   ]
 }

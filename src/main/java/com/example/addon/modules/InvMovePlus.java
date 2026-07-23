@@ -1,163 +1,128 @@
 package com.example.addon.modules;
 
+import com.example.addon.mixin.InvMoveLocalPlayerAccessor;
 import dev.boze.api.addon.AddonModule;
-import dev.boze.api.event.EventInput;
-import dev.boze.api.event.EventTick;
-import dev.boze.api.option.ModeOption;
-import meteordevelopment.orbit.EventHandler;
+import dev.boze.api.option.ToggleOption;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.inventory.ContainerInput;
-
-import java.util.ArrayDeque;
-import java.util.Deque;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * InvMovePlus — lets you interact with your inventory while walking on strict servers.
  *
- * NCP mode   : no-op (NCP doesn't block inv-while-moving the way Grim does).
- * GrimStrict : intercepts every container click while the player is moving,
- *              zeros movement input for 1 tick so the server sees the player stop,
- *              then replays the queued click(s).  This prevents the
- *              "InventoryOpen while moving" flag that GrimAC raises.
+ * Always GrimV2: GrimAC v2 flags inventory clicks via MultiActionsC
+ * (stableKey "grim.multiactions.inventory_click_while_moving"), which ORs two
+ * independent triggers -- BOTH must be defeated, not just one:
  *
- * Interception happens at MultiPlayerGameMode.handleContainerInput (via
- * MixinMultiPlayerGameMode), NOT at the outgoing-packet level. A previous version
- * cancelled ServerboundContainerClickPackets and re-sent the raw packet objects 2
- * ticks later via connection.send() — on 1.21.5+ those packets carry hashed item
- * stacks, and re-sending them directly bypasses ViaFabricPlus's full-stack capture
- * (done inside handleContainerInput), producing "The CONTAINER_CLICK packet could
- * not be remapped without breaking content!" errors and dropped clicks on
- * older-protocol servers. Deferring the whole handleContainerInput call instead
- * means the local inventory mutation, the packet build, and Via's capture all
- * happen together at flush time — exactly the code path ViaVersion recommends.
+ * 1. {@code player.supportsEndTick() && knownInput.moving()} -- the server's
+ *    cached copy of the client's last ServerboundPlayerInputPacket. This ONLY
+ *    applies when {@code supportsEndTick()} is true, which requires BOTH the
+ *    client AND the real backend server's protocol to be >= 1.21.2
+ *    (GrimPlayer#supportsEndTick, checked against PacketEvents' ServerManager
+ *    version -- the actual server, not our client). On a ViaFabricPlus-bridged
+ *    OLDER-protocol server this is permanently false, so spoofing the input
+ *    packet alone (the original GrimV2 implementation) does NOTHING there --
+ *    confirmed by Replenish still failing while moving on such a server.
  *
- * Tick flow (GrimStrict):
- *   Tick N  — handleContainerInput fires: click queued + cancelled, frozenTicks=2
- *             EventTick.Post: frozenTicks 2→1 (nothing replayed yet)
- *   Tick N+1 — EventInput fires: frozenTicks=1 → forward/backward/left/right/jumping zeroed
- *              player physics runs with 0 input → sends 0-velocity move packet
- *              EventTick.Post: frozenTicks 1→0 → pending clicks replayed
- *   Grim receives: [tick-N move packet | tick-N+1 move packet with 0 velocity | container click]
+ * 2. {@code isVerboseSprinting()} -- {@code player.isSprinting}, a plain STATE
+ *    flag Grim flips only from ServerboundPlayerCommandPacket's START_SPRINTING/
+ *    STOP_SPRINTING actions (ac.grim.grimac.events.packets.PacketEntityAction).
+ *    This packet exists on every protocol version, so it's the trigger that
+ *    actually fires against Via-bridged old-protocol servers. Fix: send
+ *    STOP_SPRINTING immediately before the click, START_SPRINTING immediately
+ *    after (only if the player was actually sprinting). Verified against Grim's
+ *    own SprintA-G checks and BadPacketsF (which only flags a REDUNDANT
+ *    start/stop, i.e. sending the same state twice in a row) -- a real
+ *    state-toggling pair is never flagged by any of them.
+ *
+ * Both fixes are applied unconditionally per click since neither depends on
+ * knowing the real server's protocol version up front.
  */
 public class InvMovePlus extends AddonModule {
     public static final InvMovePlus INSTANCE = new InvMovePlus();
 
-    public enum Mode { NCP, GrimStrict }
+    public final ToggleOption matrixSwap = new ToggleOption(this, "MatrixSwap",
+            "Hotbar<->offhand swaps use carried-item + F-swap packets (no container clicks, "
+            + "works while moving, no freeze). Off: callers fall back to cursor clicks.", true);
 
-    public final ModeOption<Mode> mode = new ModeOption<>(this, "Mode",
-            "NCP: no special handling needed. GrimStrict: stop 1 tick before each slot click while moving.",
-            Mode.GrimStrict);
-
-    /** One captured handleContainerInput call, replayed verbatim after the freeze. */
-    private record DeferredClick(int containerId, int slotId, int buttonNum, ContainerInput input) {}
-
-    // Pending clicks to replay after 1 frozen tick
-    private final Deque<DeferredClick> pending = new ArrayDeque<>();
-
-    // Countdown: while > 0, EventInput zeroes movement; hits 0 → replay pending clicks
-    private int frozenTicks = 0;
-
-    // Guard: true while flush() is replaying so the mixin doesn't re-queue our own
-    // handleContainerInput calls and create an infinite loop.
-    private boolean replaying = false;
+    // Set by beforeClick when it sent STOP_SPRINTING for the click currently in flight, so
+    // afterClick knows to resume it. Container clicks are never re-entrant on this thread.
+    private boolean stoppedSprintForClick = false;
 
     public InvMovePlus() {
-        super("InvMovePlus", "Bypass inventory-while-moving checks on GrimStrict/NCP servers.");
+        super("InvMovePlus", "Bypass inventory-while-moving checks on GrimV2/NCP servers.");
     }
 
-    @Override
-    public void onEnable() {
-        pending.clear();
-        frozenTicks = 0;
-    }
-
-    @Override
-    public void onDisable() {
-        // Don't silently drop queued clicks; replay them immediately on disable
-        flush();
-        frozenTicks = 0;
-    }
-
-    // ── Zero movement while frozen ─────────────────────────────────────────
-
-    @EventHandler
-    private void onInput(EventInput event) {
-        if (mode.getValue() != Mode.GrimStrict) return;
-        if (frozenTicks <= 0) return;
-        event.forward  = false;
-        event.backward = false;
-        event.left     = false;
-        event.right    = false;
-        event.jumping  = false;
-        // sneaking intentionally kept — doesn't affect GrimStrict's movement check
-    }
-
-    // ── Intercept slot clicks while moving ────────────────────────────────
+    // ── GrimV2: spoof input + toggle sprint around the click, let it through immediately ─
 
     /**
-     * Called from MixinMultiPlayerGameMode at the HEAD of handleContainerInput.
-     * Returns true if the click was queued and the original call must be cancelled.
-     * Mixin runs regardless of module state, so every bail-out is checked here.
+     * Called from MixinMultiPlayerGameMode at the HEAD of handleContainerInput. Never
+     * cancels the original call -- GrimV2 doesn't defer/queue clicks, it just lies to the
+     * server right before the click packet goes out.
      */
-    public boolean deferClick(int containerId, int slotId, int buttonNum, ContainerInput input) {
-        if (replaying) return false;
-        if (!getState()) return false;
-        if (ControlRocket.invMoveBypass) return false;  // ControlRocket chestplate-swap needs precise ordering
-        if (mode.getValue() != Mode.GrimStrict) return false;
+    public void beforeClick(int containerId, int slotId, int buttonNum, ContainerInput input) {
+        stoppedSprintForClick = false;
+        if (!getState()) return;
+        if (ControlRocket.invMoveBypass) return; // ControlRocket chestplate-swap needs precise ordering
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return false;
+        if (mc.player == null || mc.getConnection() == null) return;
 
-        // Only defer if the player is actually moving or there are already clicks queued
-        // (queue everything once we start so ordering is preserved)
-        if (!isMoving(mc) && pending.isEmpty()) return false;
+        spoofStationaryInput(mc);
 
-        pending.add(new DeferredClick(containerId, slotId, buttonNum, input));
-
-        // Arm the freeze countdown only if not already running.
-        // frozenTicks=2: EventTick.Post of this same tick decrements to 1 (no flush),
-        // EventInput of the NEXT tick sees frozenTicks=1 and zeroes movement,
-        // EventTick.Post of the next tick decrements to 0 and flushes.
-        if (frozenTicks <= 0) frozenTicks = 2;
-        return true;
-    }
-
-    // ── Countdown and release ─────────────────────────────────────────────
-
-    @EventHandler
-    private void onTickPost(EventTick.Post event) {
-        if (mode.getValue() != Mode.GrimStrict) return;
-        if (frozenTicks <= 0) return;
-        frozenTicks--;
-        if (frozenTicks == 0) flush();
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────
-
-    /** Replay all pending clicks in order through the real handleContainerInput. */
-    private void flush() {
-        if (pending.isEmpty()) return;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.gameMode == null) { pending.clear(); return; }
-        replaying = true;
-        try {
-            while (!pending.isEmpty()) {
-                DeferredClick c = pending.poll();
-                // Menu changed (closed/reopened) since the click was captured — replaying
-                // against a different menu would mutate the wrong slots locally. Drop it.
-                if (mc.player.containerMenu.containerId != c.containerId()) continue;
-                mc.gameMode.handleContainerInput(c.containerId(), c.slotId(), c.buttonNum(), c.input(), mc.player);
-            }
-        } finally {
-            replaying = false;
+        if (mc.player.isSprinting()) {
+            mc.getConnection().send(new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.STOP_SPRINTING));
+            stoppedSprintForClick = true;
         }
     }
 
+    /** Called from MixinMultiPlayerGameMode at the TAIL of handleContainerInput. */
+    public void afterClick() {
+        if (!stoppedSprintForClick) return;
+        stoppedSprintForClick = false;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.getConnection() == null) return;
+        mc.getConnection().send(new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.START_SPRINTING));
+    }
+
+    /** Sends one input packet with every movement bit zeroed, only if the real state has any set. */
+    private static void spoofStationaryInput(Minecraft mc) {
+        LocalPlayer player = mc.player;
+        Input real = player.input.keyPresses;
+        if (!real.forward() && !real.backward() && !real.left() && !real.right() && !real.jump()) return;
+        Input fake = new Input(false, false, false, false, false, real.shift(), real.sprint());
+        mc.getConnection().send(new ServerboundPlayerInputPacket(fake));
+        ((InvMoveLocalPlayerAccessor) player).invMove$setLastSentInput(fake);
+    }
+
+    // ── Matrix offhand swap (ThunderHack AutoTotem technique) ─────────────
+
     /**
-     * Returns true if the player has meaningful horizontal velocity (was walking/sprinting).
-     * Threshold 0.001 m²/tick² ≈ 0.032 m/tick ≈ 0.64 m/s — filters out
-     * tiny residual velocity from stopping so standing-still clicks go through immediately.
+     * Swaps a HOTBAR slot's item with the offhand using only carried-item + F-swap
+     * packets — zero container clicks, so inventory-while-moving checks never fire
+     * and no movement freeze is needed. Local inventory mirrored to match the server.
+     * Returns false when disabled (MatrixSwap off) or unavailable — caller falls back
+     * to cursor clicks.
      */
-    private static boolean isMoving(Minecraft mc) {
-        return mc.player.getDeltaMovement().horizontalDistanceSqr() > 0.001;
+    public static boolean offhandSwapFromHotbar(Minecraft mc, int hotbarIdx) {
+        if (!INSTANCE.matrixSwap.getValue()) return false;
+        if (mc.player == null || mc.getConnection() == null) return false;
+        net.minecraft.world.entity.player.Inventory inv = mc.player.getInventory();
+        int prev = inv.getSelectedSlot();
+        if (hotbarIdx != prev) mc.getConnection().send(new ServerboundSetCarriedItemPacket(hotbarIdx));
+        mc.getConnection().send(new ServerboundPlayerActionPacket(
+                ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ZERO, Direction.DOWN));
+        if (hotbarIdx != prev) mc.getConnection().send(new ServerboundSetCarriedItemPacket(prev));
+        ItemStack off = inv.getItem(net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND);
+        inv.setItem(net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND, inv.getItem(hotbarIdx));
+        inv.setItem(hotbarIdx, off);
+        return true;
     }
 }

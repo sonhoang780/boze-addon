@@ -1,6 +1,7 @@
 package com.example.addon.mixin;
 
 import com.example.addon.modules.ControlRocket;
+import com.example.addon.modules.HoleSnap;
 import com.example.addon.modules.LiquidGlassHud;
 import com.example.addon.modules.SkijaBackdropBlur;
 import com.example.addon.screens.MusicHudPipRenderer;
@@ -63,9 +64,10 @@ public abstract class MixinGameRenderer {
     @Inject(method = "bobView", at = @At("HEAD"), cancellable = true, require = 0)
     private void fakefly$suppressBobView(CameraRenderState cameraRenderState, PoseStack matrices, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc != null && mc.player != null
-                && ControlRocket.INSTANCE.getState()
-                && (ControlRocket.INSTANCE.isFlying() || mc.player.isFallFlying())) {
+        if (mc == null || mc.player == null) return;
+        if (ControlRocket.INSTANCE.getState() && (ControlRocket.INSTANCE.isFlying() || mc.player.isFallFlying())) {
+            ci.cancel();
+        } else if (HoleSnap.INSTANCE.getState()) {
             ci.cancel();
         }
     }
@@ -109,7 +111,18 @@ public abstract class MixinGameRenderer {
         // resolve pass. Replaced the old dual-Kawase blur pyramid, whose 8-bit field
         // banded visibly once glow_resolve.fsh's halo remap stretched a thin alpha
         // slice into the full gradient (see docs/superpowers/specs/2026-07-04-jfa-glow-design.md).
-        com.example.addon.render.JfaField.render(outlineTarget);
+        // Skip the whole JFA chain on frames where nothing of ours was submitted for
+        // outline (menus, no entities in range). GLOW_TEXTURE is cleared once instead
+        // so the resolve pass reads "no valid seed" rather than last frame's stale
+        // field. process() still runs: foreign silhouette content (Boze BlockHighlight)
+        // must keep passing through the resolve shader.
+        boolean anySilhouette = com.example.addon.modules.BetterChams.silhouetteThisFrame;
+        com.example.addon.modules.BetterChams.silhouetteThisFrame = false;
+        if (anySilhouette) {
+            com.example.addon.render.JfaField.render(outlineTarget);
+        } else {
+            com.example.addon.render.JfaField.clearField();
+        }
 
         activePostChain.process(outlineTarget, com.mojang.blaze3d.resource.GraphicsResourceAllocator.UNPOOLED);
     }

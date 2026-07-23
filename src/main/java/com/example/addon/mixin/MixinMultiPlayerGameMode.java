@@ -2,6 +2,7 @@ package com.example.addon.mixin;
 
 import com.example.addon.modules.Dummy;
 import com.example.addon.modules.InvMovePlus;
+import com.example.addon.modules.MoreKnockback;
 import com.example.addon.modules.PathFinder;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.world.inventory.ContainerInput;
@@ -28,6 +29,10 @@ public class MixinMultiPlayerGameMode {
     @Inject(method = "attack", at = @At("HEAD"))
     private void dummy$onAttack(Player player, Entity target, CallbackInfo ci) {
         Dummy.INSTANCE.onAttacked(target);
+        // MoreKnockback's sprint-reset W-tap fires here, HEAD -- so its STOP/START sprint
+        // packets go out just before the attack's own interact packet (correct order for the
+        // server to apply sprint-knockback to this hit).
+        MoreKnockback.INSTANCE.onAttack(target);
     }
 
     /**
@@ -44,14 +49,17 @@ public class MixinMultiPlayerGameMode {
     }
 
     /**
-     * InvMovePlus GrimStrict: defers the ENTIRE click (local mutation + packet) while the
-     * player is moving, instead of cancelling and later re-sending the raw
-     * ServerboundContainerClickPacket. Raw re-send bypassed ViaFabricPlus's full-stack
-     * capture inside this very method, causing "CONTAINER_CLICK could not be remapped"
-     * errors on older-protocol servers. See InvMovePlus.deferClick / flush.
+     * InvMovePlus GrimV2: lies to the server around the click (spoofed input packet +
+     * sprint-state toggle, see InvMovePlus.beforeClick/afterClick) instead of deferring it --
+     * the click always proceeds through the real handleContainerInput, same tick.
      */
-    @Inject(method = "handleContainerInput", at = @At("HEAD"), cancellable = true)
-    private void invmove$deferClick(int containerId, int slotId, int buttonNum, ContainerInput input, Player player, CallbackInfo ci) {
-        if (InvMovePlus.INSTANCE.deferClick(containerId, slotId, buttonNum, input)) ci.cancel();
+    @Inject(method = "handleContainerInput", at = @At("HEAD"))
+    private void invmove$beforeClick(int containerId, int slotId, int buttonNum, ContainerInput input, Player player, CallbackInfo ci) {
+        InvMovePlus.INSTANCE.beforeClick(containerId, slotId, buttonNum, input);
+    }
+
+    @Inject(method = "handleContainerInput", at = @At("TAIL"))
+    private void invmove$afterClick(int containerId, int slotId, int buttonNum, ContainerInput input, Player player, CallbackInfo ci) {
+        InvMovePlus.INSTANCE.afterClick();
     }
 }

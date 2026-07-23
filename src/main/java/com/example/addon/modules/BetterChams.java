@@ -21,6 +21,12 @@ public class BetterChams extends AddonModule {
 
     public static boolean isRenderingHand = false;
 
+    // Set by the outline-marker mixins whenever anything of OURS was submitted for
+    // outline this frame; consumed (and reset) by MixinGameRenderer.reprocessHandOutline
+    // to skip the full JFA pipeline on frames with an empty silhouette (menus, no
+    // entities in range, hand toggle off).
+    public static boolean silhouetteThisFrame = false;
+
     public static final BetterChams INSTANCE = new BetterChams();
 
     public static final ChamsImageTexture CHAMS_TEXTURE = new ChamsImageTexture();

@@ -4,11 +4,13 @@ package com.example.addon.mixin;
 import com.example.addon.modules.EBouncePlus;
 import com.example.addon.modules.ControlRocket;
 import com.example.addon.modules.HoleSnap;
+import com.example.addon.modules.Velocity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -46,6 +48,24 @@ public abstract class MixinEntity {
         if (HoleSnap.cameraOverrideActive && mc != null && mc.player == (Object) this) {
             cir.setReturnValue(HoleSnap.savedCameraYaw);
             return;
+        }
+    }
+
+    /** Velocity's NoPush-Entities: cancel the entity-collision bump vanilla applies each tick. */
+    @Inject(method = "push(Lnet/minecraft/world/entity/Entity;)V", at = @At("HEAD"), cancellable = true, require = 0)
+    private void velocity$cancelEntityPush(Entity other, CallbackInfo ci) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && mc.player == (Object) this && Velocity.INSTANCE.getState() && Velocity.INSTANCE.noPushEntities.getValue()) {
+            ci.cancel();
+        }
+    }
+
+    /** Velocity's NoPush-Liquids: real isPushedByFluid() flag vanilla checks before applying flow drag. */
+    @Inject(method = "isPushedByFluid", at = @At("HEAD"), cancellable = true, require = 0)
+    private void velocity$suppressFluidPush(CallbackInfoReturnable<Boolean> cir) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && mc.player == (Object) this && Velocity.INSTANCE.getState() && Velocity.INSTANCE.noPushFluids.getValue()) {
+            cir.setReturnValue(false);
         }
     }
 }

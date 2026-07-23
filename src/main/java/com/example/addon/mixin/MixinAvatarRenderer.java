@@ -1,6 +1,7 @@
 package com.example.addon.mixin;
 
 import com.example.addon.modules.BetterChams;
+import com.example.addon.modules.KillEffect;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.entity.player.AvatarRenderer;
@@ -54,6 +55,7 @@ public abstract class MixinAvatarRenderer {
 
         bc.reportGlowDistance(player);
         state.outlineColor = BetterChams.ENTITY_OUTLINE_COLOR;
+        BetterChams.silhouetteThisFrame = true;
         // Stash the real UUID onto the render state -- states carry no entity back-ref
         // by design, but GelParticleSystem needs a stable per-player key at flush time
         // (ModelFeatureRenderer.renderModel, see MixinModelFeatureRenderer) to keep a
@@ -77,6 +79,40 @@ public abstract class MixinAvatarRenderer {
         }
     }
 
+    /**
+     * KillEffect: hide the dying player's real model (routing submit into the
+     * ghost-translucent branch, same mechanism BetterChams uses for Opacity) and stash
+     * the UUID so MixinModelFeatureRenderer can capture the posed cubes for the burst.
+     * Deliberately SEPARATE from betterchamss$setOutlineColor: it must run whether or
+     * not BetterChams is enabled, and shares the same GelUuidCarrier slot (same player
+     * UUID either way, so no conflict if both fire).
+     */
+    @Inject(
+        method = "extractRenderState(Lnet/minecraft/world/entity/Avatar;Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;F)V",
+        at = @At("RETURN")
+    )
+    private void exampleAddon$killEffect(
+        Avatar entity,
+        AvatarRenderState state,
+        float tickDelta,
+        CallbackInfo ci
+    ) {
+        if (!(entity instanceof AbstractClientPlayer player)) return;
+        if (!KillEffect.INSTANCE.isExploding(player.getUUID())) return;
+        ((com.example.addon.render.GelUuidCarrier) (Object) state).exampleAddon$setGelUuid(player.getUUID());
+        state.isInvisible = true;
+        if (KillEffect.INSTANCE.debug.getValue()) dev.boze.api.utility.ChatHelper.sendMsg("KillEffect",
+                "§bextractRenderState(player): isInvisible=true set, id=" + player.getUUID());
+        // LivingEntityRenderer.extractRenderState (super, already ran) set these from the
+        // real entity's still-incrementing deathTime -- state.deathTime > 0 drives the
+        // fall-over topple angle (LivingEntityRenderer.setupRotations) and hasRedOverlay
+        // stays true for the WHOLE death animation, not just a brief hit-flash. Freezing
+        // both is what keeps the body standing in its last pose while it fades instead of
+        // toppling over red the whole time.
+        state.deathTime = 0f;
+        state.hasRedOverlay = false;
+    }
+
     @Redirect(
         method = "renderHand",
         at = @At(
@@ -98,6 +134,7 @@ public abstract class MixinAvatarRenderer {
         BetterChams bc = BetterChams.INSTANCE;
         if (BetterChams.isRenderingHand && bc.getState() && bc.handToggle.getValue()) {
             outlineColor = BetterChams.HAND_OUTLINE_COLOR;
+            BetterChams.silhouetteThisFrame = true;
             // renderHand's own RenderType is RenderTypes.entityTranslucent(texture)
             // (verified via javap on AvatarRenderer.renderHand's bytecode,
             // minecraft-merged-1c9175fa40-26.1.2.jar) -- already alpha-blending, so

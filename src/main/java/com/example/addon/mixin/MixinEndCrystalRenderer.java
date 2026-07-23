@@ -45,6 +45,7 @@ public abstract class MixinEndCrystalRenderer {
         // glow_resolve.fsh can tell Crystal (4 InnerGlow layers) apart from Player
         // (8 layers) in Complex outline mode. See BetterChams.CRYSTAL_OUTLINE_COLOR.
         state.outlineColor = BetterChams.CRYSTAL_OUTLINE_COLOR;
+        BetterChams.silhouetteThisFrame = true;
 
         // Stash the crystal UUID so MixinModelFeatureRenderer can key the captured
         // wireframe cubes to this crystal at flush time (same mechanism as the player,

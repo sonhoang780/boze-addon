@@ -34,6 +34,10 @@ public class InventorySorter extends AddonModule {
 
     private int ticks = 0;
     public boolean active = false;
+    // Wall-clock of the last container-slot click this module sent (see click()). Read by
+    // InventoryCleaner to defer its own dropping while the sorter is actively moving items,
+    // so the cleaner never THROWs a slot the sorter is mid-swapping (2026-07-19 race fix).
+    public static volatile long lastContainerActionMs = 0;
     // How many consecutive ticks the cursor has been non-empty.
     // We only dump the cursor to an empty slot after many ticks (server desync guard);
     // otherwise we wait so the player can place items freely.
@@ -188,6 +192,7 @@ public class InventorySorter extends AddonModule {
 
     private void click(int slotId, int button, ContainerInput type) {
         Minecraft mc = Minecraft.getInstance();
+        lastContainerActionMs = System.currentTimeMillis();
         mc.gameMode.handleContainerInput(mc.player.containerMenu.containerId, slotId, button, type, mc.player);
     }
 

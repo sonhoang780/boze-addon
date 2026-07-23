@@ -17,6 +17,7 @@ public abstract class MixinItemStackRenderState {
     )
     private int betterchams$modifyOutlineColorItem(int outlineColor) {
         if (BetterChams.isRenderingHand && BetterChams.INSTANCE.getState() && BetterChams.INSTANCE.handToggle.getValue()) {
+            BetterChams.silhouetteThisFrame = true;
             return BetterChams.HAND_OUTLINE_COLOR;
         }
         return outlineColor;

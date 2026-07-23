@@ -119,9 +119,12 @@ public class ElytraFix extends AddonModule {
         pendingThrow = false;
         hoverTimerSpeed = 1.0f;
         restoreSpeed();
+        // Disable ElytraFly (if we're the one who enabled it) BEFORE restoring its mode --
+        // if disabling also resets ModeOptions (symmetric to the confirmed on-enable reset),
+        // restoring first would just get wiped right after.
+        disableElytraFlyIfEnabled();
         restoreFlyMode();
         restoreTimer();
-        disableElytraFlyIfEnabled();
         cancelElytraSwap();
         if (wasAutoArmorOn) {
             setAutoArmorEnabled(true);
@@ -194,13 +197,20 @@ public class ElytraFix extends AddonModule {
             if (hoverWhileRepair.getValue()) {
                 // If mid-air and ElytraFly is off (Baritone flying), enable it so we can hover.
                 if (!elytraFlyOn && !mc.player.onGround()) {
+                    // 2026-07-20: capture the real mode name BEFORE setState(true) -- enabling
+                    // ElytraFly resets its ModeOptions to defaultValue, so capturing AFTER
+                    // enable was silently saving "Control" (the default) instead of the user's
+                    // actual prior mode. Same fix applied to PathFinder.onEnable. Creative gets
+                    // applied AFTER enable so the reset doesn't wipe it either.
+                    captureFlyMode();
                     try { ModuleManager.setState(MODULE_ELYTRA_FLY, true); } catch (Exception ignored) {}
                     enabledElytraFlyForRepair = true;
                     elytraFlyOn = true; // update local var so elytraFlyHovering is correct this tick
                 }
                 saveAndReduceSpeed();
                 if (elytraFlyOn && !mc.player.onGround()) {
-                    saveAndSwitchFlyMode();
+                    if (savedFlyModeOption == null) captureFlyMode();
+                    applyCreativeFlyMode();
                     enableTimerForRepair();
                 }
             }
@@ -348,9 +358,12 @@ public class ElytraFix extends AddonModule {
         pendingThrow = false;
         hoverTimerSpeed = 1.0f;
         restoreSpeed();
+        // Disable ElytraFly (if we're the one who enabled it) BEFORE restoring its mode --
+        // if disabling also resets ModeOptions (symmetric to the confirmed on-enable reset),
+        // restoring first would just get wiped right after.
+        disableElytraFlyIfEnabled();
         restoreFlyMode();
         restoreTimer();
-        disableElytraFlyIfEnabled();
         info("Elytra fully repaired!");
         if (wasAutoArmorOn) {
             setAutoArmorEnabled(true);
@@ -490,27 +503,68 @@ public class ElytraFix extends AddonModule {
         }
     }
 
-    private void saveAndSwitchFlyMode() {
+    /**
+     * Finds ElytraFly's "Mode" option. Restore target comes from LiveModeCache (polls every
+     * tick all session, NOT a one-off capture here) -- confirmed 2026-07-20 (reproduced with
+     * zero addon modules involved) that Boze itself resets this option to its defaultValue
+     * ("Control") the instant ElytraFly's enabled state flips off->on, no matter who/what
+     * triggers the toggle. A capture taken only right here can already be corrupted (e.g. by
+     * the user's own earlier manual toggle) before this code ever runs.
+     */
+    private void captureFlyMode() {
         try {
             BaseModule fly = ModuleManager.getClientModule(MODULE_ELYTRA_FLY);
             if (fly == null) return;
             for (Option<?> opt : fly.getOptions()) {
                 if (opt instanceof ModeOption<?> mo && mo.name.equalsIgnoreCase("mode")) {
                     savedFlyModeOption = mo;
-                    savedFlyModeName = mo.getModeName();
-                    mo.setValueByName("Creative");
-                    return;
+                    break;
                 }
             }
         } catch (Exception ignored) {}
+        savedFlyModeName = com.example.addon.util.LiveModeCache.INSTANCE.getElytraFlyMode();
+    }
+
+    private void applyCreativeFlyMode() {
+        if (savedFlyModeOption == null) return;
+        com.example.addon.util.LiveModeCache.INSTANCE.suppressElytraFly();
+        try { forceSetModeByName(savedFlyModeOption, "Creative"); } catch (Exception ignored) {}
     }
 
     private void restoreFlyMode() {
-        // FIX: KHÔNG trả ElytraFly về mode cũ (Control) nữa. Sau khi mend xong, giữ
-        // nguyên mode "Creative" đã set lúc hover — đây là hành vi người dùng muốn
-        // (trước đây bị trả về Control). Chỉ dọn dẹp tham chiếu.
+        if (savedFlyModeOption != null && savedFlyModeName != null) {
+            forceSetModeByName(savedFlyModeOption, savedFlyModeName);
+        }
+        if (savedFlyModeOption != null) {
+            com.example.addon.util.LiveModeCache.INSTANCE.unsuppressElytraFly();
+        }
         savedFlyModeOption = null;
         savedFlyModeName = null;
+    }
+
+    /**
+     * Workaround for a real bug in ModeOption.setValueByName/getEnumClass: getEnumClass()
+     * uses {@code value.getClass()}, but a Java enum constant with a body override has its
+     * OWN anonymous subclass, not the real enum class -- getEnumConstants() on that subclass
+     * returns null, so setValueByName's search silently finds nothing no matter what name is
+     * passed. Falls back to the constant's real enum class via getSuperclass() when this
+     * happens, then sets the value directly (setValue, not setValueByName).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static boolean forceSetModeByName(ModeOption<?> modeOpt, String name) {
+        Object current = modeOpt.getValue();
+        if (!(current instanceof Enum<?> currentEnum)) return false;
+        Class<?> cls = currentEnum.getClass();
+        Object[] constants = cls.getEnumConstants();
+        if (constants == null) constants = cls.getSuperclass().getEnumConstants();
+        if (constants == null) return false;
+        for (Object c : constants) {
+            if (c instanceof Enum<?> e && e.name().equalsIgnoreCase(name)) {
+                ((ModeOption) modeOpt).setValue(e);
+                return true;
+            }
+        }
+        return false;
     }
 
     // ─── BẬT / TRẢ VỀ MODULE TIMER CỦA BOZE KHI MEND ───

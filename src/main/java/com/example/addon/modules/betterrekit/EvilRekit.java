@@ -27,8 +27,11 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.ShulkerBoxMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -64,6 +67,23 @@ public class EvilRekit extends AddonModule {
     // score -- content score alone still decides among UNNAMED shulkers.
     public final ToggleOption considerShulkerName = new ToggleOption(this, "ConsiderShulkerName",
         "Prefer the shulker whose custom name matches the active kit's name, overriding content-based scoring.", false);
+    // Manual mode pulls from ANY open container, not just the ender chest (see
+    // manualPullTick's doc) -- a server shop/search GUI full of custom-named items that
+    // happen to share an item TYPE with a kit slot (e.g. a "netherite pickaxe" listing
+    // menu) matched purely on stack.getItem() and got clicked over and over since the
+    // menu isn't a real inventory and never actually fills the slot.
+    //
+    // 2026-07-19 ("bật IgnoreCustomName vẫn loot con pearl ở GUI 'Xác nhận mua'"): the
+    // old per-item CUSTOM_NAME filter (still applied in findBest/findExactItemInContainer)
+    // missed two shop cases -- items named via ITEM_NAME rather than CUSTOM_NAME, and
+    // untitled items sold in a GUI whose only "custom" signal is its TITLE. So when this
+    // is on, manualPullTick now ALSO bails entirely on any container whose title isn't a
+    // vanilla TranslatableContents (i.e. a server-set literal title like "Xác nhận mua"),
+    // EXCEPT a ShulkerBoxMenu -- a renamed shulker opened by hand still gets pulled from,
+    // since the real regear flow (Auto's PULL_ITEMS) never routes through manualPullTick.
+    public final ToggleOption ignoreCustomName = new ToggleOption(this, "IgnoreCustomName",
+        "Skip custom-named items when scanning for kit items, AND (manual pull) skip any container "
+        + "with a custom (non-vanilla) title such as a shop GUI, except shulker boxes.", false);
     // Keybind version of the place->open->pull->close->break cycle, WITHOUT the ender
     // chest fetch/return steps (user spec, 2026-07-17: "tự đặt shulker ra, mở ra và
     // đóng vào khi rekit xong, sau đó đập đi") -- operates on whatever shulker is
@@ -96,6 +116,10 @@ public class EvilRekit extends AddonModule {
     public String activeKitName = "";
     private int ticks = 0;
     private final File folder;
+    // Wall-clock of the last container-slot click this module sent (see click()). Read by
+    // InventoryCleaner to defer its own dropping while Rekit is actively moving items, so
+    // the cleaner never THROWs a slot Rekit is mid-swapping (2026-07-19 race fix).
+    public static volatile long lastContainerActionMs = 0;
 
     // ── AUTO MODE STATE MACHINE ──
     private enum AutoState {
@@ -405,10 +429,30 @@ public class EvilRekit extends AddonModule {
         WorldDrawer.draw(event.matrices);
     }
 
+    /**
+     * True when the open container's title is NOT a vanilla TranslatableContents -- i.e. a
+     * server-set literal title like a shop's "Xác nhận mua". Vanilla containers
+     * (container.chest, container.shulkerBox, container.enderchest, ...) are always
+     * translatable, so this cleanly flags shop/search GUIs without false-positiving on
+     * real chests. Returns false when no container screen is open.
+     */
+    private boolean hasCustomContainerTitle(Minecraft mc) {
+        if (!(mc.screen instanceof AbstractContainerScreen<?> screen)) return false;
+        Component title = screen.getTitle();
+        if (title == null) return false;
+        return !(title.getContents() instanceof TranslatableContents);
+    }
+
     /** One manual-mode pull pass (delay + actionsPerTick respected). Shared by manual mode
      *  and by Auto's IDLE state when the player opens a non-ender-chest container by hand. */
     private void manualPullTick(Minecraft mc) {
         if (activeKit.isEmpty()) return;
+        // IgnoreCustomName: don't touch a custom-titled GUI (shop like "Xác nhận mua"),
+        // except a hand-opened shulker box -- see the option's javadoc. Auto's real regear
+        // (PULL_ITEMS) calls pullFromContainerTick directly, never through here, so this
+        // never blocks pulling from your own renamed kit shulker during Auto.
+        if (ignoreCustomName.getValue() && hasCustomContainerTitle(mc)
+                && !(mc.player.containerMenu instanceof ShulkerBoxMenu)) return;
         if (ticks < delay.getValue()) { ticks++; return; }
         ticks = 0;
 
@@ -1200,7 +1244,6 @@ public class EvilRekit extends AddonModule {
 
             int playerSlot = getPlayerHandlerSlot(containerSize, i);
             ItemStack playerStack = handler.getSlot(playerSlot).getItem();
-            if (isShulkerBox(playerStack)) continue;
 
             boolean correctNow = isCorrectItem(playerStack, kit);
             // A kit slot going correct -> incorrect can only be the player's own action (see
@@ -1211,6 +1254,12 @@ public class EvilRekit extends AddonModule {
             kitSlotWasCorrect.put(i, correctNow);
 
             if (!correctNow) {
+                // Shulker-as-wrong-item (compensation case) is handled by the loop below --
+                // only skip that case here, not the "already correct, just needs topping up"
+                // branch below (2026-07-19: a kit slot whose ITEM IS a shulker box itself
+                // never got restocked past a partial stack, since this used to `continue`
+                // unconditionally before reaching the topup check).
+                if (isShulkerBox(playerStack)) continue;
                 boolean inGrace = System.currentTimeMillis() - kitSlotClearedAtMs.getOrDefault(i, 0L) < KIT_SLOT_CLEAR_GRACE_MS;
                 int containerSlot = findBestItemInContainer(handler, containerSize, kit);
                 if (containerSlot != -1) {
@@ -1273,6 +1322,7 @@ public class EvilRekit extends AddonModule {
     }
 
     private void click(Minecraft mc, int syncId, int slotId, int button, ContainerInput type) {
+        lastContainerActionMs = System.currentTimeMillis();
         mc.gameMode.handleContainerInput(syncId, slotId, button, type, mc.player);
     }
 
@@ -1289,6 +1339,7 @@ public class EvilRekit extends AddonModule {
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack stack = handler.getSlot(i).getItem();
+            if (ignoreCustomName.getValue() && stack.has(DataComponents.CUSTOM_NAME)) continue;
             if (!stack.isEmpty() && stack.getItem() == expected) {
                 long score = scoreCandidate(stack);
                 if (score > bestScore) {
@@ -1342,6 +1393,7 @@ public class EvilRekit extends AddonModule {
     private int findExactItemInContainer(AbstractContainerMenu handler, int containerSize, ItemStack targetStack) {
         for (int i = 0; i < containerSize; i++) {
             ItemStack stack = handler.getSlot(i).getItem();
+            if (ignoreCustomName.getValue() && stack.has(DataComponents.CUSTOM_NAME)) continue;
             if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, targetStack)) return i;
         }
         return -1;

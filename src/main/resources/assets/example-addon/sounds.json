@@ -11,5 +11,10 @@
         "stream": true
       }
     ]
+  },
+  "vine": {
+    "sounds": [
+      "example-addon:vine"
+    ]
   }
 }
