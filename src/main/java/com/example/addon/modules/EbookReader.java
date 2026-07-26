@@ -338,39 +338,35 @@ public class EbookReader extends AddonModule {
 
     private void buildFonts(float size) {
         if (fontReg != null && lastLoadedFontSize == size) return;
-        if (fontReg != null) { fontReg.close(); fontBold.close(); fontItalic.close(); fontBoldItalic.close(); }
+        com.example.addon.utility.SkiaFontHelper.safeClose(fontReg);
+        com.example.addon.utility.SkiaFontHelper.safeClose(fontBold);
+        com.example.addon.utility.SkiaFontHelper.safeClose(fontItalic);
+        com.example.addon.utility.SkiaFontHelper.safeClose(fontBoldItalic);
+        fontReg = null; fontBold = null; fontItalic = null; fontBoldItalic = null;
         
-        FontMgr fm = FontMgr.getDefault();
-        Typeface baseTf = fm.matchFamilyStyle(null, FontStyle.NORMAL);
-        if (baseTf == null) {
-            for (String n : new String[]{"Segoe UI", "Arial", "Helvetica", "sans-serif"}) {
-                baseTf = fm.matchFamilyStyle(n, FontStyle.NORMAL);
-                if (baseTf != null) break;
-            }
-        }
+        Typeface baseTf = com.example.addon.utility.SkiaFontHelper.matchTypeface(null, FontStyle.NORMAL);
         if (baseTf == null) return;
-        String familyName = baseTf.getFamilyName();
 
-        // Gọi thẳng bản ngã Đậm/Nghiêng HÀNG AUTH 100% từ Hệ điều hành
-        Typeface tfReg = fm.matchFamilyStyle(familyName, FontStyle.NORMAL);
-        Typeface tfBold = fm.matchFamilyStyle(familyName, FontStyle.BOLD);
-        Typeface tfItalic = fm.matchFamilyStyle(familyName, FontStyle.ITALIC);
-        Typeface tfBoldItal = fm.matchFamilyStyle(familyName, FontStyle.BOLD_ITALIC);
+        String familyName = null;
+        try { familyName = baseTf.getFamilyName(); } catch (Throwable ignored) {}
 
-        // Fallback an toàn để chống crash nếu HĐH bị khuyết tật file font
+        Typeface tfReg = com.example.addon.utility.SkiaFontHelper.matchTypeface(familyName, FontStyle.NORMAL);
+        Typeface tfBold = com.example.addon.utility.SkiaFontHelper.matchTypeface(familyName, FontStyle.BOLD);
+        Typeface tfItalic = com.example.addon.utility.SkiaFontHelper.matchTypeface(familyName, FontStyle.ITALIC);
+        Typeface tfBoldItal = com.example.addon.utility.SkiaFontHelper.matchTypeface(familyName, FontStyle.BOLD_ITALIC);
+
         if (tfReg == null) tfReg = baseTf;
         if (tfBold == null) tfBold = baseTf;
         if (tfItalic == null) tfItalic = baseTf;
         if (tfBoldItal == null) tfBoldItal = baseTf;
 
-        fontReg = new Font(tfReg, size);
-        fontBold = new Font(tfBold, size); // Hàng Real đéo cần setEmbolden!
-        fontItalic = new Font(tfItalic, size);
-        fontBoldItalic = new Font(tfBoldItal, size);
+        fontReg = com.example.addon.utility.SkiaFontHelper.createFont(tfReg, size);
+        fontBold = com.example.addon.utility.SkiaFontHelper.createFont(tfBold, size);
+        fontItalic = com.example.addon.utility.SkiaFontHelper.createFont(tfItalic, size);
+        fontBoldItalic = com.example.addon.utility.SkiaFontHelper.createFont(tfBoldItal, size);
 
-        // Đề phòng máy tính của mày mất file Italic gốc, tao mới cho phép ép nghiêng vật lý (chỉ nghiêng, không bóp nét)
-        if (tfItalic == baseTf) fontItalic.setSkewX(-0.25f);
-        if (tfBoldItal == baseTf) fontBoldItalic.setSkewX(-0.25f);
+        if (fontItalic != null && tfItalic == baseTf) try { fontItalic.setSkewX(-0.25f); } catch (Throwable ignored) {}
+        if (fontBoldItalic != null && tfBoldItal == baseTf) try { fontBoldItalic.setSkewX(-0.25f); } catch (Throwable ignored) {}
 
         lastLoadedFontSize = size;
     }
@@ -419,9 +415,13 @@ public class EbookReader extends AddonModule {
             if (tk instanceof RichWord) {
                 RichWord rw = (RichWord) tk;
                 Font f = getFontFor(rw.bold, rw.italic, rw.heading);
-                if (rw.heading) f = new Font(f.getTypeface(), fontReg.getSize() * 1.5f); // Scale font cho heading
+                Font headingTempFont = null;
+                if (f != null && rw.heading) {
+                    headingTempFont = com.example.addon.utility.SkiaFontHelper.createFont(f.getTypeface(), (fontReg != null ? fontReg.getSize() : 14f) * 1.5f);
+                    if (headingTempFont != null) f = headingTempFont;
+                }
                 
-                float w = f.measureTextWidth(rw.text + " ");
+                float w = (f != null) ? com.example.addon.utility.SkiaFontHelper.measureTextWidth(f, rw.text + " ") : (rw.text.length() * 8f);
                 float h = rw.heading ? headingLineH : normalLineH;
                 
                 if (curX + w > maxW && curX > 0) { curX = 0; curY += normalLineH; }
@@ -431,7 +431,7 @@ public class EbookReader extends AddonModule {
                 curPage.cmds.add(new TextCmd(rw.text + " ", curX, curY, rw.bold, rw.italic, rw.heading));
                 curX += w;
                 
-                if (rw.heading) f.close(); // Giải phóng font temp của heading
+                com.example.addon.utility.SkiaFontHelper.safeClose(headingTempFont);
             }
         }
         if (!curPage.cmds.isEmpty() || currentPages.isEmpty()) currentPages.add(curPage);
@@ -858,13 +858,20 @@ public class EbookReader extends AddonModule {
                     if (cmd instanceof TextCmd) {
                         TextCmd t = (TextCmd) cmd;
                         Font f = getFontFor(t.bold, t.italic, t.heading);
-
-                        if (t.heading) {
-                            try (Font hf = new Font(f.getTypeface(), fontReg.getSize() * 1.5f)) {
-                                canvas.drawString(t.text, startX + t.x, startY + t.y + hf.getSize(), hf, paint);
-                            }
-                        } else {
-                            canvas.drawString(t.text, startX + t.x, startY + t.y + f.getSize(), f, paint);
+                        if (f != null) {
+                            try {
+                                if (t.heading) {
+                                    Font hf = com.example.addon.utility.SkiaFontHelper.createFont(f.getTypeface(), (fontReg != null ? fontReg.getSize() : 14f) * 1.5f);
+                                    if (hf != null) {
+                                        canvas.drawString(t.text, startX + t.x, startY + t.y + hf.getSize(), hf, paint);
+                                        com.example.addon.utility.SkiaFontHelper.safeClose(hf);
+                                    } else {
+                                        canvas.drawString(t.text, startX + t.x, startY + t.y + f.getSize(), f, paint);
+                                    }
+                                } else {
+                                    canvas.drawString(t.text, startX + t.x, startY + t.y + f.getSize(), f, paint);
+                                }
+                            } catch (Throwable ignored) {}
                         }
                     } else if (cmd instanceof ImageCmd) {
                         ImageCmd imgCmd = (ImageCmd) cmd;

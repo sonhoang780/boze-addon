@@ -155,26 +155,30 @@ public class CustomTitleScreen extends Screen {
     private void initFonts() {
         closeFonts();
         try {
-            Typeface helloTf = matchFirst(new String[]{"Segoe Script", "Bradley Hand ITC", "Ink Free", "Comic Sans MS"}, FontStyle.ITALIC);
-            helloFont = new Font(helloTf, 120f);
-            helloFont.setEdging(FontEdging.ANTI_ALIAS);
-            helloWidth = helloFont.measureTextWidth("hello");
-            buildHelloPath();
+            Typeface helloTf = matchFirst(new String[]{"Segoe Script", "Bradley Hand ITC", "Ink Free", "Comic Sans MS", "DejaVu Sans", "Helvetica"}, FontStyle.ITALIC);
+            helloFont = com.example.addon.utility.SkiaFontHelper.createFont(helloTf, 120f);
+            if (helloFont != null) {
+                try {
+                    helloFont.setEdging(FontEdging.ANTI_ALIAS);
+                } catch (Throwable ignored) {}
+                helloWidth = com.example.addon.utility.SkiaFontHelper.measureTextWidth(helloFont, "hello");
+                buildHelloPath();
+            }
 
-            Typeface lightTf = matchFirst(new String[]{"Segoe UI Light", "Segoe UI", "Arial"}, FontStyle.NORMAL);
-            dateFont = new Font(lightTf, 22f);
-            timeFont = new Font(lightTf, 62f);
-        } catch (Exception e) {
+            Typeface lightTf = matchFirst(new String[]{"Segoe UI Light", "Segoe UI", "Arial", "Helvetica", "DejaVu Sans", "sans-serif"}, FontStyle.NORMAL);
+            dateFont = com.example.addon.utility.SkiaFontHelper.createFont(lightTf, 22f);
+            timeFont = com.example.addon.utility.SkiaFontHelper.createFont(lightTf, 62f);
+        } catch (Throwable e) {
             e.printStackTrace();
         }
     }
 
     private Typeface matchFirst(String[] families, FontStyle style) {
         for (String fam : families) {
-            Typeface tf = FontMgr.getDefault().matchFamilyStyle(fam, style);
+            Typeface tf = com.example.addon.utility.SkiaFontHelper.matchTypeface(fam, style);
             if (tf != null) return tf;
         }
-        return FontMgr.getDefault().matchFamilyStyle(null, style);
+        return com.example.addon.utility.SkiaFontHelper.matchTypeface(null, style);
     }
 
     private void buildHelloPath() {
