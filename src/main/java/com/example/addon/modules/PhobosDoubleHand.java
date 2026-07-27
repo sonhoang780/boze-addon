@@ -1,6 +1,7 @@
 package com.example.addon.modules;
 
 import com.example.addon.modules.bedaura.DamageUtils;
+import com.example.addon.util.ServerGate;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
@@ -46,6 +47,16 @@ public class PhobosDoubleHand extends AddonModule {
     public static final PhobosDoubleHand INSTANCE = new PhobosDoubleHand();
 
     public enum Mode { Rage, Legit }
+
+    @Override
+    public boolean isVisible() {
+        return super.isVisible() && ServerGate.isKingMC();
+    }
+
+    @Override
+    public void onEnable() {
+        if (!ServerGate.isKingMC()) setState(false);
+    }
 
     public final ModeOption<Mode> mode = new ModeOption<>(this, "Mode",
             "Rage: hold on low health / a big hit / a recent pop. Legit: hold only when an incoming "
@@ -135,6 +146,7 @@ public class PhobosDoubleHand extends AddonModule {
     @EventHandler
     private void onTick(EventTick.Pre event) {
         if (!getState()) return;
+        if (!ServerGate.isKingMC()) { setState(false); return; }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 

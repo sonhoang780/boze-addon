@@ -5,6 +5,7 @@ import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.utility.ChatHelper;
+import com.example.addon.util.ServerGate;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -62,7 +63,13 @@ public class AutoShop extends AddonModule {
     }
 
     @Override
+    public boolean isVisible() {
+        return super.isVisible() && ServerGate.isKingMC();
+    }
+
+    @Override
     public void onEnable() {
+        if (!ServerGate.isKingMC()) { setState(false); return; }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.getConnection() == null) { setState(false); return; }
 
@@ -85,6 +92,7 @@ public class AutoShop extends AddonModule {
     @EventHandler
     private void onTick(EventTick.Pre event) {
         if (state == State.IDLE) return;
+        if (!ServerGate.isKingMC()) { setState(false); return; }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) { setState(false); return; }
 

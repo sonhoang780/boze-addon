@@ -7,6 +7,7 @@ import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
 import dev.boze.api.utility.ChatHelper;
+import com.example.addon.util.ServerGate;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -42,6 +43,16 @@ public class PhobosAutoTotem extends AddonModule {
     public static final PhobosAutoTotem INSTANCE = new PhobosAutoTotem();
 
     private static final int OFFHAND_SWAP_BUTTON = 40;
+
+    @Override
+    public boolean isVisible() {
+        return super.isVisible() && ServerGate.isKingMC();
+    }
+
+    @Override
+    public void onEnable() {
+        if (!ServerGate.isKingMC()) setState(false);
+    }
 
     public enum Mode { Normal, Legit, Macro }
     public enum OffhandItem { None, Totem, Crystal }
@@ -187,6 +198,7 @@ public class PhobosAutoTotem extends AddonModule {
     @EventHandler
     private void onTick(EventTick.Pre event) {
         if (!getState()) return;
+        if (!ServerGate.isKingMC()) { setState(false); return; }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 
