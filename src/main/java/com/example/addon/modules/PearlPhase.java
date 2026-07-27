@@ -2,7 +2,6 @@ package com.example.addon.modules;
 
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
-import dev.boze.api.option.BindOption;
 import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.utility.interaction.BreakHelper;
@@ -19,7 +18,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,54 +43,47 @@ public class PearlPhase extends AddonModule {
     public final ModeOption<SwapType> swap = new ModeOption<>(this, "Swap",
         "Silent/Alt/Normal -- how to swap to the pearl before throwing it.", SwapType.Silent);
 
-    public final BindOption phaseBind = new BindOption(this, "PhaseBind", "Keybind to trigger a phase.", -1, false);
-
     public final SliderOption cornerThreshold = new SliderOption(this, "CornerThreshold",
         "Degrees from a 45deg diagonal that still counts as \"aiming at a corner\" (wedge between 2 blocks).",
         15.0, 1.0, 44.0, 1.0);
 
     private PearlPhase() {
-        super("PearlPhase", "Throw an ender pearl to phase/clip into the block under your feet.");
+        super("PearlPhase", "Throw an ender pearl to phase/clip into the block under your feet. Runs once then auto-disables.");
     }
 
     private enum Step { BREAK, PLACE }
 
-    private boolean running = false;
-    private boolean bindWasDown = false;
     private List<BlockPos> targets = List.of();
     private int targetIdx = 0;
     private Step step = Step.BREAK;
 
     @Override
+    public void onEnable() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mc.getConnection() == null) { setState(false); return; }
+
+        targets = computeTargets(mc);
+        targetIdx = 0;
+        step = Step.BREAK;
+    }
+
+    @Override
     public void onDisable() {
-        running = false;
-        bindWasDown = false;
         targets = List.of();
     }
 
     @EventHandler
     private void onTick(EventTick.Pre event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.getConnection() == null) return;
+        if (mc.player == null || mc.level == null || mc.getConnection() == null) { setState(false); return; }
 
-        if (mc.screen != null) { bindWasDown = false; return; }
-
-        boolean down = isBindDown();
-        if (down && !bindWasDown && !running) {
-            targets = computeTargets(mc);
-            targetIdx = 0;
-            step = Step.BREAK;
-            running = true;
-        }
-        bindWasDown = down;
-
-        if (running) tickRun(mc);
+        tickRun(mc);
     }
 
     private void tickRun(Minecraft mc) {
         if (targetIdx >= targets.size()) {
             throwPearl(mc);
-            running = false;
+            setState(false);
             return;
         }
 
@@ -167,16 +158,5 @@ public class PearlPhase extends AddonModule {
         InvHelper.swapToSlot(slot, swap.getValue());
         mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
         InvHelper.swapBack();
-    }
-
-    private boolean isBindDown() {
-        int code = phaseBind.getBind();
-        if (code < 0) return false;
-        Minecraft mc = Minecraft.getInstance();
-        long handle = mc.getWindow().handle();
-        int state = phaseBind.isButton()
-            ? GLFW.glfwGetMouseButton(handle, code)
-            : GLFW.glfwGetKey(handle, code);
-        return state == GLFW.GLFW_PRESS;
     }
 }
