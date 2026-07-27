@@ -3,7 +3,6 @@ package com.example.addon.modules;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
 import dev.boze.api.option.ModeOption;
-import dev.boze.api.option.SliderOption;
 import dev.boze.api.utility.interaction.BreakHelper;
 import dev.boze.api.utility.interaction.InteractionMode;
 import dev.boze.api.utility.interaction.InvHelper;
@@ -37,15 +36,15 @@ import java.util.List;
 public class PearlPhase extends AddonModule {
     public static final PearlPhase INSTANCE = new PearlPhase();
 
+    // Degrees from a 45deg diagonal that still counts as "aiming at a corner" (wedge between 2
+    // blocks). Nobody adjusted this in practice -- hardcoded instead of a user-facing slider.
+    private static final double CORNER_THRESHOLD = 15.0;
+
     public final ModeOption<InteractionMode> anticheat = new ModeOption<>(this, "AntiCheat",
         "Grim: throw pearl directly. NCP: silently place a web/fire under the feet first.", InteractionMode.Grim);
 
     public final ModeOption<SwapType> swap = new ModeOption<>(this, "Swap",
         "Silent/Alt/Normal -- how to swap to the pearl before throwing it.", SwapType.Silent);
-
-    public final SliderOption cornerThreshold = new SliderOption(this, "CornerThreshold",
-        "Degrees from a 45deg diagonal that still counts as \"aiming at a corner\" (wedge between 2 blocks).",
-        15.0, 1.0, 44.0, 1.0);
 
     private PearlPhase() {
         super("PearlPhase", "Throw an ender pearl to phase/clip into the block under your feet. Runs once then auto-disables.");
@@ -92,7 +91,11 @@ public class PearlPhase extends AddonModule {
         if (step == Step.BREAK) {
             BlockPos below = pos.below();
             if (mc.level.getBlockState(below).is(Blocks.SCAFFOLDING)) {
-                BreakHelper.breakBlock(below);
+                // throughWalls=true: breakBlock's default overload requires line-of-sight on the
+                // block's visible face (verified via BreakHelper's javadoc), which the block right
+                // under your own feet often fails looking straight down at any angle -- bypass it
+                // instead of forcing a rotation.
+                BreakHelper.breakBlock(below, mc.player.blockInteractionRange(), true);
                 return; // retry next tick until it's actually gone
             }
             if (anticheat.getValue() == InteractionMode.NCP) {
@@ -123,7 +126,7 @@ public class PearlPhase extends AddonModule {
 
         float yaw = mc.player.getYRot();
         float mod45 = ((yaw % 90) + 90) % 90;
-        if (Math.abs(mod45 - 45f) < cornerThreshold.getValue()) {
+        if (Math.abs(mod45 - 45f) < CORNER_THRESHOLD) {
             double rad = Math.toRadians(yaw);
             int ox = -Math.sin(rad) >= 0 ? 1 : -1;
             int oz = Math.cos(rad) >= 0 ? 1 : -1;
