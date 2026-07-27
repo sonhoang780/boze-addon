@@ -3,6 +3,7 @@ package com.example.addon.modules;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventInteract;
 import dev.boze.api.option.ModeOption;
+import dev.boze.api.option.ToggleOption;
 import dev.boze.api.utility.MathHelper;
 import dev.boze.api.utility.interaction.BreakHelper;
 import dev.boze.api.utility.interaction.Interaction;
@@ -14,6 +15,7 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -24,12 +26,21 @@ import net.minecraft.world.phys.Vec3;
  * Throws an ender pearl to clip/phase into the block at the feet. Toggling the module on runs
  * the sequence once, then it auto-disables.
  * <p>
- * Everything runs from EventInteract, not a tick handler -- that is the fix for both
- * long-standing failures. BreakHelper's javadoc states breaks are only anticheat-compliant
- * "when run from an interaction" (the Interaction system is what applies the rotation), so
- * calling breakBlock() straight from EventTick silently did nothing, which is why scaffolding
- * never broke. And the throw now carries a forced rotation instead of riding whatever the
- * player happened to be looking at, so holding pitch 88-90 by hand is no longer needed.
+ * Everything runs from EventInteract, not a tick handler. BreakHelper's javadoc states breaks
+ * are only anticheat-compliant "when run from an interaction" (the Interaction system is what
+ * applies the rotation), so calling breakBlock() from EventTick silently did nothing.
+ * <p>
+ * The throw target is a real 3D point instead of a bare yaw snap: when standing within
+ * CORNER_SNAP_THRESHOLD of a 4-block lattice corner, the point is nudged toward the diagonal
+ * neighbor (CORNER_SNAP_OFFSET past the corner) so a phase into a corner no longer needs manual
+ * lining-up mid-fight; otherwise it stays under the player's own feet. MathHelper.calculateRotation
+ * derives yaw/pitch from eye-to-target geometry (same helper BedAura/hazard-placement below use),
+ * so pitch always comes out correct for the current eye height instead of a hand-picked constant.
+ * <p>
+ * Crawl: vanilla blocks a phase throw while in the crawling pose (low-ceiling gap); Folia lifts
+ * that restriction if the pearl is aimed at the bottom edge of the block instead of just under
+ * its top surface, per user confirmation -- so this option retargets the Y coordinate there
+ * instead of changing anything else.
  * <p>
  * NCP additionally places a web (fallback flint&amp;steel/fire) under the feet first -- NCP's
  * clip check wants a block there.
@@ -37,16 +48,12 @@ import net.minecraft.world.phys.Vec3;
 public class PearlPhase extends AddonModule {
     public static final PearlPhase INSTANCE = new PearlPhase();
 
-    public enum Aim { Down, Corner }
-
-    // Straight down. Vanilla clamps pitch to [-90, 90]; user-confirmed that manually holding
-    // 88-90 is what actually lands the pearl in the block underfoot.
-    private static final float PITCH_DOWN = 90.0f;
-    // A corner throw has to angle into the wedge between two blocks rather than drop straight
-    // down, so it stays just off vertical.
-    // ponytail: both constants are tuned-by-hand values, not derived -- re-measure in-game if
-    // phase reliability drifts.
-    private static final float PITCH_CORNER = 88.0f;
+    // How close (in blocks, each axis) to a 4-block lattice corner counts as "standing at a corner".
+    private static final double CORNER_SNAP_THRESHOLD = 0.3;
+    // How far past that corner, into the diagonal neighbor, the throw target gets nudged.
+    private static final double CORNER_SNAP_OFFSET = 0.4;
+    // Aims just under the floor's top surface rather than exactly on it.
+    private static final double FLOOR_EPSILON = 0.1;
 
     public final ModeOption<InteractionMode> anticheat = new ModeOption<>(this, "AntiCheat",
         "Grim: throw pearl directly. NCP: silently place a web/fire under the feet first.", InteractionMode.Grim);
@@ -54,9 +61,9 @@ public class PearlPhase extends AddonModule {
     public final ModeOption<SwapType> swap = new ModeOption<>(this, "Swap",
         "Silent/Alt/Normal -- how to swap to the pearl before throwing it.", SwapType.Silent);
 
-    public final ModeOption<Aim> aim = new ModeOption<>(this, "Aim",
-        "Down: throw straight down into the block underfoot. Corner: snap yaw to the nearest "
-        + "block corner so phasing into a corner needs no manual lining-up mid-fight.", Aim.Down);
+    public final ToggleOption crawl = new ToggleOption(this, "Crawl",
+        "Aim at the bottom edge of the block underfoot instead of just under its top surface -- "
+        + "needed to phase while in the crawling pose (Folia only, vanilla blocks it either way).", false);
 
     private boolean thrown = false;
     private boolean hazardPlaced = false;
@@ -144,9 +151,8 @@ public class PearlPhase extends AddonModule {
         if (slot == -1) slot = InvHelper.find(Items.ENDER_PEARL);
         if (slot == -1) { setState(false); return; }
 
-        boolean corner = aim.getValue() == Aim.Corner;
-        float yaw = corner ? snapToNearestCorner(mc.player.getYRot()) : mc.player.getYRot();
-        float pitch = corner ? PITCH_CORNER : PITCH_DOWN;
+        Vec3 target = computeThrowTarget(mc);
+        float[] rot = MathHelper.calculateRotation(mc.player.getEyePosition(), target);
 
         final int useSlot = slot;
         thrown = true;
@@ -154,11 +160,31 @@ public class PearlPhase extends AddonModule {
             InvHelper.swapToSlot(useSlot, swap.getValue());
             mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
             InvHelper.swapBack();
-        }, yaw, pitch));
+        }, rot[0], rot[1]));
     }
 
-    /** Nearest of the four block-corner diagonals (-45/45/135/225 ...). */
-    private static float snapToNearestCorner(float yaw) {
-        return Math.round((yaw - 45f) / 90f) * 90f + 45f;
+    /**
+     * Horizontally: the player's own feet, nudged toward the diagonal neighbor if standing near
+     * a lattice corner. Vertically: just under the floor's top surface, or its bottom edge with
+     * Crawl on.
+     */
+    private Vec3 computeThrowTarget(Minecraft mc) {
+        double x = mc.player.getX();
+        double z = mc.player.getZ();
+
+        double nearestX = Math.round(x);
+        double nearestZ = Math.round(z);
+        double dx = nearestX - x;
+        double dz = nearestZ - z;
+
+        if (Math.abs(dx) <= CORNER_SNAP_THRESHOLD && Math.abs(dz) <= CORNER_SNAP_THRESHOLD) {
+            x += Mth.clamp(dx, -CORNER_SNAP_OFFSET, CORNER_SNAP_OFFSET);
+            z += Mth.clamp(dz, -CORNER_SNAP_OFFSET, CORNER_SNAP_OFFSET);
+        }
+
+        BlockPos below = mc.player.blockPosition().below();
+        double y = crawl.getValue() ? below.getY() : below.getY() + 1.0 - FLOOR_EPSILON;
+
+        return new Vec3(x, y, z);
     }
 }

@@ -89,7 +89,7 @@ NoSlow - Move at full speed while using an item (per-anticheat bypass)
 
 PathFinder - Auto-elytrafly pathing so you don't waste fireworks (still need at least 5 fireworks for baritone to work)
 
-PearlPhase - Throw an ender pearl to phase/clip into the block under your feet
+PearlPhase - Throw an ender pearl to phase/clip into the block under your feet; auto-corner detection, Crawl option for the crawling-pose glitch (Folia)
 
 PenisESP - length of dih based on timezone, for japan it is censored
 
