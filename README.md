@@ -11,6 +11,8 @@ AntiMace — Place a block as soon as the enemy flies down to you
 
 AntiPiston - Break/Block Crystal and Piston
 
+AutoAccept - Auto /tpaccept the sender of an incoming tpa request; retries with /tpy if the server doesn't recognize tpaccept
+
 AutoPortal — Builds a portal for you
 
 AutoShop - Automates the server /shop GUI to buy totems, end crystals, or exp bottles (kingmc.vn only)

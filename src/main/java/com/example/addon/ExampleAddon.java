@@ -13,6 +13,7 @@ import com.example.addon.commands.StashFinderCommand;
 import com.example.addon.modules.AntiMace;
 import com.example.addon.modules.AntiPiston;
 import com.example.addon.modules.AuraStep;
+import com.example.addon.modules.AutoAccept;
 import com.example.addon.modules.AutoPortal;
 import com.example.addon.modules.AutoShop;
 import com.example.addon.modules.AutoWalk;
@@ -120,6 +121,7 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(SetBindCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);
         modules.add(AntiPiston.INSTANCE);
+        modules.add(AutoAccept.INSTANCE);
         AuraStep.registerTextures();
         modules.add(AuraStep.INSTANCE);
         modules.add(AutoPortal.INSTANCE);
