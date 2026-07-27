@@ -8,7 +8,6 @@ import com.example.addon.commands.ItemDropCommand;
 import com.example.addon.commands.KitCommand;
 import com.example.addon.commands.PrintModuleCommand;
 import com.example.addon.commands.PrintOptionsCommand;
-import com.example.addon.commands.SaveConfigCommand;
 import com.example.addon.commands.SetBindCommand;
 import com.example.addon.commands.StashFinderCommand;
 import com.example.addon.modules.AntiMace;
@@ -108,7 +107,6 @@ public class ExampleAddon extends Addon {
         dispatcher.registerCommand(PrintOptionsCommand.INSTANCE);
         dispatcher.registerCommand(StashFinderCommand.INSTANCE);
         dispatcher.registerCommand(HoodResearchCommand.INSTANCE);
-        dispatcher.registerCommand(SaveConfigCommand.INSTANCE);
         dispatcher.registerCommand(ConfigProfileCommand.INSTANCE);
         dispatcher.registerCommand(SetBindCommand.INSTANCE);
         modules.add(AntiMace.INSTANCE);

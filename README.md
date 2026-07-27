@@ -150,8 +150,6 @@ prefix for commands is boze prefix (default would be .)
 
 .set <module> <bindoption> <bind> : set a module's bind option
 
-.saveconfig : force-save this addon's config now
-
 .cfg all save <name> : save every module's settings as a named profile
 
 .cfg all load <name> : load a named config profile
