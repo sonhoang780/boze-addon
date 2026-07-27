@@ -116,10 +116,21 @@ public class HoleSnap extends AddonModule {
     private static final double RENDER_FADE_DISTANCE = 4.0;
 
     private static final int COLLISION_LIMIT = 15;
+    private static final double CENTER_TOLERANCE = 0.02;
+    // CollisionDisable only ever counts HORIZONTAL obstruction, so a hole that can't be entered
+    // for a VERTICAL reason -- a roof over it, an overhang, the player standing on the block
+    // above it -- never trips it, and nothing else gave up either: HoleSnap held the player
+    // there indefinitely. Distance no longer shrinking is the geometry-agnostic signal.
+    private static final int NO_PROGRESS_LIMIT = 20;       // ticks (1s @ 20tps)
+    private static final double PROGRESS_EPSILON = 1.0E-4;
 
     private int collisions = 0;
     private int jumpTicks = 0;
     private int boostTicksLeft = 0;
+
+    private BlockPos progressHolePos = null;
+    private double bestDistSq = Double.MAX_VALUE;
+    private int noProgressTicks = 0;
 
     // Fake server-side yaw toward the hole, camera hidden -- same technique
     // ControlRocket/EBounce+ already use (see MixinEntity): set the entity's raw
@@ -143,6 +154,9 @@ public class HoleSnap extends AddonModule {
         collisions = 0;
         jumpTicks = 0;
         boostTicksLeft = boost.getValue() ? boostTicks.getValue().intValue() : 0;
+        progressHolePos = null;
+        bestDistSq = Double.MAX_VALUE;
+        noProgressTicks = 0;
     }
 
     @Override
@@ -282,18 +296,21 @@ public class HoleSnap extends AddonModule {
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
 
-        // Tolerance, not exact equality -- server-side collision/position resolution almost
-        // never lands EXACTLY on hole.middle's double coordinates (BlackOut's original
-        // assumption that the clamped step always lands dead-on doesn't hold once the server
-        // has any say in the final position), so dx/dz==0.0 essentially never triggered even
-        // with the player correctly standing in the hole -- autoDisable never fired and
-        // HoleSnap stayed "on" indefinitely (user report: "chui vào được hole rồi mà holesnap
-        // vẫn bật"). Same centerTol idiom Strict mode already uses correctly below.
-        double centerTol = 0.02;
-        if (dx * dx + dz * dz <= centerTol * centerTol) {
-            Vec3 v = mc.player.getDeltaMovement();
-            mc.player.setDeltaMovement(0.0, v.y, 0.0);
-            if (inHole != null && autoDisable.getValue()) setState(false);
+        // Settling on the exact center is only "arrived" when the player is genuinely IN the
+        // hole. Keying it on horizontal distance alone matches standing on a roof or ledge
+        // directly ABOVE a hole just as well, and there it froze the player in place forever
+        // (velocity zeroed, autoDisable skipped because inHole was null).
+        if (inHole != null) {
+            if (dx * dx + dz * dz <= CENTER_TOLERANCE * CENTER_TOLERANCE) {
+                Vec3 v = mc.player.getDeltaMovement();
+                mc.player.setDeltaMovement(0.0, v.y, 0.0);
+                if (autoDisable.getValue()) setState(false);
+                return;
+            }
+        } else if (!makingProgress(mc, hole)) {
+            setState(false);
+            mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§c[HoleSnap] disabled: hole unreachable (no progress)"));
             return;
         }
 
@@ -399,6 +416,13 @@ public class HoleSnap extends AddonModule {
             return;
         }
 
+        if (!makingProgress(mc, hole)) {
+            setState(false);
+            mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§c[HoleSnap] disabled: hole unreachable (no progress)"));
+            return;
+        }
+
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
 
@@ -455,6 +479,26 @@ public class HoleSnap extends AddonModule {
 
     private boolean playerInHole(Minecraft mc) {
         return holePlayerIsIn(mc) != null;
+    }
+
+    /** False once the player has stopped closing on the hole -- it isn't enterable from here. */
+    private boolean makingProgress(Minecraft mc, Hole hole) {
+        double dx = hole.middle().x - mc.player.getX();
+        double dz = hole.middle().z - mc.player.getZ();
+        double distSq = dx * dx + dz * dz;
+
+        if (!hole.pos().equals(progressHolePos)) {
+            progressHolePos = hole.pos();
+            bestDistSq = distSq;
+            noProgressTicks = 0;
+            return true;
+        }
+        if (distSq < bestDistSq - PROGRESS_EPSILON) {
+            bestDistSq = distSq;
+            noProgressTicks = 0;
+            return true;
+        }
+        return ++noProgressTicks < NO_PROGRESS_LIMIT;
     }
 
     @EventHandler
