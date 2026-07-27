@@ -108,6 +108,7 @@ public class PlayMusic extends AddonModule {
     private boolean wasTabDown = false;
     private boolean wasLeftArrowDown = false;
     private boolean wasRightArrowDown = false;
+    private long lastTrackSkipMs = 0;
     
     // Biến theo dõi Animation (Lerp) của khung Suggestion
     private double animSuggestHeight = 0.0;
@@ -292,8 +293,14 @@ public class PlayMusic extends AddonModule {
             ytSourceManager = new YoutubeAudioSourceManager(true, new dev.lavalink.youtube.clients.Music(), new dev.lavalink.youtube.clients.TvHtml5Simply(), new dev.lavalink.youtube.clients.AndroidVr(), new dev.lavalink.youtube.clients.Web());
             
             String token = readToken();
-            if (token.isEmpty()) { 
-                ytSourceManager.useOauth2(null, false); 
+            if (token.isEmpty()) {
+                // useOauth2(null, false) -- skipInitialization=false -- kicks off
+                // fetchDeviceCode()/initializeAccessToken(), a real network call to Google's
+                // device-authorization endpoint. onEnable() can run on the main/render thread
+                // (during config load, per the try/catch above), so calling this inline froze
+                // Minecraft ("not responding") for however long that network call took, with
+                // no exception logged since it just succeeds slowly. Off-thread now.
+                CompletableFuture.runAsync(() -> ytSourceManager.useOauth2(null, false));
                 // ── HƯỚNG DẪN CHO NGƯỜI MỚI DÙNG LẦN ĐẦU ──
                 CompletableFuture.runAsync(() -> {
                     try { Thread.sleep(3000); } catch (Exception ignored) {}
@@ -308,7 +315,7 @@ public class PlayMusic extends AddonModule {
                         });
                     }
                 });
-            } 
+            }
             else { ytSourceManager.useOauth2(token, true); }
             
             playerManager.registerSourceManager(ytSourceManager);
@@ -384,9 +391,16 @@ public class PlayMusic extends AddonModule {
         wasTabDown = tabDown;
 
         // Keyboard media controls: Up/Down = volume, Left/Right = previous/next track.
-        // Gated on mc.screen == null so these don't fight arrow-key cursor movement while
-        // typing in chat/any GUI edit box -- only active during normal gameplay.
-        if (this.active && mc.screen == null) {
+        // Gated on mc.screen == null (don't fight arrow-key cursor movement in chat/GUI
+        // edit boxes) AND isMouseGrabbed() -- overlay tools (e.g. GearUP Booster's in-game
+        // network HUD) render inside the SAME window/GL context Minecraft uses, so no real
+        // OS focus change happens when the user interacts with them; glfwGetKey still reads
+        // Minecraft's own key state and picked up the overlay's arrow-key navigation as track
+        // skips, causing continuous track changes while that overlay was in use. Real
+        // gameplay always has the mouse grabbed (captured cursor); any overlay/menu that's
+        // actually receiving the user's input releases it first -- isMouseGrabbed() is the
+        // correct signal for "the game itself owns input right now", not just window focus.
+        if (this.active && mc.screen == null && mc.mouseHandler.isMouseGrabbed()) {
             boolean upDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS;
             boolean downDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS;
             boolean leftDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS;
@@ -397,12 +411,19 @@ public class PlayMusic extends AddonModule {
             if (upDown) volume.setValue(Math.min(100.0, volume.getValue() + 2.0));
             if (downDown) volume.setValue(Math.max(0.0, volume.getValue() - 2.0));
 
-            // Track skip: edge-triggered (once per press), not continuous -- holding the
-            // key shouldn't skip through the whole queue.
+            // Track skip: edge-triggered (once per press) PLUS a cooldown -- holding the key
+            // shouldn't skip through the whole queue, and a cooldown means even a desynced
+            // key-state edge (stuck/duplicate press from an external input source) can't
+            // fire more than one skip per 300ms.
             boolean justLeftArrow = leftDown && !wasLeftArrowDown;
             boolean justRightArrow = rightDown && !wasRightArrowDown;
-            if (justRightArrow && scheduler != null) scheduler.nextTrack();
-            if (justLeftArrow && scheduler != null) scheduler.previousTrack();
+            long nowMs = System.currentTimeMillis();
+            if (justRightArrow && scheduler != null && nowMs - lastTrackSkipMs > 300) {
+                scheduler.nextTrack(); lastTrackSkipMs = nowMs;
+            }
+            if (justLeftArrow && scheduler != null && nowMs - lastTrackSkipMs > 300) {
+                scheduler.previousTrack(); lastTrackSkipMs = nowMs;
+            }
 
             wasLeftArrowDown = leftDown;
             wasRightArrowDown = rightDown;
@@ -590,6 +611,18 @@ public class PlayMusic extends AddonModule {
         public final List<AudioTrack> queue = new ArrayList<>();
         public final List<AudioTrack> historyQueue = new ArrayList<>();
 
+        // Every track failing to STREAM (not just failing to be found) ends with
+        // AudioTrackEndReason.LOAD_FAILED, which onTrackEnd below treated identically to a
+        // normal finish -- straight into loadAutoMix for the next track. With a network path
+        // that makes YouTube reject every stream (e.g. a VPN/booster IP tripping its bot-check,
+        // confirmed via log: AllClientsFailedException on every single track), that chain never
+        // stops: fail -> loadAutoMix -> new track "Now playing" -> fails again -> repeat, each
+        // iteration near-instant since only metadata lookup succeeds, never the actual audio.
+        // Reads as "nhạc chuyển liên tục" and the chat-message + lookup flood from hundreds of
+        // iterations per second is what starved the render thread into "not responding".
+        private int consecutiveLoadFailures = 0;
+        private static final int MAX_CONSECUTIVE_LOAD_FAILURES = 3;
+
         public void nextTrack() {
             if (!queue.isEmpty()) {
                 forcePlayInstantly(queue.remove(0));
@@ -618,12 +651,22 @@ public class PlayMusic extends AddonModule {
         public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
             // An toàn kép: nếu đang Pause thì tuyệt đối không tự chuyển bài.
             if (player.isPaused()) return;
+
+            if (endReason == AudioTrackEndReason.LOAD_FAILED) consecutiveLoadFailures++;
+            else consecutiveLoadFailures = 0;
+
             if (endReason.mayStartNext) {
                 if (loopCurrent.getValue()) {
                     player.startTrack(track.makeClone(), false);
                 } else if (!queue.isEmpty()) {
                     nextTrack();
                 } else if (autoPlay.getValue()) {
+                    if (consecutiveLoadFailures >= MAX_CONSECUTIVE_LOAD_FAILURES) {
+                        safeError(consecutiveLoadFailures + " tracks in a row failed to stream -- stopping autoplay "
+                            + "(likely a network/VPN/booster issue blocking YouTube). Try again or check your connection.");
+                        consecutiveLoadFailures = 0;
+                        return;
+                    }
                     loadAutoMix(track);
                 }
             }

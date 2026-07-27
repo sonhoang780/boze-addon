@@ -282,9 +282,15 @@ public class HoleSnap extends AddonModule {
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
 
-        if (dx == 0.0 && dz == 0.0) {
-            // Exactly centered already (this is only reachable once a previous tick's
-            // clamped step landed dead-on, same as BlackOut's getX()==middle.x check).
+        // Tolerance, not exact equality -- server-side collision/position resolution almost
+        // never lands EXACTLY on hole.middle's double coordinates (BlackOut's original
+        // assumption that the clamped step always lands dead-on doesn't hold once the server
+        // has any say in the final position), so dx/dz==0.0 essentially never triggered even
+        // with the player correctly standing in the hole -- autoDisable never fired and
+        // HoleSnap stayed "on" indefinitely (user report: "chui vào được hole rồi mà holesnap
+        // vẫn bật"). Same centerTol idiom Strict mode already uses correctly below.
+        double centerTol = 0.02;
+        if (dx * dx + dz * dz <= centerTol * centerTol) {
             Vec3 v = mc.player.getDeltaMovement();
             mc.player.setDeltaMovement(0.0, v.y, 0.0);
             if (inHole != null && autoDisable.getValue()) setState(false);
@@ -313,9 +319,15 @@ public class HoleSnap extends AddonModule {
                 mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: collided"));
                 return;
             }
-        } else {
-            collisions = 0;
+            // Blocked this tick -- don't shove velocity into the wall (that's what pinned
+            // the player motionless against a fully-blocked hole, user report/screenshot
+            // 2026-07-27: hole visibly blocked at stance height, HoleSnap still selected it
+            // and held the player still ramming it for up to COLLISION_LIMIT ticks). Just
+            // wait for the next tick's re-scan/collision count instead of forcing velocity
+            // that the server was going to reject anyway.
+            return;
         }
+        collisions = 0;
 
         Vec3 v = mc.player.getDeltaMovement();
         mc.player.setDeltaMovement(vx, v.y, vz);

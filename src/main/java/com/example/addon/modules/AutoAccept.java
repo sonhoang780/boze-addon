@@ -24,8 +24,12 @@ import java.util.regex.Pattern;
 public class AutoAccept extends AddonModule {
     public static final AutoAccept INSTANCE = new AutoAccept();
 
+    // "received a" is load-bearing: without it this also matches the server's OWN post-accept
+    // confirmation line ("You accepted the teleport request from X."), which re-triggered another
+    // /tpaccept, which produced another confirmation line, forever -- a feedback loop that got a
+    // real player spam-kicked (screenshot 2026-07-27: 4x "You accepted..." for one request).
     private static final Pattern TPA_REQUEST_FROM = Pattern.compile(
-        "teleport request from ([A-Za-z0-9_]{1,16})", Pattern.CASE_INSENSITIVE);
+        "received a teleport request from ([A-Za-z0-9_]{1,16})", Pattern.CASE_INSENSITIVE);
     private static final Pattern TPA_EN = Pattern.compile(
         "^([A-Za-z0-9_]{1,16}) has requested (?:to teleport to you|that you teleport to (?:them|him|her))",
         Pattern.CASE_INSENSITIVE);

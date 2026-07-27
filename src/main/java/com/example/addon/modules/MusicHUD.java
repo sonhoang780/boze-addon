@@ -209,6 +209,26 @@ public class MusicHUD extends AddonModule {
     private PaintState paintState;
     private Font skiaFontBody;
 
+    // Typeface resolution (file read + FontMgr.matchFamilyStyle fallback chain) is a
+    // blocking native call -- on some systems (the exact case SkiaFontHelper's fallback
+    // chain was added for) the font manager's first cache build/scan can take real
+    // wall-clock time. Running it inline in render() froze the render thread with no
+    // exception logged (it succeeds, just slowly) -- "Minecraft not responding" at random
+    // (2026-07-27 report). Built off-thread now; render() only swaps in the finished
+    // Font/Typeface once ready, same pattern loadThumbnailAsync/uploadPendingThumb already
+    // use for thumbnail decode/upload.
+    private static final class FontBundle {
+        final Font title, author; final float tSize, aSize; final long modTime; final String path;
+        FontBundle(Font title, Font author, float tSize, float aSize, long modTime, String path) {
+            this.title = title; this.author = author; this.tSize = tSize; this.aSize = aSize;
+            this.modTime = modTime; this.path = path;
+        }
+    }
+    private final java.util.concurrent.atomic.AtomicReference<FontBundle> pendingFontBundle = new java.util.concurrent.atomic.AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicReference<Font> pendingBodyFont = new java.util.concurrent.atomic.AtomicReference<>();
+    private volatile boolean fontBundleLoading = false;
+    private volatile boolean bodyFontLoading = false;
+
     private MusicHUD() {
         super("MusicHUD", "Music player HUD with Skia Rounded Corners & Glow.");
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "musichud"), (context, tracker) -> {
@@ -620,24 +640,54 @@ public class MusicHUD extends AddonModule {
         long currentModTime = targetFontFile.exists() ? targetFontFile.lastModified() : -1L;
         String fontIdentifier = targetFontFile.exists() ? targetFontFile.getAbsolutePath() : "Arial";
 
-        if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath)) {
+        // Swap in whatever the background task already finished, before deciding whether
+        // a new rebuild is needed (the check below reads lastTitleSize/lastFontPath, which
+        // this updates).
+        FontBundle ready = pendingFontBundle.getAndSet(null);
+        if (ready != null) {
             com.example.addon.utility.SkiaFontHelper.safeClose(skiaFontTitle);
             com.example.addon.utility.SkiaFontHelper.safeClose(skiaFontAuthor);
-
-            Typeface typeface = com.example.addon.utility.SkiaFontHelper.createTypefaceFromFile(targetFontFile);
-            if (typeface == null) typeface = com.example.addon.utility.SkiaFontHelper.matchTypeface("Arial", FontStyle.BOLD);
-            
-            skiaFontTitle = com.example.addon.utility.SkiaFontHelper.createFont(typeface, tSize);
-            skiaFontAuthor = com.example.addon.utility.SkiaFontHelper.createFont(typeface, aSize);
-            lastTitleSize = tSize;
-            lastAuthorSize = aSize;
-            lastFontModifiedTime = currentModTime;
-            lastFontPath = fontIdentifier;
+            skiaFontTitle = ready.title;
+            skiaFontAuthor = ready.author;
+            lastTitleSize = ready.tSize;
+            lastAuthorSize = ready.aSize;
+            lastFontModifiedTime = ready.modTime;
+            lastFontPath = ready.path;
         }
 
-        if (skiaFontBody == null) {
-            Typeface bodyFace = com.example.addon.utility.SkiaFontHelper.matchTypeface(null, FontStyle.NORMAL);
-            skiaFontBody = com.example.addon.utility.SkiaFontHelper.createFont(bodyFace, 9f);
+        boolean needsRebuild = skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize
+            || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath);
+        if (needsRebuild && !fontBundleLoading) {
+            fontBundleLoading = true;
+            final java.io.File fontFileForTask = targetFontFile;
+            final float reqT = tSize, reqA = aSize;
+            final long reqModTime = currentModTime;
+            final String reqPath = fontIdentifier;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Typeface typeface = com.example.addon.utility.SkiaFontHelper.createTypefaceFromFile(fontFileForTask);
+                    if (typeface == null) typeface = com.example.addon.utility.SkiaFontHelper.matchTypeface("Arial", FontStyle.BOLD);
+                    Font title = com.example.addon.utility.SkiaFontHelper.createFont(typeface, reqT);
+                    Font author = com.example.addon.utility.SkiaFontHelper.createFont(typeface, reqA);
+                    pendingFontBundle.set(new FontBundle(title, author, reqT, reqA, reqModTime, reqPath));
+                } finally {
+                    fontBundleLoading = false;
+                }
+            });
+        }
+
+        Font readyBody = pendingBodyFont.getAndSet(null);
+        if (readyBody != null) skiaFontBody = readyBody;
+        if (skiaFontBody == null && !bodyFontLoading) {
+            bodyFontLoading = true;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Typeface bodyFace = com.example.addon.utility.SkiaFontHelper.matchTypeface(null, FontStyle.NORMAL);
+                    pendingBodyFont.set(com.example.addon.utility.SkiaFontHelper.createFont(bodyFace, 9f));
+                } finally {
+                    bodyFontLoading = false;
+                }
+            });
         }
     }
 

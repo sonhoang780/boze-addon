@@ -1,7 +1,6 @@
 package com.example.addon.modules.bedaura;
 
 import dev.boze.api.addon.AddonModule;
-import dev.boze.api.client.ModuleManager;
 import dev.boze.api.event.EventInteract;
 import dev.boze.api.event.EventRotate;
 import dev.boze.api.event.EventTick;
@@ -85,15 +84,6 @@ public class BedAura extends AddonModule {
     public final ToggleOption debugSearch = new ToggleOption(this, "DebugSearch",
         "Log the winning search candidate to chat every recompute.", false);
 
-    // AutoMine's InstantMine mode re-breaks whatever sits at its target position immediately,
-    // destroying a freshly-placed bed before it can detonate. AutoMineHelper.setCanBreak is
-    // ADDITIVE ONLY (can grant extra breakable blocks, never blacklist one) so it can't stop
-    // this. Instead: switch AutoMine's own "Instant" mode option to Strict while a bed is
-    // down, restore the original value right after detonating (see findAutoMineModeOption).
-    public final ToggleOption suppressAutoMine = new ToggleOption(this, "SuppressAutoMine",
-        "Switch AutoMine's Mode to Strict while a bed is placed (restoring the original mode "
-        + "after detonating), so InstantMine can't destroy it before detonation.", true);
-
     public final SliderOption delay = new SliderOption(this, "Delay",
         "Milliseconds between placing the bed and right-clicking it, and between cycles.",
         150.0, 0.0, 500.0, 5.0);
@@ -153,21 +143,10 @@ public class BedAura extends AddonModule {
 
     @Override
     public void onEnable() {
-        autoMineSuppressed = false;
-        suppressAutoMineBroken = false;
         lastLoggedNoBed = false;
         lastLoggedNoBedSlot = false;
         clearSelection();
         recomputeTicks = 0;
-        // Suppress for the module's whole enabled lifetime, not per bed place/detonate cycle --
-        // doing it per-cycle flipped AutoMine's Instant option Strict<->saved every single
-        // clutch (visible thrashing during continuous bed-clutching against a target).
-        suppressAutoMineIfNeeded();
-    }
-
-    @Override
-    public void onDisable() {
-        restoreAutoMineIfNeeded();
     }
 
     // Decide (search) and act (place/detonate) run from the SAME onInteract cadence below.
@@ -661,7 +640,6 @@ public class BedAura extends AddonModule {
                 placedBedPos = lastPlacedAnchorPos;
                 placedBedHeadPos = findOtherBedHalf(mc, lastPlacedAnchorPos);
                 lastActionMs = System.currentTimeMillis();
-                suppressAutoMineIfNeeded();
             }
         };
         submitRotated(event, action, yaw, pitch);
@@ -795,108 +773,6 @@ public class BedAura extends AddonModule {
             !s.isEmpty() && !(s.getItem() instanceof net.minecraft.world.item.BedItem);
         int any = wholeInv ? InvHelper.find(notBed) : InvHelper.findInHotbar(notBed);
         return any != -1 ? any : Integer.MIN_VALUE;
-    }
-
-    // AutoMine mode suppression for BedAura's whole enabled lifetime: switch AutoMine's own
-    // "Instant" mode option to Strict on enable, so it isn't in the specific mode that
-    // instant-breaks a freshly-placed bed before it can detonate; restore the saved original
-    // mode on disable. NOT scoped per place/detonate cycle -- that flipped the option on
-    // every single clutch during continuous bed-fighting (visible thrashing).
-    private static final String MODULE_AUTOMINE = "AutoMine";
-    private static final String TARGET_MODE_NAME = "Strict";
-    private boolean autoMineSuppressed = false;
-    private boolean suppressAutoMineBroken = false;
-    private boolean autoMineActuallyForced = false; // true only if we called LiveModeCache.suppressAutoMine()
-
-    // ModeOption.setValueByName silently no-ops on an unknown name (no exception, no return
-    // value), so the actual switch is verified below rather than assumed from "no exception".
-    // getClientModule(name) is the field-verified lookup for a built-in Boze client module
-    // (same pattern as PathFinder.java's ElytraFly lookup).
-    private dev.boze.api.client.module.BaseModule findAutoMineModule() {
-        return ModuleManager.getClientModule(MODULE_AUTOMINE);
-    }
-
-    // The relevant option is literally named "Instant" (under AutoMine's ReMine section) --
-    // a separate "Renderer" ModeOption (ESP render style) sits earlier in the option list.
-    private dev.boze.api.option.ModeOption<?> findAutoMineModeOption(dev.boze.api.client.module.BaseModule mod) {
-        for (dev.boze.api.option.Option<?> opt : mod.getOptions()) {
-            if (opt instanceof dev.boze.api.option.ModeOption<?> modeOpt && opt.name.equalsIgnoreCase("Instant")) {
-                return modeOpt;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Workaround for a real bug in ModeOption.setValueByName/getEnumClass: getEnumClass()
-     * uses {@code value.getClass()}, but a Java enum constant with a body override (e.g. a
-     * custom toString()) has its OWN anonymous subclass, not the real enum class --
-     * getEnumConstants() on that subclass returns null, so setValueByName's search loop
-     * silently finds nothing to match no matter what name is passed. This matches the
-     * observed symptom exactly: the switch reliably fails specifically when the CURRENT
-     * value is a constant with a body (confirmed via same-call readback verification).
-     * Falls back to the constant's real enum class via getSuperclass() when this happens,
-     * then sets the value directly (setValue, not setValueByName -- no getClass() involved).
-     */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static boolean forceSetModeByName(dev.boze.api.option.ModeOption<?> modeOpt, String name) {
-        Object current = modeOpt.getValue();
-        if (!(current instanceof Enum<?> currentEnum)) return false;
-        Class<?> cls = currentEnum.getClass();
-        Object[] constants = cls.getEnumConstants();
-        if (constants == null) constants = cls.getSuperclass().getEnumConstants();
-        if (constants == null) return false;
-        for (Object c : constants) {
-            if (c instanceof Enum<?> e && e.name().equalsIgnoreCase(name)) {
-                ((dev.boze.api.option.ModeOption) modeOpt).setValue(e);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // 2026-07-20: restore target comes from LiveModeCache (polls every tick all session, NOT
-    // a live capture of modeOpt.getModeName() taken here) -- confirmed (reproduced with zero
-    // addon modules involved) that Boze resets a ModeOption to its defaultValue the instant
-    // the OWNING MODULE's enabled state flips off->on, no matter who/what triggers it, so a
-    // capture taken only right here can already be stale/corrupted (e.g. from AutoMine being
-    // toggled off/on earlier in the session, unrelated to BedAura) before this code ever runs.
-    private void suppressAutoMineIfNeeded() {
-        if (!suppressAutoMine.getValue() || autoMineSuppressed || suppressAutoMineBroken) return;
-        try {
-            dev.boze.api.client.module.BaseModule mod = findAutoMineModule();
-            dev.boze.api.option.ModeOption<?> modeOpt = mod != null ? findAutoMineModeOption(mod) : null;
-            if (modeOpt == null) { suppressAutoMineBroken = true; return; }
-
-            if (!modeOpt.getModeName().equalsIgnoreCase(TARGET_MODE_NAME)) {
-                com.example.addon.util.LiveModeCache.INSTANCE.suppressAutoMine();
-                autoMineActuallyForced = true;
-                forceSetModeByName(modeOpt, TARGET_MODE_NAME);
-            }
-            autoMineSuppressed = true;
-        } catch (Exception e) {
-            suppressAutoMineBroken = true;
-        }
-    }
-
-    /** Restores AutoMine's "Instant" mode to LiveModeCache's last-observed real value. */
-    private void restoreAutoMineIfNeeded() {
-        if (!autoMineSuppressed) return;
-        autoMineSuppressed = false;
-        try {
-            String target = com.example.addon.util.LiveModeCache.INSTANCE.getAutoMineInstantMode();
-            if (target != null) {
-                dev.boze.api.client.module.BaseModule mod = findAutoMineModule();
-                dev.boze.api.option.ModeOption<?> modeOpt = mod != null ? findAutoMineModeOption(mod) : null;
-                if (modeOpt != null) forceSetModeByName(modeOpt, target);
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (autoMineActuallyForced) {
-                com.example.addon.util.LiveModeCache.INSTANCE.unsuppressAutoMine();
-                autoMineActuallyForced = false;
-            }
-        }
     }
 
     /** Mirrors 0tterware/Boze-Mint-Addon's own submitRotated: bundles action+rotation into one Interaction, or a plain unrotated one when Rotate is off. */

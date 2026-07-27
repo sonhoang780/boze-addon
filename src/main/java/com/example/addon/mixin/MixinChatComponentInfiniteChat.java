@@ -9,22 +9,32 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import java.util.List;
 
 /**
- * Redirects the removeLast() call ChatComponent#addMessageToQueue makes once allMessages
- * exceeds MAX_CHAT_HISTORY (100, verified via javap on the 26.1.2 merged jar -- the constant
- * is inlined at compile time so the field itself can't be patched). While InfiniteChat is
- * enabled the removal is skipped, so allMessages keeps growing instead of dropping old lines.
+ * addMessageToQueue's real bytecode (verified via javap -c on the 26.1.2 merged jar) is:
+ * {@code allMessages.addFirst(msg); while (allMessages.size() > 100) allMessages.removeLast();}
+ * -- a PREVIOUS version of this mixin redirected removeLast() to a no-op while InfiniteChat was
+ * enabled. That turned the trim loop into an INFINITE loop the instant allMessages passed 100
+ * entries: the no-op never shrinks the list, so `size() > 100` never becomes false and the
+ * `while` never exits -- confirmed via jstack on a real hang (2026-07-27): the render thread was
+ * stuck inside this exact call for 2,074,359ms of CPU time, one single addMessageToQueue
+ * invocation that never returned. Every chat/system message sent after the 100th while
+ * InfiniteChat was on hit this, not just HoleSnap's diagnostic dump that happened to trigger it
+ * that session.
+ * <p>
+ * Fixed by redirecting size() instead of removeLast(): reporting 0 makes the loop condition
+ * false immediately (0 iterations, guaranteed to terminate) while allMessages itself is
+ * untouched -- same "keep every line" result, no infinite loop possible.
  */
 @Mixin(ChatComponent.class)
 public abstract class MixinChatComponentInfiniteChat {
 
     @Redirect(
         method = "addMessageToQueue",
-        at = @At(value = "INVOKE", target = "Ljava/util/List;removeLast()Ljava/lang/Object;")
+        at = @At(value = "INVOKE", target = "Ljava/util/List;size()I")
     )
-    private Object infiniteChat$keepHistory(List<?> allMessages) {
+    private int infiniteChat$keepHistory(List<?> allMessages) {
         if (InfiniteChat.INSTANCE.getState()) {
-            return null;
+            return 0;
         }
-        return allMessages.removeLast();
+        return allMessages.size();
     }
 }
