@@ -67,7 +67,7 @@ HUDEditor - For MusicHUD and GifHUD
 
 IgnoreClimb - Ignores vines/ladders/scaffolding, walk past them like normal blocks instead of climbing
 
-InfiniteChat - Keeps unlimited chat history instead of the vanilla 100-message cap
+InfiniteChat - Keeps unlimited chat history instead of the vanilla 100-message cap, and keeps it across server switches
 
 InventoryCleaner - Throw out worse items and blacklisted items
 

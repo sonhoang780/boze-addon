@@ -37,6 +37,7 @@
     "MixinLevel",
     "MixinChatComponent",
     "MixinChatComponentInfiniteChat",
+    "MixinGuiInfiniteChat",
     "MixinChatComponentAutoAccept",
     "MixinSoundManager",
     "MixinGuiRenderState",

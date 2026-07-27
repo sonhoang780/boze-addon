@@ -8,6 +8,9 @@ import dev.boze.api.addon.AddonModule;
  * constant is compile-time inlined so it can't be patched by reflection). This module flips
  * a flag that MixinChatComponentInfiniteChat reads to skip that removeLast() call, so old
  * chat lines stay scrollable instead of being discarded.
+ * <p>
+ * MixinGuiInfiniteChat additionally suppresses the clearMessages() wipe Gui#onDisconnected does,
+ * so history also survives switching servers.
  */
 public class InfiniteChat extends AddonModule {
     public static final InfiniteChat INSTANCE = new InfiniteChat();
