@@ -182,9 +182,15 @@ dependencies {
     implementation "io.github.humbleui:skija-shared:${skijaVersion}"
     include "io.github.humbleui:skija-shared:${skijaVersion}"
     
-    // Core C++ dành riêng cho Windows x64
+    // Core C++ native libraries for cross-platform support (Windows, Linux, macOS)
     implementation "io.github.humbleui:skija-windows-x64:${skijaVersion}"
     include "io.github.humbleui:skija-windows-x64:${skijaVersion}"
+    implementation "io.github.humbleui:skija-linux-x64:${skijaVersion}"
+    include "io.github.humbleui:skija-linux-x64:${skijaVersion}"
+    implementation "io.github.humbleui:skija-macos-x64:${skijaVersion}"
+    include "io.github.humbleui:skija-macos-x64:${skijaVersion}"
+    implementation "io.github.humbleui:skija-macos-arm64:${skijaVersion}"
+    include "io.github.humbleui:skija-macos-arm64:${skijaVersion}"
     // ─────────────────────────────────────────────────────────────
 
     implementation "commons-logging:commons-logging:1.3.0"
@@ -281,6 +287,23 @@ jar {
         rename { "${it}_${inputs.properties.archivesName}"}
     }
 }
+
+tasks.register('copyToMods') {
+    doLast {
+        copy {
+            from jar
+            into '/home/lovey0x/.minecraftx/instances/boze/mods/'
+            rename { 'boze-addon.jar' }
+        }
+        copy {
+            from jar
+            into '/home/lovey0x/.minecraftx/instances/26.1.2-fabric0.19.2/mods/'
+            rename { 'boze-addon.jar' }
+        }
+    }
+}
+
+build.finalizedBy(copyToMods)
 
 tasks.register("runBoze", ClientProductionRunTask) {
     mods.from configurations.bozeLoader

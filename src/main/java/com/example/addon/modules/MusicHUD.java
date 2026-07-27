@@ -621,33 +621,23 @@ public class MusicHUD extends AddonModule {
         String fontIdentifier = targetFontFile.exists() ? targetFontFile.getAbsolutePath() : "Arial";
 
         if (skiaFontTitle == null || lastTitleSize != tSize || lastAuthorSize != aSize || lastFontModifiedTime != currentModTime || !fontIdentifier.equals(lastFontPath)) {
-            if (skiaFontTitle != null) skiaFontTitle.close();
-            if (skiaFontAuthor != null) skiaFontAuthor.close();
+            com.example.addon.utility.SkiaFontHelper.safeClose(skiaFontTitle);
+            com.example.addon.utility.SkiaFontHelper.safeClose(skiaFontAuthor);
 
-            Typeface typeface = null;
-            if (targetFontFile.exists()) {
-                try {
-                    byte[] fontBytes = java.nio.file.Files.readAllBytes(targetFontFile.toPath());
-                    typeface = FontMgr.getDefault().makeFromData(Data.makeFromBytes(fontBytes));
-                } catch (Exception ignored) {}
-            }
-            if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle("Arial", FontStyle.BOLD);
-            if (typeface == null) typeface = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
+            Typeface typeface = com.example.addon.utility.SkiaFontHelper.createTypefaceFromFile(targetFontFile);
+            if (typeface == null) typeface = com.example.addon.utility.SkiaFontHelper.matchTypeface("Arial", FontStyle.BOLD);
             
-            skiaFontTitle = new Font(typeface, tSize);
-            skiaFontAuthor = new Font(typeface, aSize);
+            skiaFontTitle = com.example.addon.utility.SkiaFontHelper.createFont(typeface, tSize);
+            skiaFontAuthor = com.example.addon.utility.SkiaFontHelper.createFont(typeface, aSize);
             lastTitleSize = tSize;
             lastAuthorSize = aSize;
             lastFontModifiedTime = currentModTime;
             lastFontPath = fontIdentifier;
         }
 
-        // Small fixed-size body font (time, "Not playing", note glyph) — deliberately
-        // the default system typeface, not the user's custom music font, so it keeps
-        // looking like Minecraft's own UI text regardless of what font is loaded above.
         if (skiaFontBody == null) {
-            Typeface bodyFace = FontMgr.getDefault().matchFamilyStyle(null, FontStyle.NORMAL);
-            skiaFontBody = new Font(bodyFace, 9f);
+            Typeface bodyFace = com.example.addon.utility.SkiaFontHelper.matchTypeface(null, FontStyle.NORMAL);
+            skiaFontBody = com.example.addon.utility.SkiaFontHelper.createFont(bodyFace, 9f);
         }
     }
 
@@ -1239,18 +1229,19 @@ public class MusicHUD extends AddonModule {
      * with no visible "…" instead of being clipped correctly.
      */
     private String clipText(Font font, String text, float maxWidth) {
-        if (font.measureTextWidth(text) <= maxWidth) return text;
-        String ellipsis = "…";
-        // Trim by code point, not by char: chopping one UTF-16 char at a time can slice
-        // a surrogate pair (e.g. an emoji) in half, leaving a lone surrogate that then
-        // crashes Skija's native measureTextWidth on the very next loop iteration
-        // ("Invalid UTF-16 string (unpaired surrogate)", 2026-07-04 crash).
-        int cpCount = text.codePointCount(0, text.length());
-        while (cpCount > 1 && font.measureTextWidth(text + ellipsis) > maxWidth) {
-            cpCount--;
-            text = text.substring(0, text.offsetByCodePoints(0, cpCount));
+        if (font == null || text == null) return text;
+        try {
+            if (com.example.addon.utility.SkiaFontHelper.measureTextWidth(font, text) <= maxWidth) return text;
+            String ellipsis = "…";
+            int cpCount = text.codePointCount(0, text.length());
+            while (cpCount > 1 && com.example.addon.utility.SkiaFontHelper.measureTextWidth(font, text + ellipsis) > maxWidth) {
+                cpCount--;
+                text = text.substring(0, text.offsetByCodePoints(0, cpCount));
+            }
+            return text + ellipsis;
+        } catch (Throwable t) {
+            return text;
         }
-        return text + ellipsis;
     }
 
     // Song titles/authors come from untrusted external sources (YouTube search,
