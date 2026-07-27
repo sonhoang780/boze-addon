@@ -75,8 +75,17 @@ public class ExampleAddon extends Addon {
     public static final String DESCRIPTION = "BozePlus";
     public static final String VERSION = "1.0.0";
 
+    public static ExampleAddon INSTANCE;
+
     public ExampleAddon() {
         super(ID, NAME, DESCRIPTION, VERSION);
+        INSTANCE = this;
+    }
+
+    @Override
+    public void shutdown() {
+        com.example.addon.util.KingMCModuleGate.INSTANCE.restoreForSave();
+        super.shutdown();
     }
 
     @Override
@@ -188,6 +197,9 @@ public class ExampleAddon extends Addon {
 
         // Always-on listener (not a toggleable module) -- see LiveModeCache's doc.
         BozeInstance.INSTANCE.subscribe(com.example.addon.util.LiveModeCache.INSTANCE);
+        // Always-on listener -- hides AutoShop/PhobosAutoTotem/PhobosDoubleHand from the whole
+        // addon (not just the ArrayList) unless connected to kingmc.vn. See KingMCModuleGate's doc.
+        BozeInstance.INSTANCE.subscribe(com.example.addon.util.KingMCModuleGate.INSTANCE);
 
         return true;
     }
