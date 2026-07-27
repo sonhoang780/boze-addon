@@ -79,6 +79,12 @@ public class BedAura extends AddonModule {
     public final ToggleOption pauseOnEat = new ToggleOption(this, "PauseOnEat",
         "Don't place/detonate while eating.", false);
 
+    // Temporary diagnostic (2026-07-25): logs searchPlacement's winning candidate every time
+    // it changes, to get real numbers instead of guessing at why some spots pick a far/floating
+    // cell. Remove once root-caused.
+    public final ToggleOption debugSearch = new ToggleOption(this, "DebugSearch",
+        "Log the winning search candidate to chat every recompute.", false);
+
     // AutoMine's InstantMine mode re-breaks whatever sits at its target position immediately,
     // destroying a freshly-placed bed before it can detonate. AutoMineHelper.setCanBreak is
     // ADDITIVE ONLY (can grant extra breakable blocks, never blacklist one) so it can't stop
@@ -109,9 +115,19 @@ public class BedAura extends AddonModule {
     public final SliderOption maxDamage = new SliderOption(this, "MaxDamage",
         "Maximum estimated HP damage (post-armor) to YOURSELF -- placements that would cost more HP than this are skipped.", 6.0, 0.0, 20.0, 0.5);
 
+    // Semantic fix (was scaling extrapolation by this slider's raw 0-10 value, e.g. "6 ticks
+    // ahead" -- Mint's real Predict is a plain on/off boolean that adds exactly ONE step of
+    // current velocity when enabled, never scaled by any tick count). Kept as an existing
+    // SliderOption (no new toggle) but now only read as on/off via predictOn() below -- 0 = off,
+    // any nonzero = on, matching Mint's actual formula exactly regardless of the slider's value.
     public final SliderOption predict = new SliderOption(this, "Predict",
-        "Ticks to extrapolate the target's position ahead using its current velocity.",
+        "Extrapolate the target's position by one step of its current velocity when enabled (on/off, not scaled by this value).",
         2.0, 0.0, 10.0, 1.0);
+
+    /** predict's slider value as Mint's real on/off semantic -- see predict's own doc for why. */
+    private double predictOn() {
+        return predict.getValue() > 0 ? 1.0 : 0.0;
+    }
 
     public final PageOption autoCraft = new PageOption(this, "AutoCraft",
         "One-shot: craft beds from wool + planks in your inventory.");
@@ -141,7 +157,8 @@ public class BedAura extends AddonModule {
         suppressAutoMineBroken = false;
         lastLoggedNoBed = false;
         lastLoggedNoBedSlot = false;
-        clearLock();
+        clearSelection();
+        recomputeTicks = 0;
         // Suppress for the module's whole enabled lifetime, not per bed place/detonate cycle --
         // doing it per-cycle flipped AutoMine's Instant option Strict<->saved every single
         // clutch (visible thrashing during continuous bed-clutching against a target).
@@ -153,72 +170,120 @@ public class BedAura extends AddonModule {
         restoreAutoMineIfNeeded();
     }
 
-    // Decide (search/lock-check) and act (place/detonate) run from the SAME onInteract
-    // cadence below, matching Mint exactly -- splitting them across two different event
-    // cadences let the lock get re-evaluated/overwritten before ever being acted on once.
+    // Decide (search) and act (place/detonate) run from the SAME onInteract cadence below.
+    //
+    // 2026-07-25 (user request): dropped the sticky-lock model (lockFoot/lockDir/lockTarget/
+    // lockValid) in favor of periodically recomputing the target+placement fresh, same idiom
+    // OvaqPA's calculateStage used -- pick a target, act on it, done, no persisted "is this
+    // still the right choice" validity check across many ticks. A cheap per-tick re-check
+    // (currentSelectionStillGood) still runs BETWEEN scheduled recomputes so a target that
+    // drifts out of the current pick's viable range gets caught immediately instead of waiting
+    // out the rest of the window.
+    private static final int RECOMPUTE_INTERVAL_TICKS = 4;
+    private int recomputeTicks = 0;
 
-    private net.minecraft.core.BlockPos lockFoot = null;
-    private Direction lockDir = null;
-    private Player lockTarget = null;
-    private float lockEstimatedDamage = 0f;
-    private long lastUpgradeCheckMs = 0;
-    private long lastReacquireSearchMs = 0;
-    // A lock acquired under bad conditions (mid-craft, not yet in position) otherwise sticks
-    // forever, since lockValid only checks whether it's still valid, never whether something
-    // better now exists. Periodically (throttled, not every tick) compare against a fresh
-    // search and switch if it's a real improvement, only while nothing's been placed yet.
-    private static final long UPGRADE_CHECK_INTERVAL_MS = 500;
-    private static final float UPGRADE_MIN_GAIN = 2.0f;
-    // The full O(r^3) search is expensive (AirPlace especially, since it skips the cheap
-    // floor-check that would otherwise early-reject most candidates before the costly
-    // per-candidate occlusion sampling). lockValid() can flicker invalid every tick while
-    // moving (eye-position-based reach checks shift continuously), which without this
-    // throttle reran the full search completely unbounded -- the actual cause of "AirPlace +
-    // moving tanks fps", not the upgrade-check interval above.
-    private static final long REACQUIRE_SEARCH_MIN_INTERVAL_MS = 300;
+    private net.minecraft.core.BlockPos currentFoot = null;
+    private Direction currentDir = null;
+    private Player currentTarget = null;
+    private float currentEstimatedDamage = 0f;
+    // Adopt mode: an ALREADY-PLACED bed (anyone's) found still dealing damage to a target,
+    // detonated directly instead of placing a new one. currentHead is its other half (ground
+    // truth via findOtherBedHalf); currentDir is meaningless here (nothing was placed) so it
+    // stays null.
+    private net.minecraft.core.BlockPos currentHead = null;
+    private boolean currentAdopt = false;
 
-
-    private void clearLock() {
-        lockFoot = null;
-        lockDir = null;
-        lockTarget = null;
-        lockEstimatedDamage = 0f;
+    private void clearSelection() {
+        currentFoot = null;
+        currentDir = null;
+        currentTarget = null;
+        currentEstimatedDamage = 0f;
+        currentHead = null;
+        currentAdopt = false;
     }
 
     /**
-     * Mirrors 0tterware/Boze-Mint-Addon's own lockValid() exactly: only checks whether the
-     * CURRENTLY locked (foot,dir) still reaches/damages/is-safe -- deliberately does NOT
-     * check live block state (WorldHelper.isReplaceable etc), same as Mint. If the locked
-     * block itself became unplaceable (fire spread onto it, say), the actual place attempt
-     * simply fails that cycle and retries the SAME spot next cycle rather than jumping
-     * elsewhere -- self-heals once the terrain clears instead of chasing a moving target.
+     * Cheap per-tick re-validation of the CURRENT (not-yet-placed) currentFoot/currentDir
+     * against the target's LIVE position -- same damage/reach math searchPlacement used to pick
+     * it, just for one candidate instead of the whole cube. False if currentFoot/currentDir/
+     * currentTarget aren't set yet (nothing to validate).
      */
-    private boolean lockValid(Minecraft mc) {
-        if (lockFoot == null || lockDir == null || lockTarget == null) return false;
-        if (!lockTarget.isAlive() || lockTarget.getHealth() <= 0) return false;
-        if (ignoreFriends.getValue() && dev.boze.api.client.FriendManager.isFriend(lockTarget.getName().getString())) return false;
-
-        // The TARGET itself must stay within TargetRange (its own, usually-wider radius),
-        // independent of whether the locked BLOCK position is still within Range/WallsRange.
-        if (lockTarget.distanceToSqr(mc.player) > (targetRange.getValue() + 1.0) * (targetRange.getValue() + 1.0)) return false;
-
+    private boolean currentSelectionStillGood(Minecraft mc) {
+        if (currentFoot == null || currentDir == null || currentTarget == null) return false;
+        if (!currentTarget.isAlive() || currentTarget.getHealth() <= 0) return false;
+        net.minecraft.core.BlockPos head = currentFoot.relative(currentDir);
         double exReach = Math.max(range.getValue(), wallsRange.getValue());
-        net.minecraft.core.BlockPos head = lockFoot.relative(lockDir);
-        boolean reach = withinReach(mc, lockFoot, exReach) || withinReach(mc, head, exReach);
-        if (!reach) return false;
+        if (!withinReach(mc, currentFoot, exReach) && !withinReach(mc, head, exReach)) return false;
 
-        Vec3 footCenter = lockFoot.getCenter(), headCenter = head.getCenter();
-        float dFoot = DamageUtils.estimateHpLoss(footCenter, lockTarget, predict.getValue());
-        float dHead = DamageUtils.estimateHpLoss(headCenter, lockTarget, predict.getValue());
-        boolean useHead = dHead >= dFoot;
-        Vec3 detCenter = useHead ? headCenter : footCenter;
+        Vec3 footCenter = currentFoot.getCenter(), headCenter = head.getCenter();
+        float dFoot = DamageUtils.estimateHpLoss(footCenter, currentTarget, predictOn());
+        float dHead = DamageUtils.estimateHpLoss(headCenter, currentTarget, predictOn());
         float dmg = Math.max(dFoot, dHead);
         if (dmg < minDamage.getValue()) return false;
 
-        float selfDmg = DamageUtils.estimateHpLoss(detCenter, mc.player, predict.getValue());
+        Vec3 detonateCenter = dHead >= dFoot ? headCenter : footCenter;
+        float selfDmg = DamageUtils.estimateHpLoss(detonateCenter, mc.player, predictOn());
         if (selfDmg > maxDamage.getValue()) return false;
-        lockEstimatedDamage = dmg;
+
+        currentEstimatedDamage = dmg;
         return true;
+    }
+
+    private boolean isBedBlock(net.minecraft.core.BlockPos pos) {
+        return Minecraft.getInstance().level.getBlockState(pos).getBlock() instanceof net.minecraft.world.level.block.BedBlock;
+    }
+
+    private record ExistingBed(net.minecraft.core.BlockPos pos, Player target, float damage) {}
+
+    /**
+     * Scans for an ALREADY-PLACED bed (anyone's -- own leftover, an enemy's, whatever) still
+     * dealing real damage to a tracked target, so a recompute can adopt-and-detonate it
+     * directly instead of always placing a brand new bed even when a perfectly good one is
+     * sitting right there. Same search cube as searchPlacement, same reach/damage gates, plus
+     * a "within 6 blocks of the target's hitbox center" sanity bound (a bed 6+ blocks from the
+     * target it's being matched against is almost certainly someone else's unrelated bed).
+     */
+    private ExistingBed findExistingBed(Minecraft mc) {
+        double exReach = Math.max(range.getValue(), wallsRange.getValue());
+        int r = (int) Math.ceil(BED_RANGE);
+        ExistingBed best = null;
+
+        for (Player targetPlayer : targets) {
+            net.minecraft.core.BlockPos center = targetPlayer.blockPosition();
+            Vec3 targetCenter = targetPlayer.getBoundingBox().getCenter();
+
+            // Same exact interval-intersection prune as searchPlacement -- see its comment.
+            double reachEye = exReach + 0.5;
+            Vec3 eye = mc.player.getEyePosition();
+            int dxLo = Math.max(-r, (int) Math.floor(eye.x - reachEye - center.getX()));
+            int dxHi = Math.min(r, (int) Math.ceil(eye.x + reachEye - center.getX()));
+            if (dxLo > dxHi) continue;
+            int dyLo = Math.max(-r, (int) Math.floor(eye.y - reachEye - center.getY()));
+            int dyHi = Math.min(r, (int) Math.ceil(eye.y + reachEye - center.getY()));
+            if (dyLo > dyHi) continue;
+            int dzLo = Math.max(-r, (int) Math.floor(eye.z - reachEye - center.getZ()));
+            int dzHi = Math.min(r, (int) Math.ceil(eye.z + reachEye - center.getZ()));
+            if (dzLo > dzHi) continue;
+
+            for (int dx = dxLo; dx <= dxHi; dx++) {
+                for (int dy = dyLo; dy <= dyHi; dy++) {
+                    for (int dz = dzLo; dz <= dzHi; dz++) {
+                        net.minecraft.core.BlockPos pos = center.offset(dx, dy, dz);
+                        if (!isBedBlock(pos)) continue;
+                        if (pos.getCenter().distanceTo(targetCenter) > 6.0) continue;
+                        if (!withinReach(mc, pos, exReach)) continue;
+
+                        float selfDmg = DamageUtils.estimateHpLoss(pos.getCenter(), mc.player, predictOn());
+                        if (selfDmg > maxDamage.getValue()) continue;
+                        float dmg = DamageUtils.estimateHpLoss(pos.getCenter(), targetPlayer, predictOn());
+                        if (dmg < minDamage.getValue()) continue;
+
+                        if (best == null || dmg > best.damage()) best = new ExistingBed(pos, targetPlayer, dmg);
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     /**
@@ -289,145 +354,159 @@ public class BedAura extends AddonModule {
 
     public record JointPlacement(net.minecraft.core.BlockPos foot, Direction dir, Player target, float estimatedDamage) {}
 
-    // 2026-07-19 fix ("AirPlace + FakePlayer trên không gây khựng màn hình"): with AirPlace on,
-    // the cheap floor-below pre-reject (see the `!airPlace.getValue() && isReplaceable(below)`
-    // line below) is deliberately skipped for every one of the up to targets.size() * (2r+1)^3
-    // candidates -- there's no cheap early-out left for a floating/open-air search, so the full
-    // sweep runs at genuinely higher cost every time it fires. The existing
-    // REACQUIRE_SEARCH_MIN_INTERVAL_MS throttle only bounds how OFTEN a full sweep runs, not
-    // how long any single sweep takes -- so with AirPlace on on a target floating in open air,
-    // every ~300ms still paid the FULL O(r^3) cost synchronously in one frame, showing up as a
-    // periodic hitch (visible in this addon's own animated nether dust). Fix: turn the sweep
-    // into a resumable step function that only evaluates SEARCH_BUDGET_PER_CALL candidates per
-    // call, spreading the same total work across several onInteract calls instead of one frame.
-    private static final int SEARCH_BUDGET_PER_CALL = 200;
-    private java.util.List<Player> searchTargetsSnapshot = null;
-    private int searchFlatIndex = 0;
-    private JointPlacement searchBest = null;
-    private double searchBestScore = -1.0;
-
-    /** True while a chunked sweep is mid-flight (started, not yet finished evaluating every candidate). */
-    private boolean isSearching() {
-        return searchTargetsSnapshot != null;
-    }
-
     /**
-     * Resumable replacement for the old single-call searchPlacementJoint: evaluates at most
-     * {@link #SEARCH_BUDGET_PER_CALL} candidates per invocation and returns null while more
-     * remain (check {@link #isSearching()} to tell "still working" apart from "finished, found
-     * nothing"). {@link #targets} is snapshotted at the start of a sweep -- it's rebuilt fresh
-     * every onInteract cycle by updateTargets(), so a live reference would shift size/contents
-     * out from under a mid-sweep flat index.
-     * <p>
-     * Same search space and scoring as before (every (candidate, target) pair, keeping
-     * whichever single combination scores best overall -- mirrors Mint's findPlace; for every
-     * (foot, dir) pair, scores by max(dFoot, dHead) so the head can be forced into whichever
-     * cell deals more damage).
+     * Single synchronous full sweep, matching Mint's own findPlace() exactly (fetched real
+     * source, github.com/0tterware/Boze-Mint-Addon BedAuraModule.findPlace) -- every (candidate,
+     * target) pair across the whole search cube, keeping whichever single combination scores
+     * best overall. No chunking/budget-splitting: Mint doesn't do that at all, it relies purely
+     * on the sticky-lock gate (runBedCycle only calls this when lockValid() is false) plus a
+     * tick-count cooldown after a failed search to bound how often the full O(r^3) cost runs.
      */
-    private JointPlacement stepSearch(Minecraft mc) {
+    private JointPlacement searchPlacement(Minecraft mc) {
         int r = (int) Math.ceil(BED_RANGE);
-        int side = 2 * r + 1;
-        int cubeSize = side * side * side;
-
-        if (searchTargetsSnapshot == null) {
-            searchTargetsSnapshot = new java.util.ArrayList<>(targets);
-            searchFlatIndex = 0;
-            searchBest = null;
-            searchBestScore = -1.0;
-            if (searchTargetsSnapshot.isEmpty()) {
-                searchTargetsSnapshot = null;
-                return null;
-            }
-        }
-
         double minD = minDamage.getValue(), maxD = maxDamage.getValue();
         double exReach = Math.max(range.getValue(), wallsRange.getValue());
-        // Restrict the head direction to the player's current facing when Rotate is off --
-        // otherwise a placement could require a rotation that never happens.
-        Direction only = rotate.getValue() ? null : Direction.fromYRot(mc.player.getYRot());
-        int total = searchTargetsSnapshot.size() * cubeSize;
+        // No longer restricted by Rotate -- submitRotated always forces the real yaw/pitch
+        // for bed place/detonate now (see its javadoc), so every direction is genuinely
+        // reachable regardless of the Rotate toggle.
+        Direction only = null;
 
-        int evaluated = 0;
-        while (searchFlatIndex < total && evaluated < SEARCH_BUDGET_PER_CALL) {
-            int i = searchFlatIndex++;
-            evaluated++;
+        JointPlacement best = null;
+        double bestScore = -1.0;
 
-            int targetIdx = i / cubeSize;
-            int local = i % cubeSize;
-            int dx = local / (side * side) - r;
-            int rem1 = local % (side * side);
-            int dz = rem1 / side - r;
-            int dy = rem1 % side - r;
-
-            Player targetPlayer = searchTargetsSnapshot.get(targetIdx);
+        for (Player targetPlayer : targets) {
             // Raw current blockPosition(), never predicted -- predict only feeds the damage
             // estimate below, moving the search cube itself would drag it off a moving target.
             net.minecraft.core.BlockPos center = targetPlayer.blockPosition();
-            net.minecraft.core.BlockPos foot = center.offset(dx, dy, dz);
+            Vec3 targetCenter = targetPlayer.getBoundingBox().getCenter();
 
-            // cast() can reach as far as wallsRange even when it exceeds range, so gating
-            // candidate selection on range alone pre-rejects reachable spots.
-            if (!withinReach(mc, foot, exReach)) continue;
-            if (!dev.boze.api.utility.WorldHelper.isInWorldBounds(foot) || !dev.boze.api.utility.WorldHelper.isRegionLoaded(foot)) continue;
-            // WorldHelper.isReplaceable (Boze wrapper), not vanilla canBeReplaced() --
-            // the two aren't guaranteed equivalent (closed-source internal impl).
-            if (!dev.boze.api.utility.WorldHelper.isReplaceable(foot)) continue;
-            if (!dev.boze.api.utility.WorldHelper.canPlaceAt(foot)) continue;
-            // isReplaceable only asks "can this block be overwritten" -- says nothing
-            // about whether a BED specifically is legal to place here.
-            if (!dev.boze.api.utility.WorldHelper.isValidPlacement(foot, net.minecraft.world.level.block.Blocks.WHITE_BED)) continue;
-            if (!PlaceHelper.isEmpty(foot)) continue;
-            // A candidate at mc.player's own position can't be clicked -- own body
-            // occupies the space. isEmpty(foot) above already excludes entity overlap
-            // in general; this specifically covers the player (intoTarget only affects HEAD).
-            if (new net.minecraft.world.phys.AABB(foot).intersects(mc.player.getBoundingBox())) continue;
-            // Grounded and floating candidates compete on score alone, no bias either way.
-            if (!airPlace.getValue() && dev.boze.api.utility.WorldHelper.isReplaceable(foot.below())) continue;
+            // Search-cost pruning, applies to every AC mode the same way (user request:
+            // "PlaceMode không ảnh hưởng, đừng lôi ac handler vào") -- what candidates WE choose
+            // to spend cycles evaluating doesn't change what the server/AC ultimately accepts,
+            // so there's no reason to special-case Grim here.
+            Vec3 eye = mc.player.getEyePosition();
+            double reachEye = exReach + 0.5;
+            // Exact worst-case Euclidean bound BEFORE the (necessary-but-not-sufficient)
+            // per-axis check below: any cell inside the BED_RANGE cube is at most r*sqrt(3)
+            // from the target's own block center (cube half-diagonal). This catches the case
+            // the per-axis check alone misses -- a target far away DIAGONALLY can still have
+            // each individual axis's span overlap the reach box even though the true 3D
+            // distance is well out of reach (reproduced: user standing across a ravine, each
+            // axis "close enough" alone, real distance isn't) -- axis-only bounding is a
+            // looser, necessary-but-not-sufficient test.
+            if (center.getCenter().distanceTo(eye) > r * Math.sqrt(3) + reachEye) continue;
+            int dxLo = Math.max(-r, (int) Math.floor(eye.x - reachEye - center.getX()));
+            int dxHi = Math.min(r, (int) Math.ceil(eye.x + reachEye - center.getX()));
+            if (dxLo > dxHi) continue;
+            int dyLo = Math.max(-r, (int) Math.floor(eye.y - reachEye - center.getY()));
+            int dyHi = Math.min(r, (int) Math.ceil(eye.y + reachEye - center.getY()));
+            if (dyLo > dyHi) continue;
+            int dzLo = Math.max(-r, (int) Math.floor(eye.z - reachEye - center.getZ()));
+            int dzHi = Math.min(r, (int) Math.ceil(eye.z + reachEye - center.getZ()));
+            if (dzLo > dzHi) continue;
 
-            for (Direction dir : Direction.Plane.HORIZONTAL) {
-                if (only != null && dir != only) continue;
-                net.minecraft.core.BlockPos head = foot.relative(dir);
-                // Mint's headPlaceable: only isReplaceable(head) is mandatory; when
-                // placeOnFeet is on, no isValidPlacement/isEmpty/entity check at all --
-                // needed so the head can land inside a target's own hitbox for max damage.
-                if (!dev.boze.api.utility.WorldHelper.isReplaceable(head)) continue;
-                if (new net.minecraft.world.phys.AABB(head).intersects(mc.player.getBoundingBox())) continue;
-                if (!placeOnFeet.getValue()) {
-                    if (!PlaceHelper.isEmpty(head)) continue;
-                    if (new net.minecraft.world.phys.AABB(head).intersects(targetPlayer.getBoundingBox())) continue;
-                }
+            for (int dx = dxLo; dx <= dxHi; dx++) {
+                for (int dy = dyLo; dy <= dyHi; dy++) {
+                    for (int dz = dzLo; dz <= dzHi; dz++) {
+                        net.minecraft.core.BlockPos foot = center.offset(dx, dy, dz);
+                        // Search-cost only, same for every mode: dxLo/dxHi etc bound an
+                        // axis-ALIGNED BOX, not the true reach SPHERE -- footPlaceable's own
+                        // withinReach() would normally trim the box's corners down to the
+                        // sphere for non-Grim modes, but withinReach() unconditionally returns
+                        // true under Grim (no client-side reach concept there by design), so
+                        // without this the corner cells that only NCP/other modes would prune
+                        // still go all the way through to the expensive damage/exposure calc
+                        // below under Grim -- real root cause of "FPS fine NCP, bad Grim, same
+                        // scene". Not an extra Grim rule -- just doing here, once, the same real
+                        // distance check every mode ends up doing anyway.
+                        if (foot.getCenter().distanceTo(eye) > reachEye) continue;
+                        if (!footPlaceable(mc, foot, exReach)) continue;
 
-                Vec3 footCenter = foot.getCenter();
-                Vec3 headCenter = head.getCenter();
-                float dFootTarget = DamageUtils.estimateHpLoss(footCenter, targetPlayer, predict.getValue());
-                float dHeadTarget = DamageUtils.estimateHpLoss(headCenter, targetPlayer, predict.getValue());
-                boolean useHead = dHeadTarget >= dFootTarget;
-                Vec3 detonateCenter = useHead ? headCenter : footCenter;
-                float dmg = Math.max(dFootTarget, dHeadTarget);
-                if (dmg < minD) continue;
+                        for (Direction dir : Direction.Plane.HORIZONTAL) {
+                            if (only != null && dir != only) continue;
+                            net.minecraft.core.BlockPos head = foot.relative(dir);
+                            if (!headPlaceable(mc, head)) continue;
 
-                float selfDmg = DamageUtils.estimateHpLoss(detonateCenter, mc.player, predict.getValue());
-                if (selfDmg > maxD) continue;
+                            Vec3 footCenter = foot.getCenter();
+                            Vec3 headCenter = head.getCenter();
+                            float dFootTarget = DamageUtils.estimateHpLoss(footCenter, targetPlayer, predictOn());
+                            float dHeadTarget = DamageUtils.estimateHpLoss(headCenter, targetPlayer, predictOn());
+                            boolean useHead = dHeadTarget >= dFootTarget;
+                            Vec3 detonateCenter = useHead ? headCenter : footCenter;
+                            float dmg = Math.max(dFootTarget, dHeadTarget);
+                            if (dmg < minD) continue;
 
-                // Small tie-break toward the head landing closer to the target --
-                // doesn't override a genuinely better-damage combination.
-                double score = dmg;
-                if (headCenter.distanceTo(targetPlayer.position()) < footCenter.distanceTo(targetPlayer.position())) score += 0.01;
+                            float selfDmg = DamageUtils.estimateHpLoss(detonateCenter, mc.player, predictOn());
+                            if (selfDmg > maxD) continue;
 
-                if (searchBest == null || score > searchBestScore) {
-                    searchBest = new JointPlacement(foot, dir, targetPlayer, dmg);
-                    searchBestScore = score;
+                            // Exact Mint scoring (findPlace): small tie-break toward the head
+                            // landing closer to the target's hitbox CENTER, strict ">" otherwise.
+                            double score = dmg;
+                            if (headCenter.distanceTo(targetCenter) < footCenter.distanceTo(targetCenter)) score += 0.01;
+
+                            if (best == null || score > bestScore) {
+                                best = new JointPlacement(foot, dir, targetPlayer, dmg);
+                                bestScore = score;
+                            }
+                        }
+                    }
                 }
             }
         }
+        if (best != null && debugSearch.getValue()) {
+            net.minecraft.core.BlockPos t = best.target().blockPosition();
+            dev.boze.api.utility.ChatHelper.sendMsg("BedAura",
+                "best foot=" + best.foot() + " dir=" + best.dir() + " dmg=" + best.estimatedDamage()
+                    + " targetPos=" + t + " playerEye=" + mc.player.getEyePosition()
+                    + " dist(footCenter,eye)=" + best.foot().getCenter().distanceTo(mc.player.getEyePosition()));
+        }
+        return best;
+    }
 
-        if (searchFlatIndex < total) return null; // more candidates left -- caller checks isSearching()
+    /**
+     * Exact 1:1 port of Mint's footPlaceable (BedAuraModule). Critically does NOT reject a
+     * candidate whose cell overlaps the LOCAL player's own hitbox -- an earlier extra
+     * `AABB(foot).intersects(mc.player.getBoundingBox())` check here was the real cause of
+     * "BedAura đặt sai bét nhè / đứng chéo phải bị, chéo trái không đúng": bed-clutch routinely
+     * places the bed right at your own feet, and whether the local player's hitbox happened to
+     * overlap the optimal candidate cell depended entirely on which side of the target you were
+     * standing -- so the best placement got silently rejected from one stance and kept from the
+     * other. Mint has no such check; a bed placing into the player's own space is fine.
+     */
+    private boolean footPlaceable(Minecraft mc, net.minecraft.core.BlockPos foot, double reach) {
+        if (!withinReach(mc, foot, reach)) return false;
+        if (!dev.boze.api.utility.WorldHelper.isInWorldBounds(foot) || !dev.boze.api.utility.WorldHelper.isRegionLoaded(foot)) return false;
+        if (!dev.boze.api.utility.WorldHelper.isReplaceable(foot)) return false;
+        if (!dev.boze.api.utility.WorldHelper.canPlaceAt(foot)) return false;
+        if (!dev.boze.api.utility.WorldHelper.isValidPlacement(foot, net.minecraft.world.level.block.Blocks.WHITE_BED)) return false;
+        if (!PlaceHelper.isEmpty(foot)) return false;
+        if (!airPlace.getValue() && dev.boze.api.utility.WorldHelper.isReplaceable(foot.below())) return false; // need a floor
+        return true;
+    }
 
-        JointPlacement result = searchBest;
-        searchTargetsSnapshot = null;
-        searchBest = null;
-        searchBestScore = -1.0;
-        return result;
+    /**
+     * Exact 1:1 port of Mint's headPlaceable. placeOnFeet == Mint's IntoTarget: when on, the
+     * head half is allowed to land inside a target entity's hitbox (max damage) with only the
+     * isReplaceable check. When off, the head must additionally be empty and free of ANY entity
+     * (entityAt checks all living entities, matching Mint -- not just the current target).
+     */
+    private boolean headPlaceable(Minecraft mc, net.minecraft.core.BlockPos head) {
+        if (!dev.boze.api.utility.WorldHelper.isReplaceable(head)) return false;
+        if (placeOnFeet.getValue()) return true;
+        if (!PlaceHelper.isEmpty(head)) return false;
+        return !entityAt(mc, head);
+    }
+
+    /** True if any non-item living entity (except the local player) overlaps {@code pos}. Mirrors Mint's entityAt. */
+    private boolean entityAt(Minecraft mc, net.minecraft.core.BlockPos pos) {
+        net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(pos);
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if (e == mc.player) continue;
+            if (e instanceof net.minecraft.world.entity.item.ItemEntity) continue;
+            if (!e.isAlive()) continue;
+            if (e.getBoundingBox().intersects(box)) return true;
+        }
+        return false;
     }
 
 
@@ -512,63 +591,68 @@ public class BedAura extends AddonModule {
         lastLoggedNoBed = false;
 
         updateTargets(mc);
-        if (targets.isEmpty()) { currentPlacement = null; rotateTarget = null; clearLock(); return; }
+        if (targets.isEmpty()) { currentPlacement = null; rotateTarget = null; clearSelection(); return; }
 
-        // Sticky lock: keeps the same (foot,dir) as long as lockValid() still holds, only
-        // re-searching when it truly breaks -- mirrors Mint's own lockFoot/lockDir/lockValid()/
-        // acquireLock(). Additionally (throttled upgrade check, not pure Mint behavior): while
-        // still just searching (nothing placed yet), periodically compare against a fresh
-        // search and switch if it's a real improvement -- otherwise a lock acquired under bad
-        // conditions (mid-craft, not yet in position) sticks forever even once things improve.
-        boolean valid = lockValid(mc);
-        boolean dueForUpgradeCheck = valid && !bedPlacedThisCycle
-            && (now - lastUpgradeCheckMs) >= UPGRADE_CHECK_INTERVAL_MS;
+        // Full O(r^3) search only when the CURRENT pick actually stops being good (target moved
+        // Recompute the target+placement fresh every RECOMPUTE_INTERVAL_TICKS onInteract calls
+        // instead of validating an old sticky lock -- see this field's doc above.
+        if (recomputeTicks <= 0) {
+            recomputeTicks = RECOMPUTE_INTERVAL_TICKS;
 
-        if (!valid) {
-            // Don't START a new sweep more than once per throttle window -- lockValid can
-            // flicker invalid every tick while moving (see field doc). Once a sweep IS running
-            // (isSearching()), keep stepping it every call regardless of the throttle: each
-            // step is budget-capped/cheap now (see stepSearch's doc), so there's no cost
-            // reason to wait, and waiting would just make reacquisition slower.
-            if (!isSearching() && (now - lastReacquireSearchMs) < REACQUIRE_SEARCH_MIN_INTERVAL_MS) return;
-            JointPlacement jointPlacement = stepSearch(mc);
-            if (isSearching()) return; // more candidates left -- finish next call(s)
-            lastReacquireSearchMs = now;
-            if (jointPlacement == null) { currentPlacement = null; rotateTarget = null; clearLock(); return; }
-            lockFoot = jointPlacement.foot();
-            lockDir = jointPlacement.dir();
-            lockTarget = jointPlacement.target();
-            lockEstimatedDamage = jointPlacement.estimatedDamage();
-            currentPlacement = new PlacementCandidate(lockFoot, lockDir, jointPlacement.estimatedDamage());
-        } else {
-            if (dueForUpgradeCheck) {
-                JointPlacement better = stepSearch(mc);
-                if (!isSearching()) {
-                    // Only reset the timer once the sweep actually finishes -- while chunking,
-                    // dueForUpgradeCheck stays true so the next call(s) keep stepping the SAME
-                    // sweep instead of starting a fresh one.
-                    lastUpgradeCheckMs = now;
-                    if (better != null && better.estimatedDamage() > lockEstimatedDamage + UPGRADE_MIN_GAIN) {
-                        lockFoot = better.foot();
-                        lockDir = better.dir();
-                        lockTarget = better.target();
-                        lockEstimatedDamage = better.estimatedDamage();
-                    }
-                }
+            // Prefer adopting an already-placed bed (anyone's) that's still damaging a target
+            // over always placing a brand new one.
+            ExistingBed existing = findExistingBed(mc);
+            if (existing != null) {
+                currentFoot = existing.pos();
+                currentHead = findOtherBedHalf(mc, existing.pos());
+                currentDir = null;
+                currentTarget = existing.target();
+                currentAdopt = true;
+                currentEstimatedDamage = existing.damage();
+                bedPlacedThisCycle = true;
+                placedBedPos = currentFoot;
+                placedBedHeadPos = currentHead;
+                currentPlacement = null; // adopted bed isn't a NEW placement -- nothing to preview
+                submitDetonate(event, mc);
+                return;
             }
-            currentPlacement = new PlacementCandidate(lockFoot, lockDir, lockEstimatedDamage);
+
+            JointPlacement jointPlacement = searchPlacement(mc);
+            if (jointPlacement == null) {
+                clearSelection(); currentPlacement = null; rotateTarget = null; return;
+            }
+            currentFoot = jointPlacement.foot();
+            currentDir = jointPlacement.dir();
+            currentTarget = jointPlacement.target();
+            currentEstimatedDamage = jointPlacement.estimatedDamage();
+            currentAdopt = false;
+            currentHead = null;
+        } else {
+            recomputeTicks--;
+            // Cheap re-check every tick BETWEEN scheduled full sweeps: currentFoot is a fixed
+            // absolute BlockPos picked up to RECOMPUTE_INTERVAL_TICKS ago against wherever the
+            // target WAS then -- catch it drifting out of viable range immediately instead of
+            // waiting out the rest of the window ("đặt lên trời").
+            if (currentFoot != null && !currentAdopt && !currentSelectionStillGood(mc)) {
+                recomputeTicks = 0;
+            }
         }
 
-        submitPlaceBed(event, mc, lockFoot, lockDir);
+        if (currentFoot == null || currentDir == null || currentTarget == null) {
+            currentPlacement = null; rotateTarget = null; return;
+        }
+
+        currentPlacement = new PlacementCandidate(currentFoot, currentDir, currentEstimatedDamage);
+        submitPlaceBed(event, mc, currentFoot, currentDir);
     }
 
     private void submitPlaceBed(EventInteract event, Minecraft mc, net.minecraft.core.BlockPos pos, Direction dir) {
         BlockHitResult hit = computeBedHit(mc, pos);
-        // clearLock() on a failed hit (mirrors Mint's placeLock) -- lockValid() never rechecks
-        // floor/block state, so without this a placement that keeps failing (e.g. AirPlace
-        // toggled off after this spot was locked in while floating) would retry the same
-        // dead BlockPos forever instead of ever re-searching.
-        if (hit == null) { clearLock(); return; }
+        // Force an immediate re-recompute (instead of waiting out the rest of the 20-tick
+        // window) on a failed hit -- without this a placement that keeps failing (e.g.
+        // AirPlace toggled off after this spot was picked while floating) would retry the
+        // same dead BlockPos until the next scheduled recompute instead of picking a new one.
+        if (hit == null) { clearSelection(); recomputeTicks = 0; return; }
         float yaw = dir.toYRot();
         float pitch = dev.boze.api.utility.MathHelper.calculateRotation(mc.player.getEyePosition(), hit.getLocation())[1];
         Runnable action = () -> {
@@ -586,18 +670,47 @@ public class BedAura extends AddonModule {
     private void submitDetonate(EventInteract event, Minecraft mc) {
         if (placedBedPos == null) return;
         net.minecraft.core.BlockPos target = placedBedPos;
-        if (placedBedHeadPos != null) {
-            // Use lockTarget (who this bed was scored against), not a fresh re-pick.
-            Player detTarget = lockTarget;
-            if (detTarget != null && detTarget.distanceToSqr(placedBedHeadPos.getCenter()) < detTarget.distanceToSqr(placedBedPos.getCenter())) {
-                target = placedBedHeadPos;
-            }
+        if (placedBedHeadPos != null && currentTarget != null) {
+            // Detonate whichever bed half deals MORE damage to the target (estimateHpLoss),
+            // not whichever is merely distance-closer -- with terrain occlusion the closer
+            // half isn't always the higher-damage one.
+            float dAnchor = DamageUtils.estimateHpLoss(placedBedPos.getCenter(), currentTarget, predictOn());
+            float dHead = DamageUtils.estimateHpLoss(placedBedHeadPos.getCenter(), currentTarget, predictOn());
+            if (dHead > dAnchor) target = placedBedHeadPos;
         }
         net.minecraft.core.BlockPos finalTarget = target;
-        BlockHitResult hit = new BlockHitResult(target.getCenter(), Direction.UP, target, false);
+        BlockHitResult hit = computeBedFace(mc, target);
+        if (hit == null) {
+            // computeBedFace only returns null when EVERY one of the 6 faces is either
+            // back-face-culled or outside real `reach` (its fallback needs nothing but reach,
+            // no raycast-clear requirement) -- a stable geometric fact about this exact bed
+            // position, not a one-tick flake. Genuinely unreachable (e.g. the search ran once
+            // with unstable geometry mid-air and landed a real bed disconnected from the
+            // target), so give up on THIS bed immediately instead of leaving bedPlacedThisCycle
+            // latched forever -- runBedCycle's top-of-cycle check routes straight to
+            // submitDetonate whenever that flag is true, which otherwise permanently blocks the
+            // recompute branch below it until a manual toggle resets the flag (matches report:
+            // "chạm đất rồi vẫn không đặt lại đúng, phải tắt đi bật lại").
+            bedPlacedThisCycle = false;
+            placedBedPos = null;
+            placedBedHeadPos = null;
+            currentPlacement = null;
+            recomputeTicks = 0;
+            return;
+        }
+        // Swap to a non-bed, non-block item before right-clicking the bed -- with a
+        // block/bed still in hand, right-clicking a block face can place THAT item instead
+        // of interacting with the bed. findDetonateSlot below mirrors Mint's own preference
+        // order (real item > empty slot > any non-bed slot).
+        int detonateSlot = findDetonateSlot(mc);
         float[] rot = dev.boze.api.utility.MathHelper.calculateRotation(mc.player.getEyePosition(), hit.getLocation());
         Runnable action = () -> {
-            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+            boolean swapped = detonateSlot != Integer.MIN_VALUE && InvHelper.swapToSlot(detonateSlot, swapMode.getValue());
+            try {
+                mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+            } finally {
+                if (swapped) InvHelper.swapBack();
+            }
             bedPlacedThisCycle = false;
             placedBedPos = null;
             placedBedHeadPos = null;
@@ -605,6 +718,83 @@ public class BedAura extends AddonModule {
             lastActionMs = System.currentTimeMillis();
         };
         submitRotated(event, action, rot[0], rot[1]);
+    }
+
+    /**
+     * Real face-finding raycast for detonating a placed bed, replacing a hardcoded
+     * `Direction.UP` hit that ignored actual approach geometry entirely (broken whenever the
+     * top face wasn't the one actually reachable/visible -- likely contributor to detonate
+     * misfires reading as "đặt sai"). For each of the 6 faces: back-face cull (only consider
+     * faces the eye is actually outside of), reach-gate (skipped for Grim, same as
+     * withinReach), then a real raycast eye->face -- a face whose ray isn't blocked by some
+     * OTHER block first is preferred (closest such face wins); if every face is raycast-
+     * blocked, falls back to the closest reachable face on plain distance so this never just
+     * gives up on a target with a bit of clutter nearby.
+     */
+    private BlockHitResult computeBedFace(Minecraft mc, net.minecraft.core.BlockPos pos) {
+        Vec3 eye = mc.player.getEyePosition();
+        boolean grim = placeMode.getValue() == InteractionMode.Grim;
+        double reach = Math.max(range.getValue(), wallsRange.getValue());
+        Vec3 center = pos.getCenter();
+
+        BlockHitResult best = null;
+        double bestDist = Double.MAX_VALUE;
+        BlockHitResult fallback = null;
+        double fallbackDist = Double.MAX_VALUE;
+
+        for (Direction dir : Direction.values()) {
+            Vec3 normal = dir.getUnitVec3();
+            Vec3 face = center.add(normal.scale(0.5));
+            if (eye.subtract(face).dot(normal) <= 0) continue; // back-face cull
+
+            double dist = face.distanceTo(eye);
+            if (!grim && dist > reach) continue;
+
+            if (dist < fallbackDist) {
+                fallbackDist = dist;
+                fallback = new BlockHitResult(face, dir, pos, false);
+            }
+
+            // Boze's WorldHelper.raycast never returns null (clip() reports Type.MISS instead
+            // of null on a miss -- see reference_boze_raycast_never_null) so this only needs
+            // to check the TYPE, not null-guard the result itself.
+            net.minecraft.world.phys.HitResult rc = dev.boze.api.utility.WorldHelper.raycast(eye, face);
+            if (rc instanceof BlockHitResult bhr && bhr.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK
+                    && !bhr.getBlockPos().equals(pos)) {
+                continue; // some other block sits between the eye and this face
+            }
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = new BlockHitResult(face, dir, pos, false);
+            }
+        }
+        return best != null ? best : fallback;
+    }
+
+    /**
+     * Slot to hold while detonating: prefers a real non-bed/non-block item (so the click can
+     * never accidentally place something instead of interacting with the bed), then an empty
+     * slot, then any non-bed slot as a last resort. Alt swap searches the whole inventory
+     * (matches findBedSlot's own Alt-vs-hotbar split in executePlaceBed); every other swap
+     * mode searches the hotbar only, since only a hotbar index is a legal carried-item slot.
+     * Integer.MIN_VALUE means "nothing safe to swap to" -- submitDetonate's caller treats that
+     * as "don't swap, just interact with whatever's already in hand".
+     */
+    private int findDetonateSlot(Minecraft mc) {
+        boolean wholeInv = swapMode.getValue() == SwapType.Alt;
+        java.util.function.Predicate<net.minecraft.world.item.ItemStack> good = s ->
+            !s.isEmpty() && !(s.getItem() instanceof net.minecraft.world.item.BedItem)
+                && !(s.getItem() instanceof net.minecraft.world.item.BlockItem);
+        int slot = wholeInv ? InvHelper.find(good) : InvHelper.findInHotbar(good);
+        if (slot != -1) return slot;
+
+        int empty = InvHelper.findInHotbar(net.minecraft.world.item.ItemStack::isEmpty);
+        if (empty != -1) return empty;
+
+        java.util.function.Predicate<net.minecraft.world.item.ItemStack> notBed = s ->
+            !s.isEmpty() && !(s.getItem() instanceof net.minecraft.world.item.BedItem);
+        int any = wholeInv ? InvHelper.find(notBed) : InvHelper.findInHotbar(notBed);
+        return any != -1 ? any : Integer.MIN_VALUE;
     }
 
     // AutoMine mode suppression for BedAura's whole enabled lifetime: switch AutoMine's own
@@ -710,12 +900,17 @@ public class BedAura extends AddonModule {
     }
 
     /** Mirrors 0tterware/Boze-Mint-Addon's own submitRotated: bundles action+rotation into one Interaction, or a plain unrotated one when Rotate is off. */
+    // Always force real yaw/pitch for bed place/detonate -- Interaction's own doc confirms the
+    // no-rotation constructor fires the action at WHATEVER the player's real facing happens to
+    // be that instant, with zero forced correction. A bed's correct facing (head dí vào hole)
+    // is a property of the SEARCH result, not of momentary crosshair aim -- gating this on the
+    // Rotate toggle made placement direction drift with the player's live look direction between
+    // recomputes even for a fully static target (root cause of "đặt lên trời" that only
+    // self-corrected on re-enable, when the player happened to be staring straight at the
+    // target again). Rotate now only matters for whether searchPlacement itself needs to
+    // restrict to a single direction, which it no longer does (see `only` below).
     private void submitRotated(EventInteract event, Runnable action, float yaw, float pitch) {
-        if (rotate.getValue()) {
-            event.addInteraction(new Interaction(action, yaw, pitch));
-        } else {
-            event.addInteraction(new Interaction(action));
-        }
+        event.addInteraction(new Interaction(action, yaw, pitch));
     }
 
 
@@ -1127,59 +1322,38 @@ public class BedAura extends AddonModule {
 
     /**
      * Computes the placement hit at {@code pos} only -- no side effects, no swapping, no
-     * placing. 2026-07-19 rewrite: ported directly from the REAL Mint source
-     * (0tterware/Boze-Mint-Addon's AutoBedFeature.getHitResult/placeBed, read from
-     * Mint-master/src/main/java/net/melbourne/modules/impl/combat/AutoBedFeature.java) --
-     * previous versions routed AirPlace through Boze's own {@code PlaceHelper.cast(pos, true,
-     * ...)}, which kept returning null for every candidate once they scattered across a wide
-     * search cube with no nearby solid anchor (user repro: FakePlayer submerged in lava,
-     * every candidate failed regardless of blacklisting/aim-correction attempts). Mint's real
-     * AirPlace never calls anything like cast() at all for the fallback case: it searches its
-     * OWN 6 neighbor directions for a real solid face first (getHitResult), and if genuinely
-     * none exists, fabricates a bare, UNVALIDATED {@code BlockHitResult} pointing at {@code pos}
-     * itself and sends it straight to the server -- no internal engine validation to reject it.
-     * Replicated verbatim below; only the strictDirection check is real Mint logic too (a plain
-     * eye-position-vs-face-normal dot product, NOT an aim/look-direction check -- confirms the
-     * earlier "stale current rotation" theory was chasing the wrong mechanism).
+     * placing. 2026-07-25 rewrite: the "6-neighbor search + fabricate unvalidated hit at pos"
+     * version this replaced was NOT actually what Mint does -- fetched the REAL current Mint
+     * source (github.com/0tterware/Boze-Mint-Addon, BedAuraModule.computePlaceHit) and its
+     * AirPlace branch just calls {@code PlaceHelper.cast(pos, true, mode, range, wallsRange,
+     * strictDirection)} directly, no manual neighbor loop at all. The earlier "kept returning
+     * null" problem that motivated the hand-rolled replacement was from calling cast()'s
+     * SHORT overload (defaults range=4.5/wallsRange=0.0, ignoring the user's real Range/
+     * WallsRange sliders -- same mistake documented in tryPlaceAndOpenCraftingTable's own
+     * comment) -- not a flaw in cast() itself. The FULL 6-arg overload (verified against
+     * PlaceHelper.java in the Boze API sources jar) is a real engine-level raycast that
+     * handles the floor/no-floor/air cases correctly on its own.
+     * <p>
+     * Concrete bug this fixes (user repro, 2026-07-25): the old manual neighbor search picked
+     * whichever of the 5 non-DOWN directions it hit FIRST in Direction.values() iteration
+     * order -- for a candidate with an incomplete/asymmetric set of solid neighbors (e.g. a
+     * floating spot missing a block on one side), that could be an arbitrary, wrong-looking
+     * face instead of the one a real player would expect, and adding a block on the "missing"
+     * side visibly changed which face won purely by changing iteration outcomes. cast()
+     * doesn't have this failure mode -- it's the same real raycast Mint itself relies on.
      */
     private BlockHitResult computeBedHit(Minecraft mc, net.minecraft.core.BlockPos pos) {
-        net.minecraft.core.BlockPos below = pos.below();
-        if (!mc.level.getBlockState(below).canBeReplaced()) {
-            // Real floor -- click its top face directly (Mint's getHitResult, same branch).
-            return new BlockHitResult(new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5), Direction.UP, below, false);
+        if (airPlace.getValue()) {
+            return PlaceHelper.cast(pos, true, placeMode.getValue(),
+                range.getValue(), wallsRange.getValue(), strictDirection.getValue());
         }
-        if (!airPlace.getValue()) {
+        net.minecraft.core.BlockPos support = pos.below();
+        if (dev.boze.api.utility.WorldHelper.isReplaceable(support)) {
             dev.boze.api.utility.ChatHelper.sendMsg("BedAura", "placeBed abort: no floor below " + pos + " and AirPlace is off");
             return null;
         }
-
-        // No floor -- search all neighbors (except DOWN, already covered above) for a real
-        // solid face to click, exactly like Mint's getHitResult loop.
-        Vec3 eyes = mc.player.getEyePosition();
-        for (Direction dir : Direction.values()) {
-            if (dir == Direction.DOWN) continue;
-            net.minecraft.core.BlockPos neighbor = pos.relative(dir);
-            var state = mc.level.getBlockState(neighbor);
-            if (state.isAir() || state.canBeReplaced()) continue;
-
-            Direction side = dir.getOpposite();
-            Vec3 hitVec = Vec3.atCenterOf(pos).add(dir.getStepX() * 0.5, dir.getStepY() * 0.5, dir.getStepZ() * 0.5);
-            if (strictDirection.getValue()) {
-                // Mint's real check: is the eye on the correct side of this face's outward
-                // normal? Purely positional (eye location vs. face), nothing to do with the
-                // player's current look direction -- unlike the aim-based theory tried
-                // earlier, this can never depend on stale rotation.
-                Vec3 eyeToHit = hitVec.subtract(eyes);
-                Vec3 sideVec = new Vec3(side.getStepX(), side.getStepY(), side.getStepZ());
-                if (eyeToHit.dot(sideVec) >= 0) continue;
-            }
-            return new BlockHitResult(hitVec, side, neighbor, false);
-        }
-
-        // No real neighbor anywhere around pos -- Mint's own dummy AirPlace fallback: a bare,
-        // unvalidated hit at pos itself. This is what actually lets a bed go down when
-        // floating in the middle of a lava lake with no solid block within reach at all.
-        return new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+        if (!withinReach(mc, pos, Math.max(range.getValue(), wallsRange.getValue()))) return null;
+        return new BlockHitResult(new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5), Direction.UP, support, false);
     }
 
     /**
@@ -1222,24 +1396,25 @@ public class BedAura extends AddonModule {
         // sync with the client's real one before the place() packet goes out. Missing that
         // resync is exactly the kind of intermittent desync that would occasionally place
         // whatever the server still thought was selected (e.g. obsidian) instead of the bed.
-        java.util.function.Predicate<net.minecraft.world.item.ItemStack> heldOk =
-            s -> !s.isEmpty() && s.getItem() instanceof net.minecraft.world.item.BedItem;
         boolean placed;
         if (swapMode.getValue() == SwapType.Normal) {
             InvHelper.swapToSlot(bedSlot, SwapType.Normal);
             placed = PlaceHelper.place(placeMode.getValue(), hit, InteractionHand.MAIN_HAND);
         } else {
             boolean swapped = InvHelper.swapToSlot(bedSlot, swapMode.getValue());
-            if (!swapped) {
-                if (!heldOk.test(mc.player.getMainHandItem())) {
-                    dev.boze.api.utility.ChatHelper.sendMsg("BedAura", "placeBed abort: swap to bed failed ("
-                        + swapMode.getValue() + " returned false) and a bed isn't already in hand");
-                    return false;
-                }
-                if (mc.getConnection() != null) {
-                    mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(
-                        mc.player.getInventory().getSelectedSlot()));
-                }
+            // 2026-07-25 ("đang bed aura được thì báo silent swap failed, abort place"):
+            // swapToSlot's boolean return is unreliable enough on its own (same class of
+            // desync MainHand.java's own silent-swap handling documents -- "ground truth
+            // every tick, never trust the flag alone") that hard-aborting the whole cycle the
+            // instant it reports false wasted real placement opportunities on what was often
+            // just a transient hiccup. Always resync via the SAME ServerboundSetCarriedItemPacket
+            // this branch already sent (not a new mechanism) and fall through to the real
+            // place() attempt regardless -- if the main hand genuinely isn't a bed, place()
+            // itself just fails harmlessly instead of this pre-check aborting the cycle early
+            // on a false negative.
+            if (!swapped && mc.getConnection() != null) {
+                mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(
+                    mc.player.getInventory().getSelectedSlot()));
             }
             try {
                 placed = PlaceHelper.place(placeMode.getValue(), hit, InteractionHand.MAIN_HAND);

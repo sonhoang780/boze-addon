@@ -2,6 +2,10 @@ import net.fabricmc.loom.task.prod.ClientProductionRunTask
 
 plugins {
     id 'net.fabricmc.fabric-loom'
+    // ── Compose GUI spike (ComposeScreen bridge for WhitelistEditorScreen) ──
+    id 'org.jetbrains.kotlin.jvm' version '2.3.0'
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.3.0'
+    id 'org.jetbrains.compose' version '1.11.1'
 }
 
 // ─── TỰ ĐỘNG XỬ LÝ PHIÊN BẢN (HIỂN THỊ TRONG GAME) ────────────────────────
@@ -34,6 +38,7 @@ base {
 repositories {
     mavenLocal()
     mavenCentral()
+    google() // androidx.* transitive deps pulled in by Compose Multiplatform
 
     maven {
         name = "boze-maven"
@@ -76,6 +81,11 @@ repositories {
 configurations {
     bozeLoader
     mcefRaw
+    // Resolved and walked eagerly after the dependencies block below to `include()` its full
+    // transitive closure -- see the Compose GUI spike dependencies for why.
+    composeTransitive {
+        exclude group: "org.jetbrains.skiko" // pinned explicitly elsewhere (variant-ambiguity workaround)
+    }
 }
 
 // mcef-keksuccino 2.2.0-26.1.1-fabric is a REAL Fabric mod (own entrypoint
@@ -193,6 +203,54 @@ dependencies {
     include "io.github.humbleui:skija-macos-arm64:${skijaVersion}"
     // ─────────────────────────────────────────────────────────────
 
+    // ─── COMPOSE GUI SPIKE (ComposeScreen bridge) ──────────────────
+    // Fabric Language Kotlin bundles Kotlin stdlib/coroutines as a nested Fabric mod --
+    // include (not just implementation) so it's actually present at runtime, same as
+    // every other dependency in this file.
+    implementation "net.fabricmc:fabric-language-kotlin:1.13.8+kotlin.2.3.0"
+    include "net.fabricmc:fabric-language-kotlin:1.13.8+kotlin.2.3.0"
+
+    // skiko is Kotlin-Multiplatform-published (android/awt variants); Loom's plain-Java
+    // consumer configs don't carry the KMP attribute schema needed to auto-pick "awt",
+    // so pin the concrete jvm/awt artifact + its Windows native runtime explicitly.
+    // 0.9.4 was pinned back when compose was 1.8.0; never rechecked after later bumping to
+    // 1.11.1 -- ui-text-desktop:1.11.1's own module metadata requires skiko 0.144.6 (verified,
+    // not guessed). Mismatch surfaced as a real runtime NoSuchMethodError the moment any
+    // Compose text (the search box) actually laid out: setFontEdging(FontEdging) doesn't
+    // exist in 0.9.4's TextStyle.
+    // EXPERIMENT (skiko-0.150.1-experiment branch): bumping past the version ui-text-desktop:
+    // 1.11.1's own module metadata declares (0.144.6) -- "requires" is a Gradle minimum, not a
+    // pin, so this resolves fine, but API compat isn't guaranteed (the setFontEdging crash
+    // earlier was exactly this kind of gap). Verify a real build + launch before merging.
+    def skikoVersion = "0.150.1"
+    implementation "org.jetbrains.skiko:skiko-awt:${skikoVersion}"
+    include "org.jetbrains.skiko:skiko-awt:${skikoVersion}"
+    implementation "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:${skikoVersion}"
+    include "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:${skikoVersion}"
+
+    implementation(compose.runtime) { exclude group: "org.jetbrains.skiko" }
+    implementation(compose.foundation) { exclude group: "org.jetbrains.skiko" }
+    implementation(compose.material) { exclude group: "org.jetbrains.skiko" }
+    implementation(compose.ui) { exclude group: "org.jetbrains.skiko" }
+    implementation(compose.animation) { exclude group: "org.jetbrains.skiko" }
+
+    // Hand-picking `include()` coordinates one at a time chased a whack-a-mole of
+    // NoClassDefFoundError at runtime: org.jetbrains.compose.runtime:runtime-desktop turned
+    // out to be a ~5KB shim (real impl is the transitively-pulled androidx.compose.runtime:
+    // runtime-desktop:1.11.2, a DIFFERENT maven group), then androidx/compose/ui/unit/DensityKt
+    // went missing too (real impl: org.jetbrains.compose.ui:ui-unit-desktop, split out as its
+    // own transitive artifact). `implementation` resolves all of this fine for compiling
+    // (normal transitive resolution) -- only the hand-written `include()` list was incomplete.
+    // Fix (same pattern Veinminer's fabric-script.gradle.kts uses): resolve the FULL transitive
+    // closure through a dedicated configuration and `include()` every artifact it contains,
+    // instead of guessing coordinates one crash report at a time.
+    composeTransitive(compose.runtime)
+    composeTransitive(compose.foundation)
+    composeTransitive(compose.material)
+    composeTransitive(compose.ui)
+    composeTransitive(compose.animation)
+    // ─────────────────────────────────────────────────────────────
+
     implementation "commons-logging:commons-logging:1.3.0"
     include "commons-logging:commons-logging:1.3.0"
 
@@ -250,6 +308,14 @@ dependencies {
     // ──────────────────────────────────────────────────────────────────────
 }
 
+// Eagerly resolve composeTransitive's full closure and `include()` every artifact in it --
+// same eager-at-configuration-time approach the mcef patch above uses, for the same reason
+// (needs to happen before Loom's own dependency resolution runs, not as a lazy task).
+configurations.composeTransitive.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+    def id = artifact.moduleVersion.id
+    dependencies.add("include", "${id.group}:${id.name}:${id.version}")
+}
+
 processResources {
     // Ép file fabric.mod.json đọc biến version tự động cập nhật ở trên
     inputs.property "version", version
@@ -276,6 +342,24 @@ java {
 
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        // Kotlin's JvmTarget enum has no "25" entry yet, so emit 21 bytecode. This is the
+        // OUTPUT class-file version only -- kotlinc still runs on the Java 25 toolchain above.
+        // Don't use `kotlin { jvmToolchain(21) }`: that forces the shared JDK toolchain to 21
+        // for the WHOLE project, breaking compileJava's `-release 25` ("release version 25 not
+        // supported"). 21-target Kotlin and 25-target Java link fine on the same classpath;
+        // gradle.properties sets kotlin.jvm.target.validation.mode=warning to allow the gap.
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        // KotlinCompile.createCompilerArguments() does requireNotNull(args.moduleName), which
+        // defaults from base.archivesName -- empty in gradle.properties (archives_base_name=)
+        // for this project (the real jar name is hardcoded later in the `jar {}` block instead),
+        // so the Kotlin-side default resolves to null/blank and throws "Required value was
+        // null." Set explicitly rather than relying on that convention chain.
+        moduleName = "example-addon"
+    }
 }
 
 jar {

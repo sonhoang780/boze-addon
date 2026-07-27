@@ -21,6 +21,7 @@ import com.example.addon.util.InteractionHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -295,7 +296,28 @@ public final class PistonPush extends AddonModule {
                 && player.distanceTo(mc.player) <= range.getValue()
                 && player.isAlive()
                 && player.getHealth() + player.getAbsorptionAmount() > 0
-                && WorldHelper.isHole(player.blockPosition());
+                && isPushableHole(player);
+    }
+
+    /**
+     * Boze's WorldHelper.isHole demands a pristine 1x1: exactly-empty centre cell + all four
+     * horizontal walls solid. That rejects two perfectly pushable targets:
+     *   Bug 1 -- any stray block in the pocket (mushroom, button, an obsidian someone placed):
+     *            isHole treats the disturbed centre as "not a clean hole" and bails.
+     *   Bug 2 -- a 1x2-WIDE pocket (target boxed but with one side opening into the twin cell):
+     *            isHole wants all four sides walled, so a 3-walled cell never qualifies.
+     * PistonPush only needs the target trapped enough that a side-piston shove ejects them, so
+     * gate on the real requirement instead: a solid floor + at least 3 of 4 horizontal walls.
+     * Stray blocks only ever ADD to the wall count (never subtract), so they no longer disqualify.
+     */
+    private boolean isPushableHole(Player player) {
+        BlockPos feet = player.blockPosition();
+        if (WorldHelper.isReplaceable(feet.below())) return false; // no floor -> not a hole
+        int walls = 0;
+        for (Direction d : Direction.Plane.HORIZONTAL) {
+            if (!WorldHelper.isReplaceable(feet.relative(d))) walls++;
+        }
+        return walls >= 3;
     }
 
     private void findTarget(Minecraft mc) {

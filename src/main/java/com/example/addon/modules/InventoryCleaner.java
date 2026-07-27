@@ -5,9 +5,11 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import dev.boze.api.addon.AddonModule;
 import dev.boze.api.event.EventTick;
+import dev.boze.api.option.ColorOption;
 import dev.boze.api.option.ModeOption;
 import dev.boze.api.option.SliderOption;
 import dev.boze.api.option.ToggleOption;
+import dev.boze.api.render.ColorMaker;
 import meteordevelopment.orbit.EventHandler;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
@@ -43,6 +45,10 @@ public class InventoryCleaner extends AddonModule {
 
     public final ToggleOption editWhitelist = new ToggleOption(this, "EditWhitelist",
         "Open the whitelist editor screen.", false);
+
+    public final ColorOption whitelistAccentColor = new ColorOption(this, "WhitelistAccentColor",
+        "Accent color for the whitelist editor screen (borders, dividers, hover highlight).",
+        ColorMaker.staticColor(255, 255, 255), 0.24f);
 
     public final ToggleOption others = new ToggleOption(this, "Others",
         "Drop from other GUIs like Chest, Shulker, EnderChest...", false);
@@ -108,7 +114,7 @@ public class InventoryCleaner extends AddonModule {
 
         if (editWhitelist.getValue()) {
             editWhitelist.setValue(false);
-            mc.execute(() -> mc.setScreen(new com.example.addon.screens.WhitelistEditorScreen()));
+            mc.execute(() -> mc.setScreen(new com.example.addon.gui.WhitelistEditorComposeScreen()));
             return;
         }
 

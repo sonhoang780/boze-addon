@@ -12,6 +12,7 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -74,8 +75,6 @@ public class HoleSnap extends AddonModule {
         "Horizontal range for finding holes.", 3.0, 0.0, 5.0, 1.0);
     public final SliderOption downRange = new SliderOption(this, "DownRange",
         "Vertical range for finding holes.", 3.0, 0.0, 5.0, 1.0);
-    public final SliderOption depth = new SliderOption(this, "Depth",
-        "How deep a hole has to be.", 3.0, 1.0, 5.0, 1.0);
     public final ToggleOption jump = new ToggleOption(this, "Jump",
         "Jump toward the hole while snapping.", false);
     public final SliderOption jumpCooldown = new SliderOption(this, "JumpCooldown",
@@ -106,6 +105,15 @@ public class HoleSnap extends AddonModule {
     // tick and HoleSnap looks like it's standing still (2026-07-20).
     public final SliderOption speed = new SliderOption(this, "Speed",
         "Per-tick horizontal step toward the hole center (blocks/tick). Keep <=0.08 to avoid velocity-check rubberband on this server.", 0.08, 0.02, 0.3, 0.01);
+
+    public final ToggleOption renderHole = new ToggleOption(this, "RenderHole",
+        "Render the hole HoleSnap is heading to, fading out as you get close.", true);
+    private static final dev.boze.api.render.ClientColor HOLE_RENDER_COLOR =
+        dev.boze.api.render.ColorMaker.staticColor(80, 220, 120);
+    // Full opacity at/beyond this distance from the hole's middle, linearly fading to 0 as the
+    // player closes in -- by the time distance hits 0 (arrived) alpha is already 0, so no
+    // separate "arrived, stop rendering" check is needed.
+    private static final double RENDER_FADE_DISTANCE = 4.0;
 
     private static final int COLLISION_LIMIT = 15;
 
@@ -158,6 +166,13 @@ public class HoleSnap extends AddonModule {
 
     @EventHandler
     private void onTickPre(EventTick.Pre event) {
+        // This fake-yaw hack is Normal mode's own WASD-independent snapping mechanism --
+        // Strict mode moves via real vanilla WASD-relative input (onInputStrict) computed off
+        // the player's REAL yaw, so forcing+restoring yaw here every tick regardless of mode
+        // was corrupting the very yaw Strict's own math depends on, and fighting any other
+        // module (BedAura/CrystalAura) forcing its own yaw mid-tick -- root cause of "model
+        // liên tục rotate về hole và về target" reported specifically in Strict mode.
+        if (mode.getValue() != HoleSnapMode.Normal) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
         if (playerInHole(mc)) return;
@@ -358,6 +373,20 @@ public class HoleSnap extends AddonModule {
             return;
         }
 
+        // Strict + Jump off: a hole whose floor sits level with the player's own feet
+        // (pos.getY() == player's feet Y) has its rim wall at the SAME height as the
+        // player -- that's a lip that can only be crossed with a jump. Without one,
+        // onInput's own collide-nudge (below) fires every tick against that rim forever,
+        // reading as "walks into the edge of the hole and does nothing" (never falls in,
+        // never trips CollisionDisable's counter either since climb detection only
+        // deprioritizes, it doesn't exclude). Bail immediately instead of grinding on it.
+        if (!jump.getValue() && hole.pos().getY() == mc.player.blockPosition().getY()) {
+            setState(false);
+            mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§c[HoleSnap] disabled: hole level with stance, needs Jump"));
+            return;
+        }
+
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
 
@@ -399,12 +428,11 @@ public class HoleSnap extends AddonModule {
     /** The hole the player's own feet block belongs to, or null (mirrors BlackOut's HoleUtils.inHole). */
     private Hole holePlayerIsIn(Minecraft mc) {
         BlockPos pos = mc.player.blockPosition();
-        int d = depth.getValue().intValue();
         BlockPos[] offsets = {
             pos, pos.offset(-1, 0, 0), pos.offset(0, 0, -1), pos.offset(-1, 0, -1)
         };
         for (BlockPos p : offsets) {
-            Hole h = getHole(mc, p, d);
+            Hole h = getHole(mc, p);
             if (h == null) continue;
             for (BlockPos cell : h.positions()) {
                 if (cell.equals(pos)) return h;
@@ -417,6 +445,28 @@ public class HoleSnap extends AddonModule {
         return holePlayerIsIn(mc) != null;
     }
 
+    @EventHandler
+    private void onWorldRender(dev.boze.api.event.EventWorldRender event) {
+        if (!renderHole.getValue()) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
+
+        Hole inHole = holePlayerIsIn(mc);
+        Hole hole = inHole != null ? inHole : findHole(mc);
+        if (hole == null) return;
+
+        double dist = Math.sqrt(mc.player.distanceToSqr(hole.middle().x, hole.middle().y, hole.middle().z));
+        float alpha = (float) Mth.clamp(dist / RENDER_FADE_DISTANCE, 0.0, 1.0);
+        if (alpha <= 0.01f) return;
+
+        dev.boze.api.render.WorldDrawer.start();
+        for (BlockPos pos : hole.positions()) {
+            dev.boze.api.render.WorldDrawer.box(HOLE_RENDER_COLOR, 0.25f * alpha, 0.9f * alpha,
+                pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + 1, pos.getZ() + 1);
+        }
+        dev.boze.api.render.WorldDrawer.draw(event.matrices);
+    }
+
     // Raw distance isn't enough to rank holes -- a farther hole with a clear straight-
     // line approach is a better pick than a closer one behind a block lip, since walking
     // straight into a lip triggers CollisionDisable's counter (visible in-game: repeated
@@ -425,20 +475,25 @@ public class HoleSnap extends AddonModule {
     // selection toward the directly-walkable hole when one exists in range, instead of
     // blindly picking whichever is a few blocks closer.
     private static final double CLIMB_PENALTY = 1000.0;
+    // 2026-07-25: BEHIND_PENALTY (dot-product front/behind bias) reverted -- user report: made
+    // it WORSE, not better. The dot-product test is a hard 90-degree cutoff with no distance
+    // weighting of its own, so it buried an obviously-closer hole sitting just past that
+    // boundary (barely "behind" by the test) under the flat 500 penalty in favor of a hole
+    // merely on the "front" side of the line but much farther away -- "không chọn hole ngay
+    // trước mà đi vào hole xa tít mà tôi đang nhìn". Back to pure distance + climb penalty.
 
     private Hole findHole(Minecraft mc) {
         Hole closest = null;
         double closestScore = Double.MAX_VALUE;
         int r = range.getValue().intValue();
         int dr = downRange.getValue().intValue();
-        int d = depth.getValue().intValue();
 
         BlockPos base = mc.player.blockPosition();
         for (int x = -r; x <= r; x++) {
             for (int y = -dr; y <= 0; y++) {
                 for (int z = -r; z <= r; z++) {
                     BlockPos pos = base.offset(x, y, z);
-                    Hole hole = getHole(mc, pos, d);
+                    Hole hole = getHole(mc, pos);
                     if (hole == null) continue;
                     double score = hole.middle().distanceToSqr(mc.player.position());
                     if (pathRequiresClimb(mc, hole)) score += CLIMB_PENALTY;
@@ -456,14 +511,13 @@ public class HoleSnap extends AddonModule {
     private void dumpHoleCandidates(Minecraft mc) {
         int r = range.getValue().intValue();
         int dr = downRange.getValue().intValue();
-        int d = depth.getValue().intValue();
         BlockPos base = mc.player.blockPosition();
         int found = 0;
         for (int x = -r; x <= r; x++) {
             for (int y = -dr; y <= 0; y++) {
                 for (int z = -r; z <= r; z++) {
                     BlockPos pos = base.offset(x, y, z);
-                    Hole hole = getHole(mc, pos, d);
+                    Hole hole = getHole(mc, pos);
                     if (hole == null) continue;
                     found++;
                     String blockDetail = climbBlockDetail(mc, hole);
@@ -550,16 +604,24 @@ public class HoleSnap extends AddonModule {
         return null;
     }
 
-    private Hole getHole(Minecraft mc, BlockPos pos, int depth) {
-        if (!isHole(mc, pos, depth) || !isBlock(mc, pos.west()) || !isBlock(mc, pos.north())) return null;
+    // Real player hitbox needs exactly 2 vertical cells (feet + head) to stand in a hole. A
+    // former "Depth" slider gated this same check up to 5 cells above the entry -- redundant
+    // with DownRange (which already bounds how far below the player to search) and a source of
+    // false "no hole found" rejects on a perfectly valid 1x1x1 hole whenever debris floated
+    // anywhere in that taller column, even far above the player's actual hitbox (2026-07-23
+    // report). Removed; player fit is just this fixed constant now.
+    private static final int PLAYER_HEIGHT = 2;
 
-        boolean x = isHole(mc, pos.east(), depth) && isBlock(mc, pos.east().north()) && isBlock(mc, pos.east(2));
-        boolean z = isHole(mc, pos.south(), depth) && isBlock(mc, pos.south().west()) && isBlock(mc, pos.south(2));
+    private Hole getHole(Minecraft mc, BlockPos pos) {
+        if (!isHole(mc, pos) || !isBlock(mc, pos.west()) || !isBlock(mc, pos.north())) return null;
+
+        boolean x = isHole(mc, pos.east()) && isBlock(mc, pos.east().north()) && isBlock(mc, pos.east(2));
+        boolean z = isHole(mc, pos.south()) && isBlock(mc, pos.south().west()) && isBlock(mc, pos.south(2));
 
         if (!x && !z && isBlock(mc, pos.east()) && isBlock(mc, pos.south())) {
             return Hole.of(pos, HoleType.Single);
         }
-        if (x && z && isHole(mc, pos.south().east(), depth)
+        if (x && z && isHole(mc, pos.south().east())
                 && isBlock(mc, pos.east().east().south()) && isBlock(mc, pos.south().south().east())) {
             return Hole.of(pos, HoleType.Quad);
         }
@@ -572,9 +634,9 @@ public class HoleSnap extends AddonModule {
         return null;
     }
 
-    private boolean isHole(Minecraft mc, BlockPos pos, int depth) {
+    private boolean isHole(Minecraft mc, BlockPos pos) {
         if (!isBlock(mc, pos.below())) return false;
-        for (int i = 0; i < depth; i++) {
+        for (int i = 0; i < PLAYER_HEIGHT; i++) {
             if (isBlock(mc, pos.above(i))) return false;
         }
         return true;

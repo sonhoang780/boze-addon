@@ -17,9 +17,10 @@ import java.util.function.BooleanSupplier;
  * Navigates a server /shop GUI to buy Totems, End Crystals, or Exp Bottles.
  * Slots are hardcoded (shop GUI layout is fixed, name-scan was unreliable).
  *
- * Flow: /shop -> click GEAR(13) -> click item(13/10/16) -> repeat
+ * Flow: /shop open gear -> click item(13/10/16) -> repeat
  * (Totem: Confirm(23); Crystal/EXP: Set64(17) then Confirm(23)) for the
  * configured amount -> close GUI, disable.
+ * (/shop open gear lands on the gear submenu directly, so the old GEAR(13) click is gone.)
  */
 public class AutoShop extends AddonModule {
     public static final AutoShop INSTANCE = new AutoShop();
@@ -42,7 +43,6 @@ public class AutoShop extends AddonModule {
     public final SliderOption actionDelay = new SliderOption(this, "ActionDelay",
         "Ticks between each shop GUI click.", 4.0, 1.0, 20.0, 1.0);
 
-    private static final int SLOT_GEAR = 13;
     private static final int SLOT_ITEM_TOTEM = 13;
     private static final int SLOT_ITEM_CRYSTAL = 10;
     private static final int SLOT_ITEM_EXP = 16;
@@ -50,7 +50,7 @@ public class AutoShop extends AddonModule {
     private static final int SLOT_CONFIRM = 23;
     private static final int STEP_TIMEOUT_TICKS = 100; // 5s @ 20tps -- abort if the GUI never advances
 
-    private enum State { IDLE, WAIT_SHOP, CLICK_GEAR, CLICK_ITEM, DECIDE, SET_64, CONFIRM }
+    private enum State { IDLE, WAIT_SHOP, CLICK_ITEM, DECIDE, SET_64, CONFIRM }
 
     private State state = State.IDLE;
     private int ticks = 0;
@@ -73,7 +73,7 @@ public class AutoShop extends AddonModule {
         };
         ticks = 0;
         timeoutTicks = 0;
-        mc.getConnection().sendCommand("shop");
+        mc.getConnection().sendCommand("shop open gear");
         state = State.WAIT_SHOP;
     }
 
@@ -96,10 +96,9 @@ public class AutoShop extends AddonModule {
 
         switch (state) {
             case WAIT_SHOP -> {
-                if (screenOpen) { state = State.CLICK_GEAR; timeoutTicks = 0; }
+                if (screenOpen) { state = State.CLICK_ITEM; timeoutTicks = 0; }
                 else if (++timeoutTicks > STEP_TIMEOUT_TICKS) abort("shop GUI never opened");
             }
-            case CLICK_GEAR -> { click(mc, SLOT_GEAR); state = State.CLICK_ITEM; }
             case CLICK_ITEM -> {
                 int slot = switch (mode.getValue()) {
                     case Totem -> SLOT_ITEM_TOTEM;
@@ -124,7 +123,13 @@ public class AutoShop extends AddonModule {
     }
 
     private void finish(Minecraft mc) {
-        mc.setScreen(null);
+        // mc.setScreen(null) only swaps the client-side GUI overlay -- it never sends the
+        // close-container packet or resets player.containerMenu, so the SERVER still thinks
+        // the shop menu is open and the CLIENT's containerMenu stays pointed at the stale
+        // shop menu object. Every click after that routes through that dead menu until a
+        // fresh container open resyncs it (matches report: "phải đóng vào mở lại mới được").
+        // closeContainer() is the real fix -- same call BedAura's AutoCraft already uses.
+        mc.player.closeContainer();
         ChatHelper.sendMsg("AutoShop", "Done.");
         setState(false);
     }

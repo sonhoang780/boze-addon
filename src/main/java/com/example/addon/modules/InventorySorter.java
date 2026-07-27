@@ -72,6 +72,7 @@ public class InventorySorter extends AddonModule {
 
         if (!this.active || mc.player == null || EvilRekit.INSTANCE.activeKit.isEmpty()) return;
         if (mc.player.isCreative()) return;
+        if (PhobosAutoTotem.INSTANCE.getState() || PhobosDoubleHand.INSTANCE.getState()) return;
 
         // Block only when a container other than the player's own inventory is open
         // (chest, furnace, etc. change the screenHandler and slot indices).

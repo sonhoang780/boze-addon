@@ -109,7 +109,17 @@ public class Replenish extends AddonModule {
             int src = findSource(mc, type);
             if (src < 0) continue;
 
-            if (cur.isEmpty()) {
+            if (cur.isEmpty() && type == Items.TOTEM_OF_UNDYING && BetterOffhand.INSTANCE.legit.getValue()) {
+                // BetterOffhand Legit mode: same 3-click pickup pattern it uses itself instead
+                // of the atomic SWAP click, for this specific unstackable -- see
+                // swapIntoOffhandViaPickup/offhandSwapFromHotbar's note on same-tick packet
+                // bursts triggering silent anti-cheat rejection.
+                int ms = menuSlot(src);
+                int hb = menuSlot(i);
+                click(mc, ms, 0, ContainerInput.PICKUP);
+                click(mc, hb, 0, ContainerInput.PICKUP);
+                click(mc, ms, 0, ContainerInput.PICKUP);
+            } else if (cur.isEmpty()) {
                 // Atomic move into the empty hotbar slot (works for unstackables too).
                 click(mc, menuSlot(src), i, ContainerInput.SWAP);
             } else {

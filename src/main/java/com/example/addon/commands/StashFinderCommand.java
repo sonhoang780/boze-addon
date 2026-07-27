@@ -44,7 +44,7 @@ public class StashFinderCommand extends AddonCommand {
                     if (StashWebhook.getWebhookUrl().isBlank()) {
                         ChatHelper.sendMsg("StashFinder", "§cNo webhook URL set. Use .stashfinder webhook <url> first.");
                     } else {
-                        StashWebhook.send(0, 0, java.util.Map.of("Test", 1));
+                        StashWebhook.send(0, 0, "test", java.util.Map.of("Test", 1));
                         ChatHelper.sendMsg("StashFinder", "§7Test webhook queued (result will be reported in chat; rate-limited to one send per 5s).");
                     }
                     return SINGLE_SUCCESS;

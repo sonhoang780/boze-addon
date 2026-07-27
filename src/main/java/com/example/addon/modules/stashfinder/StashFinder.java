@@ -213,7 +213,8 @@ public class StashFinder extends AddonModule {
         ChunkPos pos = chunk.getPos();
         int reportX = pos.getMinBlockX();
         int reportZ = pos.getMinBlockZ();
-        StashWebhook.send(reportX, reportZ, nonZero);
+        String dimension = mc.level.dimension().identifier().toString();
+        StashWebhook.send(reportX, reportZ, dimension, nonZero);
     }
 
     private boolean meetsAnyThreshold(Map<String, Integer> counts) {

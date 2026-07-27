@@ -91,9 +91,12 @@ public class ItemDropCommand extends AddonCommand {
             if (!stack.isEmpty()) {
                 // Ép item thành chuỗi giống hệt cách InventoryCleaner.java đang làm
                 String key = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-                
-                // Cho phép nhận diện cả "minecraft:stone" lẫn "stone"
-                if (key.equalsIgnoreCase(itemName) || key.substring(key.indexOf(':') + 1).equalsIgnoreCase(itemName)) {
+                String customName = stack.getHoverName().getString();
+
+                // Cho phép nhận diện "minecraft:stone", "stone", hoặc tên custom (anvil rename/NBT)
+                if (key.equalsIgnoreCase(itemName)
+                        || key.substring(key.indexOf(':') + 1).equalsIgnoreCase(itemName)
+                        || customName.equalsIgnoreCase(itemName)) {
                     int handlerSlot = invToHandlerSlot(invSlot);
                     mc.gameMode.handleContainerInput(containerId, handlerSlot, 1, ContainerInput.THROW, mc.player);
                 }

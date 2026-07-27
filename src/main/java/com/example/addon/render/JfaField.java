@@ -361,10 +361,29 @@ public class JfaField {
         steps[mainSteps.length] = 2;
         steps[mainSteps.length + 1] = 1;
 
-        // Run the full pipeline once per class. writeToBA selects which half of
-        // GLOW_TEXTURE's 4 channels the finalize pass is allowed to touch.
-        renderOneClass(glTex, outTex, fullW, fullH, steps, true, false);   // hand -> r,g
-        renderOneClass(glTex, outTex, fullW, fullH, steps, false, true);  // entity -> b,a
+        // Run the full pipeline once per class -- but only for a class that could
+        // possibly have a seed this frame. HAND_OUTLINE_COLOR/ENTITY_OUTLINE_COLOR are
+        // NEVER emitted anywhere unless the matching toggle is on (verified: every
+        // mixin site gates on handToggle/playerToggle/selfToggle/crystalToggle before
+        // writing that marker color), so a disabled class is guaranteed to have zero
+        // seeds -- running its full seed->jump->finalize chain would only ever produce
+        // "invalid" anyway. Clearing its 2 channels directly skips that wasted work.
+        // Common case this actually helps: most configs only use Hand OR world-entity
+        // chams, not both, cutting this pipeline's real cost roughly in half for them.
+        com.example.addon.modules.BetterChams bc = com.example.addon.modules.BetterChams.INSTANCE;
+        boolean wantHandClass = bc.handToggle.getValue();
+        boolean wantEntityClass = bc.playerToggle.getValue() || bc.selfToggle.getValue() || bc.crystalToggle.getValue();
+
+        if (wantHandClass) {
+            renderOneClass(glTex, outTex, fullW, fullH, steps, true, false);   // hand -> r,g
+        } else {
+            clearClassChannels(outTex, fullW, fullH, false);
+        }
+        if (wantEntityClass) {
+            renderOneClass(glTex, outTex, fullW, fullH, steps, false, true);  // entity -> b,a
+        } else {
+            clearClassChannels(outTex, fullW, fullH, true);
+        }
 
         GL11.glColorMask(prevColorMask[0] != 0, prevColorMask[1] != 0, prevColorMask[2] != 0, prevColorMask[3] != 0);
         GL20.glUseProgram(0);
@@ -374,6 +393,17 @@ public class JfaField {
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, prevBoundTex);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFBO);
         GL11.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    }
+
+    /** Zeroes one class's 2 channels in GLOW_TEXTURE directly (skips seed/jump/finalize
+     *  entirely) -- glow_resolve.fsh reads validity=0 the same as a real "no seed found"
+     *  finalize result. FBO must already be bound. */
+    private static void clearClassChannels(int outTex, int fullW, int fullH, boolean ba) {
+        GL11.glViewport(0, 0, fullW, fullH);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, outTex, 0);
+        GL11.glColorMask(!ba, !ba, ba, ba);
+        GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
     }
 
     /** One class's full seed->jump->finalize pass. FBO must already be bound. */

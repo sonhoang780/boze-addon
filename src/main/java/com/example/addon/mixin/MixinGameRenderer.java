@@ -11,6 +11,7 @@ import com.example.addon.screens.EbookPagePipRenderer;
 import com.example.addon.screens.WebBrowserPipRenderer;
 import com.example.addon.screens.WebBrowserShadowPipRenderer;
 import com.example.addon.screens.WebBrowserChromePipRenderer;
+import com.example.addon.screens.ComposeContentPipRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.GameRenderer;
@@ -47,6 +48,7 @@ public abstract class MixinGameRenderer {
         modified.add(new WebBrowserPipRenderer(bufferSource));
         modified.add(new WebBrowserShadowPipRenderer(bufferSource));
         modified.add(new WebBrowserChromePipRenderer(bufferSource));
+        modified.add(new ComposeContentPipRenderer(bufferSource));
         args.set(4, modified);
     }
 

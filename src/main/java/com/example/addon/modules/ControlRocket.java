@@ -11,7 +11,6 @@ import dev.boze.api.utility.interaction.InvHelper;
 import dev.boze.api.utility.interaction.SwapType;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.inventory.ContainerInput;
@@ -52,12 +51,6 @@ public class ControlRocket extends AddonModule {
             "Ticks between rocket fires. 0 = fire every tick while a key is pressed.", 0.0, 0.0, 60.0, 1.0);
     public final ModeOption<TryHoldMode> tryHold = new ModeOption<>(this, "TryHold",
             "Off: free-fall when no keys. On: upward rocket when falling to hold altitude.", TryHoldMode.Off);
-    public final ToggleOption fakeFlyMode = new ToggleOption(this, "FakeFly",
-            "Constant chestplate swap", false);
-    public final ToggleOption autoTakeoff = new ToggleOption(this, "AutoTakeoff",
-            "FakeFly only: auto-jump off ground.", false);
-    public final SliderOption glideDelay = new SliderOption(this, "GlideDelay",
-            "FakeFly: ticks to wait after swapping the elytra in before sending the glide command (and swapping back out). Ported from lambda-client's AutoElytraSwap.glideDelay -- gives the server time to register the equip change first.", 0.0, 0.0, 20.0, 1.0);
     public final ToggleOption muteElytra = new ToggleOption(this, "MuteElytra",
             "Mutes the elytra gliding sound. Ported from lambda-client's ElytraFly.mute.", false);
     public final ModeOption<FlySwapMode> swap = new ModeOption<>(this, "Swap",
@@ -65,23 +58,12 @@ public class ControlRocket extends AddonModule {
 
     // ── State ────────────────────────────────────────────────────────────────
     private int     rocketCooldown          = 0;
-    private int     elytraScreenSlot        = -1;
-    private boolean cpModeActive            = false;
     private boolean flying                  = false;
     private boolean equipPending            = false;
     private int     equipTick               = 0;
     private int     pendingElytraScreenSlot = -1;
     private int     equippedFromScreenSlot  = -1;
     private boolean didSwapIn               = false;
-    // tracks last known value of fakeFlyMode to detect in-flight toggles
-    private boolean lastFakeFlyModeValue = false;
-    // true from the moment we swap elytra in until we've either started gliding (server
-    // echoed isFallFlying) or landed again -- blocks a second swap attempt mid-sequence.
-    // Ported from lambda's AutoElytraSwap: swap ONCE per takeoff attempt, not repeatedly.
-    private boolean cpSwapPending           = false;
-    // -1 = not mid-sequence; >=0 = ticks left after the swap-in before sending the glide
-    // command and swapping back out (gated by glideDelay).
-    private int     cpGlideDelayTicksLeft   = -1;
 
     // Pre → Post communication for rocket firing + camera restore
     private boolean pendingFire                      = false;
@@ -124,30 +106,18 @@ public class ControlRocket extends AddonModule {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
-        rocketCooldown = 0; elytraScreenSlot = -1; cpModeActive = false; flying = false;
+        rocketCooldown = 0; flying = false;
         equipPending = false; equipTick = 0; pendingElytraScreenSlot = -1;
         equippedFromScreenSlot = -1; didSwapIn = false;
         pendingFire = false; invMoveBypass = false; wasGliding = false; cameraOverrideActive = false;
         muteElytraSound = muteElytra.getValue();
-        lastFakeFlyModeValue = fakeFlyMode.getValue();
-        cpSwapPending = false; cpGlideDelayTicksLeft = -1;
 
         boolean hasElytra = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
-
-        if (fakeFlyMode.getValue()) {
-            if (hasElytra) { flying = true; }
-            else {
-                int slot = findElytraScreenSlot(mc);
-                if (slot == -1) { ChatHelper.sendMsg("ControlRocket", "§cNo elytra found!"); return; }
-                elytraScreenSlot = slot; cpModeActive = true; flying = true;
-            }
-        } else {
-            if (hasElytra) { flying = true; }
-            else {
-                int slot = findElytraScreenSlot(mc);
-                if (slot == -1) { ChatHelper.sendMsg("ControlRocket", "§cNo elytra found!"); return; }
-                pendingElytraScreenSlot = slot; equipPending = true; equipTick = 0;
-            }
+        if (hasElytra) { flying = true; }
+        else {
+            int slot = findElytraScreenSlot(mc);
+            if (slot == -1) { ChatHelper.sendMsg("ControlRocket", "§cNo elytra found!"); return; }
+            pendingElytraScreenSlot = slot; equipPending = true; equipTick = 0;
         }
     }
 
@@ -167,15 +137,7 @@ public class ControlRocket extends AddonModule {
         }
         pendingFire = false;
 
-        if (cpModeActive) {
-            if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA && elytraScreenSlot != -1) {
-                int syncId = mc.player.inventoryMenu.containerId;
-                mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
-                mc.gameMode.handleContainerInput(syncId, elytraScreenSlot, 0, ContainerInput.PICKUP, mc.player);
-                mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
-            }
-            cpModeActive = false; elytraScreenSlot = -1;
-        } else if (didSwapIn && equippedFromScreenSlot != -1) {
+        if (didSwapIn && equippedFromScreenSlot != -1) {
             int syncId = mc.player.inventoryMenu.containerId;
             mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
             mc.gameMode.handleContainerInput(syncId, equippedFromScreenSlot, 0, ContainerInput.PICKUP, mc.player);
@@ -183,7 +145,6 @@ public class ControlRocket extends AddonModule {
         }
 
         equippedFromScreenSlot = -1; didSwapIn = false; equipPending = false; flying = false;
-        cpSwapPending = false; cpGlideDelayTicksLeft = -1;
     }
 
     // ── Phase 1 (Pre): set camera + body to target direction ─────────────────
@@ -198,66 +159,17 @@ public class ControlRocket extends AddonModule {
         updateSprintSuppression(mc);
 
         // Late init: onEnable fired before player was ready (e.g. module pre-enabled at world load)
-        if (!flying && !equipPending && !cpModeActive) {
+        if (!flying && !equipPending) {
             lateInit(mc);
-            return;
-        }
-
-        // Detect fakeFlyMode toggle while module is running — reinitialise CP state
-        boolean wantCp = fakeFlyMode.getValue();
-        if (wantCp != lastFakeFlyModeValue) {
-            lastFakeFlyModeValue = wantCp;
-            cpModeActive = false; invMoveBypass = false; rocketCooldown = 0;
-            cpSwapPending = false; cpGlideDelayTicksLeft = -1;
-            if (wantCp) {
-                boolean hasE = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
-                if (!hasE) {
-                    int s = findElytraScreenSlot(mc);
-                    if (s != -1) { elytraScreenSlot = s; cpModeActive = true; flying = true; }
-                }
-                // hasE=true: elytra is equipped — user must manually swap elytra→inventory
-                // and equip chestplate first, then CP mode will take over
-            } else {
-                elytraScreenSlot = -1;
-                flying = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
-            }
             return;
         }
 
         if (equipPending) { handleEquipSequence(mc); return; }
 
-        if (cpModeActive) {
-            if (cpGlideDelayTicksLeft >= 0) {
-                // Mid-sequence: elytra already swapped in, counting down to the
-                // glide-trigger + swap-out (see beginChestplateSwap/finishChestplateSwap).
-                if (cpGlideDelayTicksLeft == 0) {
-                    finishChestplateSwap(mc);
-                } else {
-                    cpGlideDelayTicksLeft--;
-                }
-            } else if (mc.player.isFallFlying()) {
-                cpSwapPending = false; // already gliding -- nothing to do until we land
-            } else if (mc.player.onGround()) {
-                cpSwapPending = false; // landed -- ready for a fresh swap next takeoff
-                if (autoTakeoff.getValue()) mc.player.jumpFromGround();
-            } else if (!cpSwapPending) {
-                // Airborne, not yet gliding, haven't attempted a swap this time -- do it
-                // ONCE (lambda's AutoElytraSwap pattern), not on a repeating timer. The old
-                // repeating-cycle version re-clicked the container every few ticks forever,
-                // which is exactly the kind of rhythmic click pattern multiplayer anti-cheat
-                // flags on.
-                beginChestplateSwap(mc);
-                cpSwapPending = true;
-            }
-        } else if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) {
-            return;
-        }
+        if (mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA) return;
 
         if (!flying) return;
-        if (!mc.player.isFallFlying() && !cpModeActive) {
-            if (mc.player.onGround() && autoTakeoff.getValue()) mc.player.jumpFromGround();
-            return;
-        }
+        if (!mc.player.isFallFlying()) return;
 
         // Reset cooldown when elytra gliding starts fresh so the first rocket fires immediately
         boolean nowGliding = mc.player.isFallFlying();
@@ -302,20 +214,11 @@ public class ControlRocket extends AddonModule {
     // Mirrors onEnable() init logic; called when onEnable fired before player entity existed.
     private void lateInit(Minecraft mc) {
         if (mc.player == null) return;
-        lastFakeFlyModeValue = fakeFlyMode.getValue();
         boolean hasE = mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA;
-        if (fakeFlyMode.getValue()) {
-            if (hasE) { flying = true; }
-            else {
-                int s = findElytraScreenSlot(mc);
-                if (s != -1) { elytraScreenSlot = s; cpModeActive = true; flying = true; }
-            }
-        } else {
-            if (hasE) { flying = true; }
-            else {
-                int s = findElytraScreenSlot(mc);
-                if (s != -1) { pendingElytraScreenSlot = s; equipPending = true; equipTick = 0; }
-            }
+        if (hasE) { flying = true; }
+        else {
+            int s = findElytraScreenSlot(mc);
+            if (s != -1) { pendingElytraScreenSlot = s; equipPending = true; equipTick = 0; }
         }
     }
 
@@ -375,22 +278,11 @@ public class ControlRocket extends AddonModule {
         savedCameraYaw   = mc.player.getYRot();
         savedCameraPitch = mc.player.getXRot();
 
-        // Third-person-front (F5 x2, "mirrored") camera renders from IN FRONT of the
-        // player looking back at them -- vanilla's own Camera.setPosition does this by
-        // rendering at (entity.yRot + 180, -entity.xRot) whenever CameraType.isMirrored()
-        // (verified via javap on Camera.class, minecraft-merged-1c9175fa40-26.1.2.jar:
-        // the isMirrored() branch calls setRotation(yRot+180, -xRot)). WASD direction here
-        // was built straight off player.getYRot(), which is only equal to what the player
-        // actually SEES in first-person/third-back; in mirrored view it's 180° off from the
-        // real camera facing, so W walked the player AWAY from what they were looking at
-        // (user report, 2026-07-19). Only the movement-basis yaw needs the correction --
-        // savedCameraYaw/Pitch (restored in Post, read by MixinEntity) stay the real raw
-        // player rotation, since vanilla's own mirrored-camera math already derives the
-        // correct render angle from that raw value on its own.
-        float moveYaw = savedCameraYaw;
-        if (mc.options.getCameraType().isMirrored()) moveYaw += 180f;
-
-        double yawRad = Math.toRadians(moveYaw);
+        // WASD direction is built straight off player.getYRot() (the real camera yaw) --
+        // matches every direction the player can be looking, no per-camera-mode correction
+        // needed (a prior +180 "mirrored camera" adjustment here was wrong and inverted
+        // movement for everyone -- removed 2026-07-23).
+        double yawRad = Math.toRadians(savedCameraYaw);
         double sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
 
         double dx = 0, dz = 0;
@@ -448,57 +340,7 @@ public class ControlRocket extends AddonModule {
         pendingFire = true;
     }
 
-    // ── FakeFly mode ─────────────────────────────────────────────────────────
-
-    /**
-     * Swap chestplate → elytra (single atomic 3-click, same as swapOut just run on the
-     * same slot index) and start the glideDelay countdown. Called ONCE per takeoff
-     * attempt -- see cpSwapPending in onTickPre.
-     */
-    private void beginChestplateSwap(Minecraft mc) {
-        if (mc.screen != null || elytraScreenSlot == -1) return;
-
-        if (mc.player.inventoryMenu.getSlot(elytraScreenSlot).getItem().getItem() != Items.ELYTRA) {
-            int newSlot = findElytraScreenSlot(mc);
-            if (newSlot == -1) {
-                ChatHelper.sendMsg("ControlRocket", "§cElytra lost!");
-                cpModeActive = false; flying = false; return;
-            }
-            elytraScreenSlot = newSlot;
-        }
-
-        swapChestWithSlot(mc, elytraScreenSlot);
-        cpGlideDelayTicksLeft = glideDelay.getValue().intValue();
-    }
-
-    /**
-     * Send the glide command, then swap elytra → chestplate (the same 3-click routine on
-     * the same slot index toggles it back, since the chestplate ended up in
-     * elytraScreenSlot after beginChestplateSwap). Called once, after glideDelay ticks.
-     */
-    private void finishChestplateSwap(Minecraft mc) {
-        cpGlideDelayTicksLeft = -1;
-        if (mc.getConnection() != null) {
-            mc.getConnection().send(
-                new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
-        }
-        swapChestWithSlot(mc, elytraScreenSlot);
-    }
-
-    /** Atomic 3-click toggle between the chest slot (6) and {@code otherSlot}. */
-    private void swapChestWithSlot(Minecraft mc, int otherSlot) {
-        int syncId = mc.player.inventoryMenu.containerId;
-        invMoveBypass = true;
-        try {
-            mc.gameMode.handleContainerInput(syncId, otherSlot, 0, ContainerInput.PICKUP, mc.player);
-            mc.gameMode.handleContainerInput(syncId, 6, 0, ContainerInput.PICKUP, mc.player);
-            mc.gameMode.handleContainerInput(syncId, otherSlot, 0, ContainerInput.PICKUP, mc.player);
-        } finally {
-            invMoveBypass = false;
-        }
-    }
-
-    // ── Normal-mode equip sequence ─────────────────────────────────────────────
+    // ── Equip sequence ──────────────────────────────────────────────────────
 
     private void handleEquipSequence(Minecraft mc) {
         if (mc.screen != null) return;

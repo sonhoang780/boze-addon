@@ -259,6 +259,36 @@ public class BetterChams extends AddonModule {
         super("BetterChams", "Better Chams");
     }
 
+    /**
+     * LevelRenderer.doEntityOutline() (verified via javap on 26.1.2) unconditionally does
+     * `if (shouldShowEntityOutlines()) entityOutlineTarget.blitAndBlendToTexture(main)` every
+     * frame -- no "was anything drawn into it this frame" check, and vanilla's own resolve of
+     * that target only runs when its OWN haveGlowingEntities flag is set (spectator glow),
+     * which our addon-submitted silhouettes never touch (that's why MixinShaderManager has to
+     * intercept the postchain at all). While this module is on, our own submit+resolve
+     * (MixinAvatarRenderer etc. + MixinGameRenderer#reprocessHandOutline) refreshes
+     * entityOutlineTarget every frame. The instant it's disabled, nothing refreshes or clears
+     * that target anymore -- its last-resolved-glow pixels just sit there and keep getting
+     * blitAndBlendToTexture'd onto the screen indefinitely (the intermittent "chams rác after
+     * turning off" report). Explicitly clear it here, same as JfaField's own clearField() (same
+     * class of bug, already solved once for the glow field texture).
+     */
+    @Override
+    public void onDisable() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.levelRenderer == null) return;
+        com.mojang.blaze3d.pipeline.RenderTarget outlineTarget =
+            ((com.example.addon.mixin.LevelRendererAccessor) mc.levelRenderer).getEntityOutlineTarget();
+        if (outlineTarget != null) {
+            com.mojang.blaze3d.textures.GpuTexture colorTex = outlineTarget.getColorTexture();
+            if (colorTex != null) {
+                com.mojang.blaze3d.systems.RenderSystem.getDevice().createCommandEncoder()
+                    .clearColorTexture(colorTex, 0);
+            }
+        }
+        com.example.addon.render.JfaField.clearField();
+    }
+
     public static void registerTextures() {
         ClientLifecycleEvents.CLIENT_STARTED.register(mc -> {
             CHAMS_TEXTURE.init();

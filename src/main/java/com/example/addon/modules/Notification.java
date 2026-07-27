@@ -4,12 +4,21 @@ import dev.boze.api.addon.AddonModule;
 import dev.boze.api.client.ModuleManager;
 import dev.boze.api.client.module.BaseModule;
 import dev.boze.api.event.EventModuleToggle;
+import dev.boze.api.option.ToggleOption;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.ChatComponent;
+import net.minecraft.client.multiplayer.chat.GuiMessage;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Replaces Boze core's own "<Module> has been enabled/disabled" toggle message with
@@ -32,6 +41,15 @@ public class Notification extends AddonModule {
     private static final String[] BOZE_NOTIFICATION_MODULE_GUESSES = { "Notifications", "ModuleNotifications", "Notification" };
 
     private static final TextColor BOZE_PREFIX_COLOR = TextColor.fromRgb(0xFFB3C6);
+
+    public final ToggleOption keepNoti = new ToggleOption(this, "KeepNoti",
+        "Keep every past toggle line in chat. Turn off to have a module's newest toggle line replace its previous one instead of stacking both.", true);
+
+    // Last toggle-line we printed per module name; only populated while KeepNoti is off
+    private final Map<String, Component> lastLineByModule = new HashMap<>();
+
+    private static Field allMessagesField;
+    private static Method refreshTrimmedMessagesMethod;
 
     public Notification() {
         super("Notification", "Prints [+]/[-] Module lines for every module toggle (addon-side, alongside Boze's own message).");
@@ -58,6 +76,36 @@ public class Notification extends AddonModule {
             .append(Component.literal(enabled ? "+" : "-").withStyle(enabled ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.RED))
             .append(Component.literal("] ").withStyle(net.minecraft.ChatFormatting.WHITE))
             .append(Component.literal(module.getName()).withStyle(net.minecraft.ChatFormatting.WHITE));
+
+        if (!keepNoti.getValue()) {
+            Component previous = lastLineByModule.put(module.getName(), line);
+            if (previous != null) removeChatLine(mc, previous);
+        }
+
         mc.player.sendSystemMessage(line);
+    }
+
+    /**
+     * Removes a previously sent line by identity. ChatComponent#deleteMessage only matches on
+     * MessageSignature (none exists for unsigned system messages -- would wipe every unsigned
+     * line, not just ours), so this reaches into the private allMessages list directly and
+     * re-derives trimmedMessages the way refreshTrimmedMessages() does (both private, no public
+     * equivalent -- verified via javap on the 26.1.2 merged jar).
+     */
+    private static void removeChatLine(Minecraft mc, Component line) {
+        try {
+            ChatComponent chat = mc.gui.getChat();
+            if (allMessagesField == null) {
+                allMessagesField = ChatComponent.class.getDeclaredField("allMessages");
+                allMessagesField.setAccessible(true);
+                refreshTrimmedMessagesMethod = ChatComponent.class.getDeclaredMethod("refreshTrimmedMessages");
+                refreshTrimmedMessagesMethod.setAccessible(true);
+            }
+            @SuppressWarnings("unchecked")
+            List<GuiMessage> allMessages = (List<GuiMessage>) allMessagesField.get(chat);
+            if (allMessages.removeIf(m -> m.content() == line)) {
+                refreshTrimmedMessagesMethod.invoke(chat);
+            }
+        } catch (Exception ignored) {}
     }
 }

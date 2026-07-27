@@ -76,6 +76,10 @@ WebBrowser - Surf the internet inside minecraft
 
 HUDEditor - For MusicHUD and GifHUD
 
+Notification - Prints [+]/[-] Module lines in chat for every module toggle. KeepNoti option (on by default): turn off to replace a module's previous toggle line with its newest one instead of stacking both
+
+InfiniteChat - Keeps unlimited chat history instead of the vanilla 100-message cap
+
 Extensions:
 VersionHUD in Boze HUD (show boze-addon latest version)
 

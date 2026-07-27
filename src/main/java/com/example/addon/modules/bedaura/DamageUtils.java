@@ -84,16 +84,18 @@ public final class DamageUtils {
     }
 
     /**
-     * Literal port of Mint's DamageUtils.getExposure/HIT_FACTORY (2026-07-18, "kể cả bật
-     * airplace nó vẫn đặt vào chỗ ngu"): a dense grid over the target's real bounding box
-     * (resolution scales with box size, not a fixed sample count), only counting a block as
-     * blocking if its getExplosionResistance() >= 600 (obsidian/bedrock-tier) -- ordinary
-     * Nether terrain (netherrack, basalt, quartz ore, etc) is all far below that and is NOT a
-     * blocker for this purpose. The old fixed-4-point sample using WorldHelper.raycast treated
-     * ANY solid block as a full blocker, so a near-target candidate embedded in ordinary
-     * terrain read as falsely occluded (seenPct near 0) while an open spot over lava/air always
-     * read fully clear (seenPct=1) in BOTH versions -- giving floating candidates an
-     * undeserved score advantage over perfectly good grounded ones.
+     * Dense grid over the target's real bounding box (resolution scales with box size, not a
+     * fixed sample count) -- same sampling shape as Mint's getExposure/HIT_FACTORY. The
+     * blocking RULE does not match Mint though (verified 2026-07-25 against real vanilla
+     * source, ServerExplosion.getSeenPercent, 26.1.2 decompiled): vanilla blocks a ray on ANY
+     * block with a real collision shape (ClipContext.Block.COLLIDER), never an
+     * explosionResistance threshold. Mint's own >=600 rule (which this used to copy) let
+     * ordinary Nether terrain (netherrack, basalt -- all far below 600) read as fully
+     * transparent, so a candidate with open sky above a hole scored high exposure/damage here
+     * while the real vanilla explosion is blocked by those same ordinary walls -- root cause of
+     * search picking elevated/disconnected "floating" candidates whose ESTIMATED damage was far
+     * higher than their measured real damage (confirmed live: search picked a spot logged at 14
+     * estimated dmg, manual in-game detonation at that exact spot measured under 4 real).
      */
     private static double getExposure(Vec3 source, AABB box) {
         try {
@@ -130,13 +132,12 @@ public final class DamageUtils {
         }
     }
 
-    /** Mint's HIT_FACTORY: only a block with explosionResistance >= 600 (obsidian/bedrock-tier) blocks. */
+    /** Matches vanilla ServerExplosion.getSeenPercent: ANY block with a real collision shape blocks, no resistance threshold. */
     private static boolean blastBlocked(Vec3 from, Vec3 to) {
         Minecraft mc = Minecraft.getInstance();
         return BlockGetter.traverseBlocks(from, to, Boolean.FALSE,
             (blocked, pos) -> {
                 BlockState state = mc.level.getBlockState(pos);
-                if (state.getBlock().getExplosionResistance() < 600) return null;
                 return state.getCollisionShape(mc.level, pos).clip(from, to, pos) != null ? Boolean.TRUE : null;
             },
             ctx -> Boolean.FALSE) == Boolean.TRUE;

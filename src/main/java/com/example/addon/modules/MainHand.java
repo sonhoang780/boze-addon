@@ -34,12 +34,13 @@ public class MainHand extends AddonModule {
             "Hotbar slot (0-8) that always holds the totem.", 0.0, 0.0, 8.0, 1.0);
     public final SliderOption health = new SliderOption(this, "Health",
             "Snap the hand to the totem slot when health <= this (0 = off).", 0.0, 0.0, 36.0, 1.0);
-    public final ToggleOption calcAbsorption = new ToggleOption(this, "CalcAbsorption",
-            "Count absorption hearts toward the Health threshold.", true);
     public final ToggleOption onFall = new ToggleOption(this, "OnFall",
             "Snap to the totem slot when predicted fall damage would be lethal.", true);
     public final ToggleOption onElytra = new ToggleOption(this, "OnElytra",
             "Snap to the totem slot while gliding.", false);
+    public final ToggleOption silent = new ToggleOption(this, "Silent",
+            "Danger-hold via a silent hotbar swap (hides the hand change from other players' "
+            + "render) instead of a real selected-slot switch everyone sees.", false);
     public final ToggleOption crappleSpoof = new ToggleOption(this, "CrappleSpoof",
             "While egap Absorption IV is still active, eat regular gapples instead of burning egaps.", true);
     public final ToggleOption debug = new ToggleOption(this, "Debug",
@@ -151,7 +152,7 @@ public class MainHand extends AddonModule {
 
     // Health + absorption (when enabled) — what the snap/fall thresholds compare against.
     private float effectiveHealth(Minecraft mc) {
-        return mc.player.getHealth() + (calcAbsorption.getValue() ? mc.player.getAbsorptionAmount() : 0f);
+        return mc.player.getHealth() + mc.player.getAbsorptionAmount();
     }
 
     // Absorption IV+ = an egap's effect is still ticking (gapple only gives I).
@@ -164,6 +165,17 @@ public class MainHand extends AddonModule {
     // parked it in; -1 = nothing pending. Restored after the apple is eaten.
     private int restoreSlot = -1;
     private Item restoreItem = null;
+
+    // Silent mode: whether the danger-hold is currently silent-swapped in (needs swapBack once
+    // the danger clears). A real selectedSlot switch doesn't need this -- it's just left selected.
+    private boolean silentHeld = false;
+
+    @Override
+    public void onDisable() {
+        if (silentHeld) { dev.boze.api.utility.interaction.InvHelper.swapBack(); silentHeld = false; }
+        restoreSlot = -1;
+        restoreItem = null;
+    }
 
     // Swap the pre-apple offhand item back once the player is done eating (use key
     // released, no item in use). Same 3-click cursor swap as the apple move, so any
@@ -321,14 +333,48 @@ public class MainHand extends AddonModule {
         boolean fallSnap = onFall.getValue() && mc.player.fallDistance > 3
                 && eff - (((float) mc.player.fallDistance - 3f) / 2f + 3.5f) < 0.5f;
         boolean elytraSnap = onElytra.getValue() && mc.player.isFallFlying();
-        if ((healthSnap || fallSnap || elytraSnap)
-                && isTotem(mc.player.getInventory().getItem(target))
-                && mc.player.getInventory().getSelectedSlot() != target) {
-            mc.player.getInventory().setSelectedSlot(target);
-            if (mc.getConnection() != null) {
-                mc.getConnection().send(new ServerboundSetCarriedItemPacket(target));
+        boolean danger = healthSnap || fallSnap || elytraSnap;
+        boolean hasTotem = isTotem(mc.player.getInventory().getItem(target));
+
+        boolean realTotemInHand = isTotem(mc.player.getMainHandItem()) || isTotem(mc.player.getOffhandItem());
+        String reason = healthSnap ? "health " + eff : fallSnap ? "fall" : "elytra";
+
+        // Ground truth every tick, never trust the silentHeld flag alone: if danger requires a
+        // totem and the REAL hand doesn't have one, escalate immediately to the guaranteed-working
+        // visible switch, regardless of the Silent toggle. Reported death with Silent on + 10
+        // totems in reserve = SwapType.Silent's hold silently failing to land server-side across
+        // many ticks (every OTHER user of SwapType.Silent in this addon holds it for a single
+        // action -- swap, place/interact, swapBack, same function call -- never open-ended like
+        // this). Survival beats staying hidden.
+        boolean forceVisible = danger && hasTotem && !realTotemInHand && silentHeld;
+
+        if (silent.getValue() && !forceVisible) {
+            // SwapType.Silent: hides the hand change from other players' render instead of a
+            // real, everyone-sees selectedSlot switch. Held for the whole danger window (not a
+            // one-shot swap+revert) since we don't know which tick the fatal hit lands.
+            if (danger && hasTotem && !silentHeld) {
+                if (dev.boze.api.utility.interaction.InvHelper.swapToSlot(target, dev.boze.api.utility.interaction.SwapType.Silent)) {
+                    silentHeld = true;
+                    dbg("§e" + reason + " -> silent hold slot " + target);
+                }
+            } else if ((!danger || !hasTotem) && silentHeld) {
+                dev.boze.api.utility.interaction.InvHelper.swapBack();
+                silentHeld = false;
+                dbg("§7danger clear -> silent release");
             }
-            dbg("§e" + (healthSnap ? "health " + eff : fallSnap ? "fall" : "elytra") + " -> hold slot " + target);
+        } else {
+            if (silentHeld) {
+                dev.boze.api.utility.interaction.InvHelper.swapBack();
+                silentHeld = false;
+                if (forceVisible) dbg("§4silent hold didn't land -> forcing visible switch");
+            }
+            if (danger && hasTotem && mc.player.getInventory().getSelectedSlot() != target) {
+                mc.player.getInventory().setSelectedSlot(target);
+                if (mc.getConnection() != null) {
+                    mc.getConnection().send(new ServerboundSetCarriedItemPacket(target));
+                }
+                dbg("§e" + reason + " -> hold slot " + target);
+            }
         }
     }
 }

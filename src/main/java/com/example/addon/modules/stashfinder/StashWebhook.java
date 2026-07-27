@@ -103,7 +103,7 @@ public class StashWebhook {
      * SpotifyIntegration/GifHUD/PlayMusic's own HttpURLConnection calls). Rate-limited to
      * one send per 5s to avoid spamming Discord.
      */
-    public static void send(int x, int z, Map<String, Integer> countsInOrder) {
+    public static void send(int x, int z, String dimension, Map<String, Integer> countsInOrder) {
         String url = getWebhookUrl();
         if (url == null || url.isBlank()) return;
         if (!tryClaimSendSlot()) return;
@@ -114,7 +114,7 @@ public class StashWebhook {
             try {
                 JsonObject embed = new JsonObject();
                 embed.addProperty("title", "Stash Found!");
-                embed.addProperty("description", "Coordinates: X: " + x + " Z: " + z);
+                embed.addProperty("description", "Coordinates: X: " + x + " Z: " + z + " (" + dimension + ")");
                 embed.addProperty("color", 0x2ECC71);
 
                 JsonArray fields = new JsonArray();

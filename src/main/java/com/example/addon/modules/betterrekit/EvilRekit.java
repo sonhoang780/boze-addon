@@ -74,16 +74,23 @@ public class EvilRekit extends AddonModule {
     // menu isn't a real inventory and never actually fills the slot.
     //
     // 2026-07-19 ("bật IgnoreCustomName vẫn loot con pearl ở GUI 'Xác nhận mua'"): the
-    // old per-item CUSTOM_NAME filter (still applied in findBest/findExactItemInContainer)
+    // old per-item CUSTOM_NAME filter (used to live in findBest/findExactItemInContainer)
     // missed two shop cases -- items named via ITEM_NAME rather than CUSTOM_NAME, and
     // untitled items sold in a GUI whose only "custom" signal is its TITLE. So when this
-    // is on, manualPullTick now ALSO bails entirely on any container whose title isn't a
-    // vanilla TranslatableContents (i.e. a server-set literal title like "Xác nhận mua"),
-    // EXCEPT a ShulkerBoxMenu -- a renamed shulker opened by hand still gets pulled from,
-    // since the real regear flow (Auto's PULL_ITEMS) never routes through manualPullTick.
+    // is on, manualPullTick bails entirely on any container whose title isn't a vanilla
+    // TranslatableContents (i.e. a server-set literal title like "Xác nhận mua"), EXCEPT a
+    // ShulkerBoxMenu -- a renamed shulker opened by hand still gets pulled from, since the
+    // real regear flow (Auto's PULL_ITEMS) never routes through manualPullTick.
+    //
+    // 2026-07-25: the per-item CUSTOM_NAME filter itself removed (was findBest/
+    // findExactItemInContainer's own separate check) -- it had no shulker exception at all,
+    // so a saved/named kit shulker got skipped as a kit-slot candidate even inside a
+    // perfectly normal-titled container (the screen-level gate above never even triggered,
+    // "Large Chest" isn't a custom title) while other unnamed items in the same container
+    // still worked fine. User confirmed the screen-level gate (with its shulker exception)
+    // is the only layer this option needs -- item-level was redundant and strictly worse.
     public final ToggleOption ignoreCustomName = new ToggleOption(this, "IgnoreCustomName",
-        "Skip custom-named items when scanning for kit items, AND (manual pull) skip any container "
-        + "with a custom (non-vanilla) title such as a shop GUI, except shulker boxes.", false);
+        "Skip any container with a custom (non-vanilla) title such as a shop GUI, except shulker boxes.", false);
     // Keybind version of the place->open->pull->close->break cycle, WITHOUT the ender
     // chest fetch/return steps (user spec, 2026-07-17: "tự đặt shulker ra, mở ra và
     // đóng vào khi rekit xong, sau đó đập đi") -- operates on whatever shulker is
@@ -1035,9 +1042,19 @@ public class EvilRekit extends AddonModule {
             }
             // Overriding bonus (dwarfs any possible content score) for a shulker whose
             // custom name matches the active kit -- see considerShulkerName's javadoc.
+            // NFKC-normalize both sides first: a "custom font" shulker name is usually not
+            // a font/style change at all (Style.font only swaps the GLYPH, getString()'s
+            // literal characters are unaffected by that) -- it's actual different Unicode
+            // codepoints (Mathematical Alphanumeric Symbols "𝐊𝐢𝐭", fullwidth "Ｋｉｔ", etc.)
+            // that render as fancy lookalikes. Plain equalsIgnoreCase against a normally-
+            // typed kit name never matches those. NFKC compatibility decomposition folds
+            // exactly these stylized-letter blocks back to their base Latin form, so a
+            // fancy-font shulker name matches the plain-typed kit name like it visually
+            // should (user report, 2026-07-25: "không hoạt động với các shulker có name
+            // với chữ font custom").
             if (considerShulkerName.getValue() && !activeKitName.isEmpty()
                     && stack.has(DataComponents.CUSTOM_NAME)
-                    && stack.getHoverName().getString().equalsIgnoreCase(activeKitName)) {
+                    && normalizeName(stack.getHoverName().getString()).equalsIgnoreCase(normalizeName(activeKitName))) {
                 score += 1_000_000;
             }
             if (score > bestScore) {
@@ -1339,7 +1356,6 @@ public class EvilRekit extends AddonModule {
 
         for (int i = 0; i < containerSize; i++) {
             ItemStack stack = handler.getSlot(i).getItem();
-            if (ignoreCustomName.getValue() && stack.has(DataComponents.CUSTOM_NAME)) continue;
             if (!stack.isEmpty() && stack.getItem() == expected) {
                 long score = scoreCandidate(stack);
                 if (score > bestScore) {
@@ -1393,7 +1409,6 @@ public class EvilRekit extends AddonModule {
     private int findExactItemInContainer(AbstractContainerMenu handler, int containerSize, ItemStack targetStack) {
         for (int i = 0; i < containerSize; i++) {
             ItemStack stack = handler.getSlot(i).getItem();
-            if (ignoreCustomName.getValue() && stack.has(DataComponents.CUSTOM_NAME)) continue;
             if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, targetStack)) return i;
         }
         return -1;
@@ -1416,6 +1431,10 @@ public class EvilRekit extends AddonModule {
         if (invSlot >= 0 && invSlot <= 8) return 36 + invSlot;
         if (invSlot >= 9 && invSlot <= 35) return invSlot;
         return -1;
+    }
+
+    private static String normalizeName(String s) {
+        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC).trim();
     }
 
     private boolean isShulkerBox(ItemStack stack) {
