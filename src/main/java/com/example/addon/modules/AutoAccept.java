@@ -13,14 +13,19 @@ import java.util.regex.Pattern;
  * addPlayerMessage is the separate method for that, verified via javap on the 26.1.2 merged
  * jar), so ordinary player chat containing these words can't false-trigger this.
  * <p>
- * Two message shapes recognized: EssentialsX-style English ("Name has requested to teleport
- * to you." / "...that you teleport to them.") and Vietnamese plugins that mention "dịch
- * chuyển" with the sender's name leading the sentence -- not kingmc.vn-specific, works
- * against any server using either wording.
+ * Confirmed live on kingmc.vn (screenshot 2026-07-27): "You have received a teleport request
+ * from &lt;name&gt; which expires in 30 seconds. ... Type /tpaccept to accept the request." --
+ * /tpaccept here takes NO argument (that's literally what the server tells you to type), so
+ * TPA_REQUEST_FROM below just sends plain "/tpaccept". EssentialsX-style ("Name has requested
+ * to teleport to you") and Vietnamese ("... dịch chuyển ...") variants are kept as a fallback
+ * for other servers that DO take a name argument -- unconfirmed against a real server, so
+ * lower priority than the confirmed pattern.
  */
 public class AutoAccept extends AddonModule {
     public static final AutoAccept INSTANCE = new AutoAccept();
 
+    private static final Pattern TPA_REQUEST_FROM = Pattern.compile(
+        "teleport request from ([A-Za-z0-9_]{1,16})", Pattern.CASE_INSENSITIVE);
     private static final Pattern TPA_EN = Pattern.compile(
         "^([A-Za-z0-9_]{1,16}) has requested (?:to teleport to you|that you teleport to (?:them|him|her))",
         Pattern.CASE_INSENSITIVE);
@@ -33,7 +38,7 @@ public class AutoAccept extends AddonModule {
     private long pendingRetryUntilMs = 0;
 
     private AutoAccept() {
-        super("AutoAccept", "Auto /tpaccept <sender> on incoming tpa requests; retries with /tpy <sender> if the server doesn't recognize tpaccept.");
+        super("AutoAccept", "Auto /tpaccept on incoming tpa requests; retries with /tpy <sender> if the server doesn't recognize tpaccept.");
     }
 
     @Override
@@ -56,7 +61,15 @@ public class AutoAccept extends AddonModule {
             }
         }
 
-        String name = matchSenderName(text);
+        Matcher m = TPA_REQUEST_FROM.matcher(text);
+        if (m.find()) {
+            pendingRetryName = m.group(1);
+            pendingRetryUntilMs = now + RETRY_WINDOW_MS;
+            mc.getConnection().sendCommand("tpaccept");
+            return;
+        }
+
+        String name = matchNamedSenderName(text);
         if (name == null) return;
 
         pendingRetryName = name;
@@ -68,7 +81,7 @@ public class AutoAccept extends AddonModule {
         return text.toLowerCase(Locale.ROOT).contains("unknown command");
     }
 
-    private static String matchSenderName(String text) {
+    private static String matchNamedSenderName(String text) {
         Matcher m = TPA_EN.matcher(text);
         if (m.find()) return m.group(1);
         m = TPA_VI.matcher(text);

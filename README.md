@@ -11,7 +11,7 @@ AntiMace — Place a block as soon as the enemy flies down to you
 
 AntiPiston - Break/Block Crystal and Piston
 
-AutoAccept - Auto /tpaccept the sender of an incoming tpa request; retries with /tpy if the server doesn't recognize tpaccept
+AutoAccept - Auto /tpaccept on incoming tpa requests (confirmed live: no name argument, kingmc.vn); retries with /tpy <sender> if the server doesn't recognize tpaccept
 
 AutoPortal — Builds a portal for you
 
