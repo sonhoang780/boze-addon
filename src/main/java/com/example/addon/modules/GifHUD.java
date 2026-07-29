@@ -320,7 +320,6 @@ public class GifHUD extends AddonModule {
                 if (clipboard.equals(currentUrl)) {
                     mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§d[GifHUD] §eLink is already loaded!"));
                 } else {
-                    currentUrl = clipboard;
                     loadGifAsync(clipboard);
                 }
             } else {
@@ -502,6 +501,11 @@ public class GifHUD extends AddonModule {
                             frameTextures.add(tex);
                         }
                         saveToHistory(rawUrl);
+                        // Only commit as "loaded" on real success -- a failed load must NOT
+                        // stick here, or the clipboard-equality check above blocks every retry
+                        // of that exact link forever, even though nothing ever actually loaded
+                        // (reported: "Link is already loaded!" repeating with no GIF showing).
+                        currentUrl = rawUrl;
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
