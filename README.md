@@ -7,6 +7,8 @@ An utility addon with unique features. Recommend using Window x64 only.
 
 Modules:
 
+AntiExploit - Drops known crash/lag-exploit packets (bad position, particle spam, max-health spike, sound spam) before vanilla processes them
+
 AntiMace — Place a block as soon as the enemy flies down to you
 
 AntiPiston - Break/Block Crystal and Piston
@@ -83,6 +85,8 @@ MainHand - Instant totem re-hold on pop + apple-to-offhand + low-health hand sna
 
 MoreKnockback - Sprint-reset W-taps your melee hits for extra knockback (skips crits)
 
+MotionBlur - Full-screen accumulation-blend motion blur / smear trail
+
 MusicHUD - Shows current songs with extra features
 
 NoSlow - Move at full speed while using an item (per-anticheat bypass)
@@ -107,6 +111,8 @@ To skip/next use arrow left and arrow right; to increase/decrease volumde use up
 Replenish - Auto-refill hotbar item stacks from your inventory
 
 SelfWeb - Web your head
+
+SilentSwapOverlay - Shows the item currently held via silent swap (MainHand/PhobosDoubleHand)
 
 SpotifyIntegration - Sync your song playing on Spotify with MusicHUD (Requires Spotify Premium)
 

@@ -115,7 +115,7 @@ public class PhobosDoubleHand extends AddonModule {
 
     @Override
     public void onDisable() {
-        if (silentHeld) { InvHelper.swapBack(); silentHeld = false; }
+        if (silentHeld) { InvHelper.swapBack(); silentHeld = false; com.example.addon.util.SilentSwapTracker.clear("PhobosDoubleHand"); }
         dangerUntilMs = 0;
     }
 
@@ -175,13 +175,16 @@ public class PhobosDoubleHand extends AddonModule {
         boolean hold = danger && isTotem(mc, target);
 
         if (hold && !silentHeld) {
+            ItemStack held = mc.player.getInventory().getItem(target);
             if (InvHelper.swapToSlot(target, SwapType.Silent)) {
                 silentHeld = true;
+                com.example.addon.util.SilentSwapTracker.set("PhobosDoubleHand", held);
                 dbg("§esilent hold slot " + target);
             }
         } else if (!hold && silentHeld) {
             InvHelper.swapBack();
             silentHeld = false;
+            com.example.addon.util.SilentSwapTracker.clear("PhobosDoubleHand");
             dbg("§7release");
         }
 

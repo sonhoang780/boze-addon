@@ -172,7 +172,7 @@ public class MainHand extends AddonModule {
 
     @Override
     public void onDisable() {
-        if (silentHeld) { dev.boze.api.utility.interaction.InvHelper.swapBack(); silentHeld = false; }
+        if (silentHeld) { dev.boze.api.utility.interaction.InvHelper.swapBack(); silentHeld = false; com.example.addon.util.SilentSwapTracker.clear("MainHand"); }
         restoreSlot = -1;
         restoreItem = null;
     }
@@ -191,8 +191,7 @@ public class MainHand extends AddonModule {
         if (parked.isEmpty() || parked.getItem() != restoreItem) {
             restoreSlot = -1; restoreItem = null; return; // user moved it; don't guess
         }
-        // Matrix swap: packet-only, movement-proof, no InvMovePlus freeze needed
-        if (restoreSlot > 8 || !InvMovePlus.offhandSwapFromHotbar(mc, restoreSlot)) {
+        if (restoreSlot > 8) {
             int ms = menuSlot(restoreSlot);
             click(mc, ms, 0, ContainerInput.PICKUP);
             click(mc, 45, 0, ContainerInput.PICKUP);
@@ -300,7 +299,7 @@ public class MainHand extends AddonModule {
                     if (appleIdx >= 0) {
                         ItemStack prevOff = off.copy();
                         // Matrix swap: packet-only, movement-proof, no freeze needed
-                        if (appleIdx > 8 || !InvMovePlus.offhandSwapFromHotbar(mc, appleIdx)) {
+                        if (appleIdx > 8) {
                             int ms = menuSlot(appleIdx);
                             // Each click goes through InvMovePlus.deferClick (spoofed input
                             // packet if moving), so all 3 land immediately, no freeze.
@@ -353,19 +352,23 @@ public class MainHand extends AddonModule {
             // real, everyone-sees selectedSlot switch. Held for the whole danger window (not a
             // one-shot swap+revert) since we don't know which tick the fatal hit lands.
             if (danger && hasTotem && !silentHeld) {
+                ItemStack held = mc.player.getInventory().getItem(target);
                 if (dev.boze.api.utility.interaction.InvHelper.swapToSlot(target, dev.boze.api.utility.interaction.SwapType.Silent)) {
                     silentHeld = true;
+                    com.example.addon.util.SilentSwapTracker.set("MainHand", held);
                     dbg("§e" + reason + " -> silent hold slot " + target);
                 }
             } else if ((!danger || !hasTotem) && silentHeld) {
                 dev.boze.api.utility.interaction.InvHelper.swapBack();
                 silentHeld = false;
+                com.example.addon.util.SilentSwapTracker.clear("MainHand");
                 dbg("§7danger clear -> silent release");
             }
         } else {
             if (silentHeld) {
                 dev.boze.api.utility.interaction.InvHelper.swapBack();
                 silentHeld = false;
+                com.example.addon.util.SilentSwapTracker.clear("MainHand");
                 if (forceVisible) dbg("§4silent hold didn't land -> forcing visible switch");
             }
             if (danger && hasTotem && mc.player.getInventory().getSelectedSlot() != target) {
