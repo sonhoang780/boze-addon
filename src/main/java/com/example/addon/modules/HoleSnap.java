@@ -2,6 +2,7 @@ package com.example.addon.modules;
 
 import com.example.addon.util.CustomTimer;
 import dev.boze.api.addon.AddonModule;
+import dev.boze.api.client.ModuleManager;
 import dev.boze.api.event.EventInput;
 import dev.boze.api.event.EventPacket;
 import dev.boze.api.event.EventTick;
@@ -70,6 +71,11 @@ public class HoleSnap extends AddonModule {
         + "Strict = original WASD-relative approach with a deadzone (real vanilla movement, "
         + "less precise centering) -- use if Normal's raw-velocity movement gets flagged.",
         HoleSnapMode.Normal);
+
+    private static final String MODULE_FAKELAG = "FakeLag";
+    public final ToggleOption fakeLag = new ToggleOption(this, "FakeLag",
+        "Enable Boze's FakeLag module while HoleSnap is active, disable it when HoleSnap stops (Normal mode only).",
+        false, (java.util.function.BooleanSupplier) () -> mode.getValue() == HoleSnapMode.Normal);
 
     public final SliderOption range = new SliderOption(this, "Range",
         "Horizontal range for finding holes.", 3.0, 0.0, 5.0, 1.0);
@@ -157,10 +163,16 @@ public class HoleSnap extends AddonModule {
         progressHolePos = null;
         bestDistSq = Double.MAX_VALUE;
         noProgressTicks = 0;
+        if (fakeLag.getValue() && mode.getValue() == HoleSnapMode.Normal) {
+            try { ModuleManager.setState(MODULE_FAKELAG, true); } catch (IllegalArgumentException ignored) {}
+        }
     }
 
     @Override
     public void onDisable() {
+        if (fakeLag.getValue() && mode.getValue() == HoleSnapMode.Normal) {
+            try { ModuleManager.setState(MODULE_FAKELAG, false); } catch (IllegalArgumentException ignored) {}
+        }
         CustomTimer.multiplier = 1.0; // never leave the game permanently sped up
         Minecraft mc = Minecraft.getInstance();
         if (cameraOverrideActive && mc.player != null) {
@@ -249,9 +261,16 @@ public class HoleSnap extends AddonModule {
     @EventHandler
     private void onPacket(EventPacket.Receive event) {
         if (rubberbandDisable.getValue() && event.getPacket() instanceof ClientboundPlayerPositionPacket) {
-            setState(false);
+            // EventPacket.Receive can fire off the render thread (e.g. Netty IO) -- setState()
+            // and chat mutation must happen on the render thread, same as vanilla's own
+            // ChatComponent (touching it from another thread races the render thread's
+            // trimmedMessages reads: confirmed crash, IndexOutOfBoundsException in
+            // ChatComponent.forEachLine during extractRenderState).
             Minecraft mc = Minecraft.getInstance();
-            if (mc.player != null) mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: rubberbanding"));
+            mc.execute(() -> {
+                setState(false);
+                if (mc.player != null) mc.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[HoleSnap] disabled: rubberbanding"));
+            });
         }
     }
 
@@ -483,6 +502,21 @@ public class HoleSnap extends AddonModule {
 
     /** False once the player has stopped closing on the hole -- it isn't enterable from here. */
     private boolean makingProgress(Minecraft mc, Hole hole) {
+        // Airborne always counts as progress. Horizontal distance legitimately stops shrinking
+        // the instant the player is centered over the hole -- but that's also the exact moment
+        // they step off the ledge and start falling in, one or two ticks before their feet
+        // block actually lands in a hole cell (holePlayerIsIn/inHole flips true). Watchdogging
+        // on horizontal distance alone caught that transient fall-in window as "stuck" and
+        // disabled right at the rim ("dừng lại ở mép hole không chịu tụt xuống", user report).
+        // A genuinely blocked approach (a roof/overhang over the hole) leaves the player
+        // standing on solid ground the whole time -- onGround never goes false -- so gating on
+        // it doesn't let that case slip through.
+        if (!mc.player.onGround()) {
+            progressHolePos = hole.pos();
+            noProgressTicks = 0;
+            return true;
+        }
+
         double dx = hole.middle().x - mc.player.getX();
         double dz = hole.middle().z - mc.player.getZ();
         double distSq = dx * dx + dz * dz;
