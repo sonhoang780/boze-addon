@@ -156,7 +156,7 @@ public class BetterOffhand extends AddonModule {
         if (idx < 0) idx = findItem(mc, Items.GOLDEN_APPLE, 0, 35);
         if (idx < 0) return;
 
-        if (idx > 8 || !InvMovePlus.offhandSwapFromHotbar(mc, idx)) {
+        if (idx > 8) {
             swapIntoOffhandViaPickup(mc, idx);
         }
     }

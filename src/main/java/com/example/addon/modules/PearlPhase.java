@@ -47,6 +47,8 @@ import net.minecraft.world.phys.Vec3;
  * <p>
  * Target/yaw/pitch math (calculateTargetPos/calcYaw, CORNER_THRESHOLD/CORNER_OFFSET, the
  * toClosest diagonal-seam snap, the fixed 85/75 pitch bucket) is copied as-is from PhaseModule.
+ * No inherited-velocity compensation on the throw -- the pearl carrying momentum from a
+ * sprint-strafe and clipping a neighbouring block is intended behavior, not a bug.
  * Three additions kept from the pre-existing boze version: submitScaffoldingBreak (breaks
  * scaffolding at/under the feet first, since PhaseModule assumes solid ground), the Crawl
  * toggle (retargets Y to the block's bottom edge instead of PhaseModule's playerY-0.5, needed to
@@ -58,8 +60,6 @@ public class PearlPhase extends AddonModule {
 
     private static final double CORNER_THRESHOLD = 0.5;
     private static final double CORNER_OFFSET = 0.5;
-    // EnderpearlItem#use launch speed, passed to shootFromRotation (javap, 26.1.2 deobf jar).
-    private static final double LAUNCH_SPEED = 1.5;
 
     public final ModeOption<InteractionMode> anticheat = new ModeOption<>(this, "AntiCheat",
         "Anticheat handler used for the scaffolding break and the pearl throw.", InteractionMode.Grim);
@@ -108,11 +108,8 @@ public class PearlPhase extends AddonModule {
         if (slot == -1) { setState(false); return; }
 
         Vec3 target = calculateTargetPos(mc);
-        float[] rot = compensateInheritedVelocity(mc,
-            calcYaw(mc, target),
-            mc.player.getBlockY() > 4 ? 85f : 75f);
-        float yaw = rot[0];
-        float pitch = rot[1];
+        float yaw = calcYaw(mc, target);
+        float pitch = mc.player.getBlockY() > 4 ? 85f : 75f;
 
         final int useSlot = slot;
         final float useYaw = yaw;
@@ -241,41 +238,5 @@ public class PearlPhase extends AddonModule {
         Vec3 eye = mc.player.getEyePosition();
         Vec3 diff = target.subtract(eye);
         return (float) Math.toDegrees(Math.atan2(-diff.x, diff.z));
-    }
-
-    /**
-     * Projectile#shootFromRotation adds the thrower's getKnownMovement() on top of the
-     * LAUNCH_SPEED aim vector -- x/z always, y only while airborne (javap, 26.1.2 deobf jar).
-     * A near-vertical throw carries only ~0.13 horizontal, so sprint-strafing (~0.28/tick)
-     * more than doubles it sideways and the pearl clips a neighbouring block's face instead
-     * of the one underfoot.
-     * <p>
-     * Rotate the aim so the sum still runs along the intended ray: solve |k*d - v| =
-     * LAUNCH_SPEED for k, aim at k*d - v. At zero velocity k == LAUNCH_SPEED and the result is
-     * the uncompensated aim, so standing-still throws are unchanged.
-     */
-    private float[] compensateInheritedVelocity(Minecraft mc, float yaw, float pitch) {
-        Vec3 aimDir = rotationVector(yaw, pitch);
-        Vec3 move = mc.player.getDeltaMovement();
-        Vec3 inherited = new Vec3(move.x, mc.player.onGround() ? 0.0 : move.y, move.z);
-        if (inherited.lengthSqr() < 1.0E-8) return new float[] { yaw, pitch };
-
-        double dot = aimDir.dot(inherited);
-        double disc = dot * dot + LAUNCH_SPEED * LAUNCH_SPEED - inherited.lengthSqr();
-        if (disc < 0) return new float[] { yaw, pitch }; // outrunning the pearl -- uncorrectable
-
-        Vec3 aim = aimDir.scale(dot + Math.sqrt(disc)).subtract(inherited);
-        double horizontal = Math.sqrt(aim.x * aim.x + aim.z * aim.z);
-        return new float[] {
-            (float) Math.toDegrees(Math.atan2(-aim.x, aim.z)),
-            (float) Math.toDegrees(Math.atan2(-aim.y, horizontal))
-        };
-    }
-
-    private static Vec3 rotationVector(float yaw, float pitch) {
-        double y = Math.toRadians(yaw);
-        double p = Math.toRadians(pitch);
-        double cosPitch = Math.cos(p);
-        return new Vec3(-Math.sin(y) * cosPitch, -Math.sin(p), Math.cos(y) * cosPitch);
     }
 }

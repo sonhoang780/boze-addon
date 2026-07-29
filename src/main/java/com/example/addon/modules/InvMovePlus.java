@@ -48,11 +48,6 @@ import net.minecraft.world.item.ItemStack;
  */
 public class InvMovePlus extends AddonModule {
     public static final InvMovePlus INSTANCE = new InvMovePlus();
-
-    public final ToggleOption matrixSwap = new ToggleOption(this, "MatrixSwap",
-            "Hotbar<->offhand swaps use carried-item + F-swap packets (no container clicks, "
-            + "works while moving, no freeze). Off: callers fall back to cursor clicks.", true);
-
     // Set by beforeClick when it sent STOP_SPRINTING for the click currently in flight, so
     // afterClick knows to resume it. Container clicks are never re-entrant on this thread.
     private boolean stoppedSprintForClick = false;
@@ -100,29 +95,5 @@ public class InvMovePlus extends AddonModule {
         Input fake = new Input(false, false, false, false, false, real.shift(), real.sprint());
         mc.getConnection().send(new ServerboundPlayerInputPacket(fake));
         ((InvMoveLocalPlayerAccessor) player).invMove$setLastSentInput(fake);
-    }
-
-    // ── Matrix offhand swap (ThunderHack AutoTotem technique) ─────────────
-
-    /**
-     * Swaps a HOTBAR slot's item with the offhand using only carried-item + F-swap
-     * packets — zero container clicks, so inventory-while-moving checks never fire
-     * and no movement freeze is needed. Local inventory mirrored to match the server.
-     * Returns false when disabled (MatrixSwap off) or unavailable — caller falls back
-     * to cursor clicks.
-     */
-    public static boolean offhandSwapFromHotbar(Minecraft mc, int hotbarIdx) {
-        if (!INSTANCE.matrixSwap.getValue()) return false;
-        if (mc.player == null || mc.getConnection() == null) return false;
-        net.minecraft.world.entity.player.Inventory inv = mc.player.getInventory();
-        int prev = inv.getSelectedSlot();
-        if (hotbarIdx != prev) mc.getConnection().send(new ServerboundSetCarriedItemPacket(hotbarIdx));
-        mc.getConnection().send(new ServerboundPlayerActionPacket(
-                ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ZERO, Direction.DOWN));
-        if (hotbarIdx != prev) mc.getConnection().send(new ServerboundSetCarriedItemPacket(prev));
-        ItemStack off = inv.getItem(net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND);
-        inv.setItem(net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND, inv.getItem(hotbarIdx));
-        inv.setItem(hotbarIdx, off);
-        return true;
     }
 }
