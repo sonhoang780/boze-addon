@@ -55,8 +55,7 @@ public class NoSlow extends AddonModule {
             + "ThunderHack-Reborn's NoSlow.", Mode.NCP);
 
     public final ToggleOption mainHand = new ToggleOption(this, "MainHand",
-            "Grim/GrimNew: also fake an offhand-use packet while eating with the main hand "
-            + "(not just when the offhand itself is the active hand).", true);
+            "Grim/GrimNew: also cover eating with the main hand, not just the offhand.", true);
 
     public final ToggleOption food = new ToggleOption(this, "Food",
             "Allow NoSlow while eating/drinking (FOOD data component present).", true);

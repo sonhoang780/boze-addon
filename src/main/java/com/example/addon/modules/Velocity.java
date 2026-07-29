@@ -55,11 +55,11 @@ public class Velocity extends AddonModule {
             "Off: no velocity handling. Normal: cancel incoming knockback (no-AC/NCP). Grim: "
             + "cancel + inject Grim uncertainty-abuse packets. Ported from Phobos.", Mode.Off);
     public final ToggleOption knockback = new ToggleOption(this, "Knockback",
-            "Cancel the entity-velocity knockback packet.", true);
+            "Cancel incoming knockback when you get hit.", true);
     public final ToggleOption explosions = new ToggleOption(this, "Explosions",
             "Cancel incoming explosion knockback (crystals/anchors/TNT).", true);
     public final ToggleOption filter = new ToggleOption(this, "Filter",
-            "Grim: only send the invalid packets right after taking velocity.", true);
+            "Grim: only apply the trick right after you actually take a hit.", true);
 
     public final SliderOption burstLimit = new SliderOption(this, "Burst Limit",
             "Full-cancel up to this many hits/sec; past it, let some knockback through so a "

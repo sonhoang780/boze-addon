@@ -110,7 +110,7 @@ public class EBouncePlus extends AddonModule {
         "", 90, 0.0, 90.0, 1.0);
 
     public final ToggleOption minimizePackets = new ToggleOption(this, "MinimizePackets",
-        "Shrinks the amount of start fly packets sent to the server as much as possible", true);
+        "Send the bare minimum to start flying, nothing extra.", true);
 
     public final SliderOption flagPause = new SliderOption(this, "FlagPause",
         "How long to pause if the server flags you for a movement check", 5, 0, 100, 1);
@@ -125,10 +125,10 @@ public class EBouncePlus extends AddonModule {
     // recast bypass ("blink around when you touch the ground"): trigger a fixed-duration
     // freeze right at the RECAST TRIGGER instant instead of/in addition to the Y-window.
     public final ToggleOption oldBypass = new ToggleOption(this, "OldBypass",
-        "Blink-style fixed-duration packet freeze triggered right at the recast touch instant, instead of FakeLag's Y-position dip window.", false);
+        "Alternate bypass: freeze briefly the instant you touch down to recast, instead of during FakeLag's dip window. Try this if the dip method gets flagged.", false);
 
     public final SliderOption oldBypassDelay = new SliderOption(this, "OldBypassDelay",
-        "Ticks to freeze all outgoing packets for after a recast trigger.", 4, 1, 20, 1);
+        "How many ticks to freeze for when OldBypass triggers.", 4, 1, 20, 1);
 
     // Ported from lambda's ObstaclePassingMode.kt/PasserSettings -- raycasts ahead along the
     // flight line for obstructions and paths around them via Baritone (reflection, this addon
