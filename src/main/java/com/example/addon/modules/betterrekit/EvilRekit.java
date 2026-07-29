@@ -56,6 +56,8 @@ public class EvilRekit extends AddonModule {
     public final SliderOption delay = new SliderOption(this, "Delay", "Tick delay", 1.0, 0.0, 10.0, 1.0);
     public final SliderOption actionsPerTick = new SliderOption(this, "Frequence", "", 1.0, 1.0, 5.0, 1.0);
     public final ToggleOption auto = new ToggleOption(this, "Auto", "Auto pull shulkers from ender chest", false);
+    public final ToggleOption silentContainer = new ToggleOption(this, "SilentContainer",
+        "Pull items without the container GUI showing on screen.", false);
     public final ModeOption<SwapType> swapMode = new ModeOption<>(this, "SwapMode",
         "Swap type used when placing shulkers and swapping to a breaking tool in Auto mode.", SwapType.Alt);
     // findShulkerInContainer normally ranks candidates purely by matching CONTENTS --
@@ -141,6 +143,19 @@ public class EvilRekit extends AddonModule {
     }
 
     private AutoState autoState = AutoState.IDLE;
+
+    /**
+     * Read by MixinAbstractContainerScreen to decide whether to suppress the current
+     * container GUI. Must cover the WHOLE pipeline, not just the shulker box itself --
+     * FIND_SHULKER/GRAB_SHULKER/RETURN_SHULKER all operate on the ender chest (a plain
+     * ChestMenu), only OPEN_SHULKER/PULL_ITEMS touch the actual ShulkerBoxMenu. Gating
+     * suppression on menu subtype instead of this left the ender-chest phase visibly
+     * open (reported: AutoPlace with SilentContainer on still showed an empty container
+     * grid) even though the shulker phase itself was correctly hidden.
+     */
+    public boolean isAutoActive() {
+        return autoState != AutoState.IDLE;
+    }
     private int autoTicks = 0;
     private int emptyTicks = 0;
     private int shulkerEnderSlot = -1;       // slot in ender chest holding the shulker

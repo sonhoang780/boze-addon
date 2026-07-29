@@ -24,7 +24,7 @@ public class SilentSwapOverlay extends AddonModule {
     private double posY = com.example.addon.util.HudPositions.getY("SilentSwapOverlay", 4.0);
 
     private SilentSwapOverlay() {
-        super("SilentSwapOverlay", "Shows the item currently held via silent swap (MainHand/PhobosDoubleHand).");
+        super("SilentSwapOverlay", "Shows the item currently held via silent swap.");
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("example-addon", "silentswapoverlay"), (context, tracker) -> {
             if (this.active) render(context);
         });

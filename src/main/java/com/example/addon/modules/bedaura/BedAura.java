@@ -41,8 +41,7 @@ public class BedAura extends AddonModule {
     // Mirrors Mint's own StrictDirection toggle, passed into PlaceHelper.cast(): when true,
     // cast() requires the player's real aim to geometrically line up with the clicked face.
     public final ToggleOption strictDirection = new ToggleOption(this, "StrictDirection",
-        "Require PlaceHelper.cast()'s strict direction check to pass (real aim must line "
-        + "up with the clicked face).", false);
+        "Require your real aim to actually line up with the clicked face before placing.", false);
 
 
     public final ModeOption<TargetMode> target = new ModeOption<>(this, "Target",
@@ -94,7 +93,7 @@ public class BedAura extends AddonModule {
     // Separate from range: PlaceHelper.cast()'s wallsRange param is its own independent
     // reach for hitting a face through/around geometry the direct-sight range check misses.
     public final SliderOption wallsRange = new SliderOption(this, "WallsRange",
-        "Reach (blocks) PlaceHelper.cast() uses for its walls/through-geometry check, independent of Range.", 4.0, 0.0, 6.0, 0.1);
+        "Separate reach (blocks) for placing through/around walls, independent of Range.", 4.0, 0.0, 6.0, 0.1);
 
     // 0-20 = actual HP the hit costs post-armor, matching a player's max health -- NOT the
     // raw pre-mitigation blast value (which can read up to ~71 point-blank). DamageUtils.
@@ -131,6 +130,8 @@ public class BedAura extends AddonModule {
         "Place and open a crafting table automatically if you have zero beds.", true, autoCraft);
     public final ToggleOption autoClose = new ToggleOption(this, "AutoClose",
         "Close the crafting table GUI automatically once crafting is done.", true, autoCraft);
+    public final ToggleOption silent = new ToggleOption(this, "Silent",
+        "Craft without the crafting table GUI showing on screen.", false, autoCraft);
 
     public final PageOption render = new PageOption(this, "Render",
         "Preview box for the bed placement spot.");
@@ -925,6 +926,11 @@ public class BedAura extends AddonModule {
             ? org.lwjgl.glfw.GLFW.glfwGetMouseButton(handle, code)
             : org.lwjgl.glfw.GLFW.glfwGetKey(handle, code);
         return state == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+    }
+
+    /** Read by MixinAbstractContainerScreen to decide whether to suppress the crafting GUI. */
+    public boolean isAutoCraftRunning() {
+        return autoCraftRunning;
     }
 
     private void startAutoCraft() {
