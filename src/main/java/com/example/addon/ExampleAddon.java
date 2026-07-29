@@ -186,6 +186,7 @@ public class ExampleAddon extends Addon {
         modules.add(TargetESP.INSTANCE);
         modules.add(com.example.addon.modules.Trails.INSTANCE);
         TungTungSahur.registerTextures();
+        MotionBlur.registerTextures();
         modules.add(TungTungSahur.INSTANCE);
         modules.add(Velocity.INSTANCE);
         modules.add(VersionHUD.INSTANCE);

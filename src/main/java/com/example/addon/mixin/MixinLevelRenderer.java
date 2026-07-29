@@ -84,5 +84,18 @@ public class MixinLevelRenderer {
                 skyChain.addToFrame(builder, mc.getWindow().getWidth(), mc.getWindow().getHeight(), this.targets);
             }
         }
+
+        // MotionBlur: real ping-pong PostChain (blend + persistent prev-frame target),
+        // resolved here at the world-render stage so the HUD (composited later,
+        // separately) never gets swept into the blur -- see MotionBlur's class doc.
+        if (com.example.addon.modules.MotionBlur.INSTANCE.getState()) {
+            Minecraft mc = Minecraft.getInstance();
+            net.minecraft.client.renderer.PostChain blurChain = mc.getShaderManager().getPostChain(
+                com.example.addon.modules.MotionBlur.CHAIN_ID, net.minecraft.client.renderer.LevelTargetBundle.MAIN_TARGETS);
+            if (blurChain != null) {
+                com.example.addon.modules.MotionBlur.INSTANCE.updateParams(mc);
+                blurChain.addToFrame(builder, mc.getWindow().getWidth(), mc.getWindow().getHeight(), this.targets);
+            }
+        }
     }
 }

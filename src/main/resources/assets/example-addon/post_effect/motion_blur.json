@@ -1,0 +1,40 @@
+{
+    "targets": {
+        "blend": {},
+        "prev": { "persistent": true }
+    },
+    "passes": [
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "example-addon:post/motion_blur",
+            "inputs": [
+                { "sampler_name": "Curr", "target": "minecraft:main" },
+                { "sampler_name": "Prev", "target": "prev" },
+                { "width": 1, "sampler_name": "Params", "location": "example-addon:motionblurparams", "height": 1 }
+            ],
+            "output": "blend"
+        },
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "minecraft:post/blit",
+            "inputs": [ { "sampler_name": "In", "target": "blend" } ],
+            "output": "prev",
+            "uniforms": {
+                "BlitConfig": [
+                    { "name": "ColorModulate", "type": "vec4", "value": [1, 1, 1, 1] }
+                ]
+            }
+        },
+        {
+            "vertex_shader": "minecraft:core/screenquad",
+            "fragment_shader": "minecraft:post/blit",
+            "inputs": [ { "sampler_name": "In", "target": "blend" } ],
+            "output": "minecraft:main",
+            "uniforms": {
+                "BlitConfig": [
+                    { "name": "ColorModulate", "type": "vec4", "value": [1, 1, 1, 1] }
+                ]
+            }
+        }
+    ]
+}
