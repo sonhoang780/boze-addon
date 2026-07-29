@@ -373,6 +373,11 @@ jar {
 }
 
 tasks.register('copyToMods') {
+    // Hardcoded to a specific dev machine's local mods folder -- unconditionally
+    // finalizing `build` with this broke every CI run (v1.1.7/v1.1.8): the path
+    // doesn't exist on the GitHub Actions runner, so `copy` throws. Skip entirely
+    // unless that machine's folder is actually present.
+    onlyIf { file('/home/lovey0x/.minecraftx').exists() }
     doLast {
         copy {
             from jar
