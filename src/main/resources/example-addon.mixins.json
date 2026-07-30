@@ -47,6 +47,7 @@
     "MixinDeltaTrackerTimer",
     "MixinItemFeatureRenderer",
     "ClientLevelPredictionInvoker",
-    "MixinAbstractContainerScreen"
+    "MixinAbstractContainerScreen",
+    "MixinContainerBackground"
   ]
 }

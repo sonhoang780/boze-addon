@@ -1,11 +1,8 @@
 package com.example.addon.mixin;
 
-import com.example.addon.modules.bedaura.BedAura;
-import com.example.addon.modules.betterrekit.EvilRekit;
+import com.example.addon.util.SilentGuiHelper;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.world.inventory.CraftingMenu;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -32,14 +29,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(AbstractContainerScreen.class)
 public class MixinAbstractContainerScreen {
 
+    /**
+     * extractBackground runs BEFORE extractRenderState (see Screen#extractRenderStateWithTooltipAndSubtitles)
+     * and draws the panel texture itself -- cancelling only extractRenderState left the background
+     * (chest/shulker/crafting-table panel) visible. AbstractContainerScreen doesn't override
+     * extractBackground itself (each concrete screen does its own), so the sibling injects live in
+     * MixinContainerBackground on the concrete screen classes, sharing SilentGuiHelper.shouldHide.
+     */
     @Inject(method = "extractRenderState", at = @At("HEAD"), cancellable = true)
     private void silentGui$suppress(GuiGraphicsExtractor context, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
-        if ((Object) this instanceof InventoryScreen) return; // never hide the player's own inventory
-        Object menu = ((AbstractContainerScreen<?>) (Object) this).getMenu();
-        if (menu instanceof CraftingMenu && BedAura.INSTANCE.silent.getValue() && BedAura.INSTANCE.isAutoCraftRunning()) {
-            ci.cancel();
-        } else if (EvilRekit.INSTANCE.silentContainer.getValue() && EvilRekit.INSTANCE.isAutoActive()) {
-            ci.cancel();
-        }
+        if (SilentGuiHelper.shouldHide((Object) this)) ci.cancel();
     }
 }
