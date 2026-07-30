@@ -58,6 +58,10 @@ import net.minecraft.world.phys.Vec3;
 public class PearlPhase extends AddonModule {
     public static final PearlPhase INSTANCE = new PearlPhase();
 
+    // Legacy PhaseModule-ported math, untouched -- this always decides which exact corner
+    // (nearest one, purely by position) to target when the throw isn't a yawSector
+    // straight-throw. The exact integer coordinate IS the mechanism (see its own comment
+    // below) -- do not pull it inward by an epsilon again.
     private static final double CORNER_THRESHOLD = 0.5;
     private static final double CORNER_OFFSET = 0.5;
 
@@ -71,6 +75,16 @@ public class PearlPhase extends AddonModule {
         "Aim at the bottom edge of the block underfoot instead of playerY-0.5 -- "
         + "needed to phase while in the crawling pose (Folia only, vanilla blocks it either way).", false);
 
+    public final ToggleOption yawSector = new ToggleOption(this, "YawSector",
+        "Test: within 22.5° of a cardinal direction (N/E/S/W), throw exactly where you're "
+        + "looking instead of computing a corner target. Off = original behavior (always "
+        + "corner-based).", false);
+
+    public final ToggleOption debug = new ToggleOption(this, "Debug",
+        "Chat-print an attempt number + pos/yaw/pitch/target for every throw, so a failed "
+        + "(popped-up) attempt can be matched back to its exact numbers.", false);
+
+    private int attempt = 0;
     private boolean thrown = false;
     private boolean hazardPlaced = false;
 
@@ -107,9 +121,31 @@ public class PearlPhase extends AddonModule {
         if (slot == -1) slot = InvHelper.find(Items.ENDER_PEARL);
         if (slot == -1) { setState(false); return; }
 
-        Vec3 target = calculateTargetPos(mc);
+        // yawSector: within 22.5° of a cardinal direction (N/E/S/W), aim at the block
+        // boundary straight along the camera yaw instead of the position-based corner --
+        // that corner target ignores camera yaw entirely, which is why it keeps working
+        // when backing into a wall while looking elsewhere (and why NCP-raw-WASD / Grim-
+        // facing-yaw special cases were dead ends: Boze's Sprint rotates the model from
+        // WASD on a closed-source path readable from neither getYRot() nor key state).
+        float rawYaw = Mth.wrapDegrees(mc.player.getYRot());
+        float mod90 = ((rawYaw % 90f) + 90f) % 90f;
+        boolean nearCardinal = Math.min(mod90, 90f - mod90) < 22.5f;
+
+        Vec3 target = (yawSector.getValue() && nearCardinal)
+            ? boundaryTarget(mc, rawYaw)
+            : calculateTargetPos(mc);
+
         float yaw = calcYaw(mc, target);
-        float pitch = mc.player.getBlockY() > 4 ? 85f : 75f;
+        float pitch = solvePitch(mc, target);
+
+        if (debug.getValue()) {
+            attempt++;
+            dev.boze.api.utility.ChatHelper.sendMsg("PearlPhase", String.format(
+                "§e#%d §7pos=(%.4f, %.4f, %.4f) yaw=%.2f pitch=%.2f target=(%.4f, %.4f, %.4f) sector=%s",
+                attempt, mc.player.getX(), mc.player.getY(), mc.player.getZ(),
+                yaw, pitch, target.x, target.y, target.z,
+                (yawSector.getValue() && nearCardinal) ? "straight" : "corner"));
+        }
 
         final int useSlot = slot;
         final float useYaw = yaw;
@@ -201,15 +237,20 @@ public class PearlPhase extends AddonModule {
     private Vec3 calculateTargetPos(Minecraft mc) {
         double playerX = mc.player.getX();
         double playerZ = mc.player.getZ();
+        double y = crawl.getValue() ? mc.player.blockPosition().below().getY() : mc.player.getY() - 0.5;
 
         double nearestIntX = Math.round(playerX);
         double nearestIntZ = Math.round(playerZ);
         double dxCorner = nearestIntX - playerX;
         double dzCorner = nearestIntZ - playerZ;
 
-        double y = crawl.getValue() ? mc.player.blockPosition().below().getY() : mc.player.getY() - 0.5;
-
         if (Math.abs(dxCorner) <= CORNER_THRESHOLD && Math.abs(dzCorner) <= CORNER_THRESHOLD) {
+            // Exact integer corner, untouched -- tried pulling this inward by an epsilon
+            // (theorizing the exact seam was a degenerate collision-ray target); that was
+            // backwards. The exact corner/seam IS the mechanism (the collision-resolve
+            // ambiguity at a shared block edge is what leaves the entity overlapping solid
+            // space), so pulling off it removes the ambiguity and always lands clean on
+            // top instead of clipping (2026-07-30, confirmed: "epsilon toàn bị bật lên").
             return new Vec3(
                 playerX + Mth.clamp(dxCorner, -CORNER_OFFSET, CORNER_OFFSET),
                 y,
@@ -238,5 +279,69 @@ public class PearlPhase extends AddonModule {
         Vec3 eye = mc.player.getEyePosition();
         Vec3 diff = target.subtract(eye);
         return (float) Math.toDegrees(Math.atan2(-diff.x, diff.z));
+    }
+
+    /**
+     * yawSector's straight-throw target: the near-cardinal yaw only picks WHICH AXIS is
+     * "facing" (N/S -> Z, E/W -> X), not which side of it. Which side (the block's near
+     * edge vs far edge on that axis) comes from position (round(), same as legacy's
+     * exact-seam target) instead of the camera direction's sign -- backing into a wall
+     * while looking away from it (a real pearl-clip stance) has the wall BEHIND the
+     * camera yaw, so picking a side from yaw's sign threw the pearl the wrong way
+     * (2026-07-30, "đi lùi ném pearl về đằng trước thay vì ném vào block"). The other
+     * axis stays at the player's own exact position -- a true straight throw along it.
+     */
+    private Vec3 boundaryTarget(Minecraft mc, float yawDeg) {
+        double px = mc.player.getX(), pz = mc.player.getZ();
+        double y = crawl.getValue() ? mc.player.blockPosition().below().getY() : mc.player.getY() - 0.5;
+
+        double rad = Math.toRadians(yawDeg);
+        boolean zAxis = Math.abs(Math.cos(rad)) > Math.abs(Math.sin(rad));
+        return zAxis ? new Vec3(px, y, Math.round(pz)) : new Vec3(Math.round(px), y, pz);
+    }
+
+    /**
+     * Pitch that actually lands the pearl on the target, replacing PhaseModule's fixed
+     * 85/75 -- that fixed value only carries the pearl ~0.18 blocks sideways while it
+     * falls to the target's Y, so any target further out than that was never reachable.
+     * Falls back to the old constants for a degenerate (zero-distance) target.
+     */
+    private float solvePitch(Minecraft mc, Vec3 target) {
+        Vec3 eye = mc.player.getEyePosition();
+        double d = Math.hypot(target.x - eye.x, target.z - eye.z);
+        double drop = eye.y - target.y;
+        if (d < 1e-4 || drop <= 1e-4) return mc.player.getBlockY() > 4 ? 85f : 75f;
+
+        // Reach shrinks monotonically as the pitch steepens, so plain bisection converges.
+        double lo = 1.0, hi = 89.9;
+        for (int i = 0; i < 30; i++) {
+            double mid = (lo + hi) * 0.5;
+            if (reach(mid, drop) > d) lo = mid; else hi = mid;
+        }
+        return (float) ((lo + hi) * 0.5);
+    }
+
+    /**
+     * Horizontal distance a vanilla-thrown pearl covers before falling `drop` blocks, by
+     * simulating the real motion: launch power 1.5 (EnderpearlItem.PROJECTILE_SHOOT_POWER),
+     * gravity 0.03 (ThrowableProjectile.getDefaultGravity), drag 0.99 per tick -- all read
+     * off the 26.1.2 bytecode, not assumed.
+     */
+    private static double reach(double pitchDeg, double drop) {
+        double p = Math.toRadians(pitchDeg);
+        double vh = 1.5 * Math.cos(p), vy = -1.5 * Math.sin(p);
+        double x = 0, y = 0;
+        for (int i = 0; i < 200; i++) {
+            double prevX = x, prevY = y;
+            x += vh;
+            y += vy;
+            if (y <= -drop) {
+                double f = (-drop - prevY) / (y - prevY); // sub-tick crossing of the target plane
+                return prevX + (x - prevX) * f;
+            }
+            vh *= 0.99;
+            vy = vy * 0.99 - 0.03;
+        }
+        return x;
     }
 }
