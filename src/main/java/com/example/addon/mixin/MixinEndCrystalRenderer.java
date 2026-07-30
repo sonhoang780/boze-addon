@@ -32,14 +32,10 @@ public abstract class MixinEndCrystalRenderer {
     ) {
         BetterChams bc = BetterChams.INSTANCE;
         if (!bc.getState() || !bc.crystalToggle.getValue() || !bc.isInRange(crystal)) return;
-        // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
-        // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
-        // Opacity alone (everything else off) is now also a reason to proceed -- the
-        // GelUuid stashed below is what the crystal-opacity redirect in
-        // MixinModelFeatureRenderer keys off of, so an Opacity-only config with no
-        // other effect enabled would otherwise never get the marker at all (2026-07-16).
-        if (!bc.glowOn() && !bc.flareToggle.getValue() && !bc.outlineOn() && bc.fillMode.getValue() == BetterChams.FillMode.Off
-                && bc.opacity.getValue() >= 0.999) return;
+        // No "everything off, skip" check here: FillMode.Off is a real ACTIVE flat-fill
+        // mode (see BetterChams.writeMainParams's comment), not "fill disabled" -- there
+        // is no config where getState()+crystalToggle is true and truly nothing renders,
+        // so skipping on glow/flare/outline/opacity alone silently dropped the flat fill.
         bc.reportGlowDistance(crystal);
         // CRYSTAL_OUTLINE_COLOR (not ENTITY_OUTLINE_COLOR) -- distinct sub-marker so
         // glow_resolve.fsh can tell Crystal (4 InnerGlow layers) apart from Player

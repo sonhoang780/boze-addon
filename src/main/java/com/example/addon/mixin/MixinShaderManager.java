@@ -29,11 +29,15 @@ public class MixinShaderManager {
     @Inject(method = "getPostChain", at = @At("HEAD"), cancellable = true)
     private void betterchams$interceptPostChain(Identifier identifier, Set<Identifier> set, CallbackInfoReturnable<PostChain> cir) {
         if (identifier.equals(Identifier.fromNamespaceAndPath("minecraft", "entity_outline"))) {
+            // No "is anything active" sub-check here: FillMode.Off is a real ACTIVE
+            // flat-fill mode now (see BetterChams.writeMainParams's comment), not "fill
+            // disabled" -- there's no config where getState() is true and truly nothing
+            // renders, so the old glow/flare/outline/fillMode/opacity check let vanilla's
+            // raw entity_outline chain run whenever only flat fill was active, painting
+            // an unresolved near-white silhouette instead of the addon's own fill color.
             if (BetterChams.INSTANCE.getState()) {
-                if (BetterChams.INSTANCE.glowOn() || BetterChams.INSTANCE.flareToggle.getValue() || BetterChams.INSTANCE.outlineOn() || BetterChams.INSTANCE.fillMode.getValue() != BetterChams.FillMode.Off) {
-                    // Return null to prevent the vanilla entity_outline from running in the FrameGraph
-                    cir.setReturnValue(null);
-                }
+                // Return null to prevent the vanilla entity_outline from running in the FrameGraph
+                cir.setReturnValue(null);
             }
         }
     }

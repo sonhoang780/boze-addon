@@ -86,7 +86,9 @@ public abstract class MixinGameRenderer {
         // entityOutlineTarget (world entities always; hand too if it has already
         // been drawn into the same target by the time this fires this frame).
         if (!com.example.addon.modules.BetterChams.INSTANCE.getState()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineOn() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        // No "everything off, skip" check here: FillMode.Off is a real ACTIVE flat-fill
+        // mode now (see BetterChams.writeMainParams's comment), not "fill disabled" --
+        // there's no config where getState() is true and truly nothing renders.
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) return;
@@ -138,7 +140,9 @@ public abstract class MixinGameRenderer {
     )
     private void betterchams$flushHandOutline(net.minecraft.client.renderer.state.level.CameraRenderState state, float tickDelta, org.joml.Matrix4fc projMat, CallbackInfo ci) {
         if (!com.example.addon.modules.BetterChams.INSTANCE.getState() || !com.example.addon.modules.BetterChams.INSTANCE.handToggle.getValue()) return;
-        if (!com.example.addon.modules.BetterChams.INSTANCE.glowOn() && !com.example.addon.modules.BetterChams.INSTANCE.flareToggle.getValue() && !com.example.addon.modules.BetterChams.INSTANCE.outlineOn() && com.example.addon.modules.BetterChams.INSTANCE.fillMode.getValue() == com.example.addon.modules.BetterChams.FillMode.Off) return;
+        // No "everything off, skip" check here: FillMode.Off is a real ACTIVE flat-fill
+        // mode now (see BetterChams.writeMainParams's comment), not "fill disabled" --
+        // there's no config where getState() is true and truly nothing renders.
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.renderBuffers() == null || mc.renderBuffers().outlineBufferSource() == null) return;

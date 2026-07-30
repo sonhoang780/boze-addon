@@ -45,13 +45,11 @@ public abstract class MixinAvatarRenderer {
             if (!bc.isInRange(player)) return;
         }
 
-        // Nothing would ever resolve the raw silhouette in this combo (glow chain skips it,
-        // fill is off too) -- don't even capture it, or it blits as a raw white silhouette.
-        // Opacity alone (everything else off) is also a reason to proceed -- it sets
-        // isInvisible below, and without this the early return skipped that too when
-        // no other effect was enabled (2026-07-16, same gap fixed for crystal).
-        if (!bc.glowOn() && !bc.flareToggle.getValue() && !bc.outlineOn() && bc.fillMode.getValue() == BetterChams.FillMode.Off
-                && bc.opacity.getValue() >= 0.999) return;
+        // No "everything off, skip" check here: FillMode.Off is a real ACTIVE flat-fill
+        // mode (see BetterChams.writeMainParams's comment), not "fill disabled" -- there
+        // is no config where getState()+selfToggle/playerToggle is true and truly
+        // nothing renders, so skipping on glow/flare/outline/opacity alone silently
+        // dropped the flat fill (and Opacity) whenever every other effect was off.
 
         bc.reportGlowDistance(player);
         state.outlineColor = BetterChams.ENTITY_OUTLINE_COLOR;

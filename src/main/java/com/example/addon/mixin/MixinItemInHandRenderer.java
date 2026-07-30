@@ -16,13 +16,12 @@ public abstract class MixinItemInHandRenderer {
     @Inject(method = "renderHandsWithItems", at = @At("HEAD"))
     private void betterchams$startHand(float tickDelta, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, LocalPlayer localPlayer, int light, CallbackInfo ci) {
         if (!BetterChams.INSTANCE.getState() || !BetterChams.INSTANCE.handToggle.getValue()) return;
-        // Same opacity-only gap already fixed for Player (MixinAvatarRenderer) and
-        // Crystal (MixinEndCrystalRenderer) but missed HERE -- isRenderingHand gates
-        // betterchams$redirectArmSubmit's opacity tint too, so an Opacity-only config
-        // (every other effect off) never set it true, silently no-opping hand opacity
-        // entirely (user report, 2026-07-16: "Opacity không hoạt động khi tay cầm items").
-        if (!BetterChams.INSTANCE.glowOn() && !BetterChams.INSTANCE.flareToggle.getValue() && !BetterChams.INSTANCE.outlineOn() && BetterChams.INSTANCE.fillMode.getValue() == BetterChams.FillMode.Off
-                && BetterChams.INSTANCE.opacity.getValue() >= 0.999) return;
+        // No "everything off, skip" check here: FillMode.Off is a real ACTIVE flat-fill
+        // mode now (see BetterChams.writeMainParams's comment), not "fill disabled" --
+        // there is no config where getState()+handToggle is true and truly nothing
+        // renders, so skipping on glow/flare/outline/opacity alone silently dropped the
+        // flat fill (and, previously, Opacity) whenever every OTHER effect was off
+        // (user report 2026-07-30: "Opacity = 1 thì mất FillOpacity màu hồng").
 
         BetterChams.isRenderingHand = true;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
