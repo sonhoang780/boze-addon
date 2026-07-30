@@ -59,7 +59,7 @@ public class PearlPhase extends AddonModule {
     public static final PearlPhase INSTANCE = new PearlPhase();
 
     // Legacy PhaseModule-ported math, untouched -- this always decides which exact corner
-    // (nearest one, purely by position) to target when the throw isn't a yawSector
+    // (nearest one, purely by position) to target when the throw isn't a near-cardinal
     // straight-throw. The exact integer coordinate IS the mechanism (see its own comment
     // below) -- do not pull it inward by an epsilon again.
     private static final double CORNER_THRESHOLD = 0.5;
@@ -74,11 +74,6 @@ public class PearlPhase extends AddonModule {
     public final ToggleOption crawl = new ToggleOption(this, "Crawl",
         "Aim at the bottom edge of the block underfoot instead of playerY-0.5 -- "
         + "needed to phase while in the crawling pose (Folia only, vanilla blocks it either way).", false);
-
-    public final ToggleOption yawSector = new ToggleOption(this, "YawSector",
-        "Test: within 22.5° of a cardinal direction (N/E/S/W), throw exactly where you're "
-        + "looking instead of computing a corner target. Off = original behavior (always "
-        + "corner-based).", false);
 
     public final ToggleOption debug = new ToggleOption(this, "Debug",
         "Chat-print an attempt number + pos/yaw/pitch/target for every throw, so a failed "
@@ -121,19 +116,17 @@ public class PearlPhase extends AddonModule {
         if (slot == -1) slot = InvHelper.find(Items.ENDER_PEARL);
         if (slot == -1) { setState(false); return; }
 
-        // yawSector: within 22.5° of a cardinal direction (N/E/S/W), aim at the block
-        // boundary straight along the camera yaw instead of the position-based corner --
-        // that corner target ignores camera yaw entirely, which is why it keeps working
-        // when backing into a wall while looking elsewhere (and why NCP-raw-WASD / Grim-
+        // Within 22.5° of a cardinal direction (N/E/S/W), aim at the block boundary
+        // straight along the camera yaw instead of the position-based corner -- that
+        // corner target ignores camera yaw entirely, which is why it keeps working when
+        // backing into a wall while looking elsewhere (and why NCP-raw-WASD / Grim-
         // facing-yaw special cases were dead ends: Boze's Sprint rotates the model from
         // WASD on a closed-source path readable from neither getYRot() nor key state).
         float rawYaw = Mth.wrapDegrees(mc.player.getYRot());
         float mod90 = ((rawYaw % 90f) + 90f) % 90f;
         boolean nearCardinal = Math.min(mod90, 90f - mod90) < 22.5f;
 
-        Vec3 target = (yawSector.getValue() && nearCardinal)
-            ? boundaryTarget(mc, rawYaw)
-            : calculateTargetPos(mc);
+        Vec3 target = nearCardinal ? boundaryTarget(mc, rawYaw) : calculateTargetPos(mc);
 
         float yaw = calcYaw(mc, target);
         float pitch = solvePitch(mc, target);
@@ -144,7 +137,7 @@ public class PearlPhase extends AddonModule {
                 "§e#%d §7pos=(%.4f, %.4f, %.4f) yaw=%.2f pitch=%.2f target=(%.4f, %.4f, %.4f) sector=%s",
                 attempt, mc.player.getX(), mc.player.getY(), mc.player.getZ(),
                 yaw, pitch, target.x, target.y, target.z,
-                (yawSector.getValue() && nearCardinal) ? "straight" : "corner"));
+                nearCardinal ? "straight" : "corner"));
         }
 
         final int useSlot = slot;
@@ -282,7 +275,7 @@ public class PearlPhase extends AddonModule {
     }
 
     /**
-     * yawSector's straight-throw target: the near-cardinal yaw only picks WHICH AXIS is
+     * Straight-throw target: the near-cardinal yaw only picks WHICH AXIS is
      * "facing" (N/S -> Z, E/W -> X), not which side of it. Which side (the block's near
      * edge vs far edge on that axis) comes from position (round(), same as legacy's
      * exact-seam target) instead of the camera direction's sign -- backing into a wall
