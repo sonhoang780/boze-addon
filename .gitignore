@@ -117,6 +117,9 @@ run/
 # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
 !gradle-wrapper.jar
 
+# Vendored MCEF dependency (not resolvable from any remote repo on CI, see build.gradle)
+!vendor/*.jar
+
 # IDE project files (Eclipse/VSCode)
 .classpath
 .project

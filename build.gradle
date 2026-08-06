@@ -57,11 +57,6 @@ repositories {
     maven { url = "https://repo.viaversion.com" }
     maven { url = "https://maven.lenni0451.net/everything" }
     maven { url = "https://maven.terraformersmc.com/releases" }
-    // MCEF [Keksuccino's Fork] (WebBrowser module) -- no JitPack tag matches this exact
-    // build (Keksuccino/mcef's git tags stop at 2.1.6-1.21.1); the 2.1.7-1.21.10-fabric
-    // jar only exists as a direct Modrinth-hosted release, pulled via Modrinth's own
-    // Maven endpoint (group "maven.modrinth", artifact = project slug).
-    maven { url = "https://api.modrinth.com/maven" }
 
     // patchMcefJar (below) writes its output here under a group-name-version filename
     // so flatDir resolution gives Loom's `include` a real module component to nest
@@ -80,7 +75,6 @@ repositories {
 
 configurations {
     bozeLoader
-    mcefRaw
     // Resolved and walked eagerly after the dependencies block below to `include()` its full
     // transitive closure -- see the Compose GUI spike dependencies for why.
     composeTransitive {
@@ -106,10 +100,12 @@ configurations {
 // the patch must happen eagerly here (during script evaluation), not as a lazy task --
 // a lazy task has no way to run before Gradle's own dependency resolution needs the
 // file to already exist.
-dependencies {
-    mcefRaw "maven.modrinth:mcef-keksuccino:2.2.0-26.1.1-fabric"
-}
-def mcefRawJar = configurations.mcefRaw.singleFile
+// Vendored in-repo (vendor/) instead of pulled from Modrinth's Maven endpoint at build
+// time -- CI runners have no local cache for this coordinate and Modrinth doesn't always
+// resolve it as a plain Maven artifact, so a fresh `gradle build` on CI failed here
+// (v1.1.7/v1.1.8/v1.1.9 all hit this). The jar itself never changes across builds, so
+// committing the ~450KB binary once is simpler than standing up a mirror repo.
+def mcefRawJar = layout.projectDirectory.file("vendor/mcef-keksuccino-2.2.0-26.1.1-fabric.jar").asFile
 def mcefPatchedJar = layout.projectDirectory.file(".gradle-mcef-cache/mcef-keksuccino-patched-2.2.0.jar").asFile
 if (!mcefPatchedJar.exists() || mcefPatchedJar.lastModified() < mcefRawJar.lastModified()) {
     mcefPatchedJar.parentFile.mkdirs()
