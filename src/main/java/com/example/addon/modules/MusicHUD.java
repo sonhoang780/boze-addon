@@ -136,6 +136,10 @@ public class MusicHUD extends AddonModule {
     private DynamicTexture thumbTexCircle   = null;
     private boolean            thumbLoading     = false;
     private int                thumbGen         = 0;
+    // Guards YT (loadThumbnailAsync) and Spotify (loadThumbnailFromUrl) fetches against each
+    // other and against out-of-order completion (a slow request for an old track landing after
+    // a fast request for a newer one -- root cause of art "stuck" on a stale track).
+    private final java.util.concurrent.atomic.AtomicLong thumbReqSeq = new java.util.concurrent.atomic.AtomicLong(0);
 
     private final float[] barHeights = new float[BAR_COUNT];
     private float smoothedAmp = 0f;
@@ -1336,27 +1340,26 @@ public class MusicHUD extends AddonModule {
     }
 
     private void loadThumbnailAsync(String videoId) {
-        if (thumbLoading) return;
+        long seq = thumbReqSeq.incrementAndGet();
         thumbLoading = true;
-        pendingThumbBytesSquare = null; pendingThumbBytesCircle = null;   
         CompletableFuture.runAsync(() -> {
             try {
                 String ytId = extractYoutubeId(videoId);
                 byte[] imgBytes = fetchThumbBytes(ytId, "maxresdefault");
                 if (imgBytes == null) imgBytes = fetchThumbBytes(ytId, "hqdefault");
                 if (imgBytes == null) imgBytes = fetchThumbBytes(ytId, "mqdefault");
-                if (imgBytes == null) { thumbLoading = false; return; }
+                if (imgBytes == null) { if (seq == thumbReqSeq.get()) thumbLoading = false; return; }
                 BufferedImage original = ImageIO.read(new ByteArrayInputStream(imgBytes));
-                if (original == null) { thumbLoading = false; return; }
+                if (original == null) { if (seq == thumbReqSeq.get()) thumbLoading = false; return; }
                 int sw = original.getWidth(), sh = original.getHeight(), cropSz = Math.min(sw, sh);
                 BufferedImage square = original.getSubimage((sw - cropSz) / 2, (sh - cropSz) / 2, cropSz, cropSz);
-                
+
                 BufferedImage resizedSquare = new BufferedImage(400, 400, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D gSq = resizedSquare.createGraphics();
                 gSq.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
                 gSq.drawImage(square, 0, 0, 400, 400, null); gSq.dispose();
                 ByteArrayOutputStream baosSq = new ByteArrayOutputStream(); ImageIO.write(resizedSquare, "PNG", baosSq);
-                pendingThumbBytesSquare = baosSq.toByteArray();
+                byte[] sqBytes = baosSq.toByteArray();
 
                 BufferedImage circleBuffer = new BufferedImage(400, 400, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D gCirc = circleBuffer.createGraphics();
@@ -1365,8 +1368,13 @@ public class MusicHUD extends AddonModule {
                 gCirc.setClip(new java.awt.geom.Ellipse2D.Float(0, 0, 400, 400));
                 gCirc.drawImage(square, 0, 0, 400, 400, null); gCirc.dispose();
                 ByteArrayOutputStream baosCirc = new ByteArrayOutputStream(); ImageIO.write(circleBuffer, "PNG", baosCirc);
-                pendingThumbBytesCircle = baosCirc.toByteArray();
-            } catch (Exception e) { thumbLoading = false; }
+                byte[] circBytes = baosCirc.toByteArray();
+
+                // Stale (a newer request already fired) -- drop instead of overwriting fresher art.
+                if (seq != thumbReqSeq.get()) return;
+                pendingThumbBytesSquare = sqBytes;
+                pendingThumbBytesCircle = circBytes;
+            } catch (Exception e) { if (seq == thumbReqSeq.get()) thumbLoading = false; }
         });
     }
 
@@ -1384,8 +1392,7 @@ public class MusicHUD extends AddonModule {
 
     public void loadThumbnailFromUrl(String imageUrl) {
         if (imageUrl == null || imageUrl.isEmpty()) return;
-        thumbLoading = false;
-        pendingThumbBytesSquare = null; pendingThumbBytesCircle = null;
+        long seq = thumbReqSeq.incrementAndGet();
         thumbLoading = true;
         CompletableFuture.runAsync(() -> {
             try {
@@ -1393,12 +1400,12 @@ public class MusicHUD extends AddonModule {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(4000); conn.setReadTimeout(6000);
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-                if (conn.getResponseCode() != 200) { conn.disconnect(); thumbLoading = false; return; }
+                if (conn.getResponseCode() != 200) { conn.disconnect(); if (seq == thumbReqSeq.get()) thumbLoading = false; return; }
                 byte[] imgBytes = conn.getInputStream().readAllBytes();
                 conn.disconnect();
 
                 BufferedImage original = ImageIO.read(new ByteArrayInputStream(imgBytes));
-                if (original == null) { thumbLoading = false; return; }
+                if (original == null) { if (seq == thumbReqSeq.get()) thumbLoading = false; return; }
                 int sw = original.getWidth(), sh = original.getHeight(), cropSz = Math.min(sw, sh);
                 BufferedImage square = original.getSubimage((sw - cropSz) / 2, (sh - cropSz) / 2, cropSz, cropSz);
 
@@ -1408,7 +1415,7 @@ public class MusicHUD extends AddonModule {
                 gSq.drawImage(square, 0, 0, 400, 400, null); gSq.dispose();
                 ByteArrayOutputStream baosSq = new ByteArrayOutputStream();
                 ImageIO.write(resizedSquare, "PNG", baosSq);
-                pendingThumbBytesSquare = baosSq.toByteArray();
+                byte[] sqBytes = baosSq.toByteArray();
 
                 BufferedImage circleBuffer = new BufferedImage(400, 400, BufferedImage.TYPE_INT_ARGB);
                 java.awt.Graphics2D gCirc = circleBuffer.createGraphics();
@@ -1418,8 +1425,13 @@ public class MusicHUD extends AddonModule {
                 gCirc.drawImage(square, 0, 0, 400, 400, null); gCirc.dispose();
                 ByteArrayOutputStream baosCirc = new ByteArrayOutputStream();
                 ImageIO.write(circleBuffer, "PNG", baosCirc);
-                pendingThumbBytesCircle = baosCirc.toByteArray();
-            } catch (Exception e) { thumbLoading = false; }
+                byte[] circBytes = baosCirc.toByteArray();
+
+                // Stale (a newer request already fired) -- drop instead of overwriting fresher art.
+                if (seq != thumbReqSeq.get()) return;
+                pendingThumbBytesSquare = sqBytes;
+                pendingThumbBytesCircle = circBytes;
+            } catch (Exception e) { if (seq == thumbReqSeq.get()) thumbLoading = false; }
         });
     }
 

@@ -159,7 +159,7 @@ public class BedAura extends AddonModule {
     // (currentSelectionStillGood) still runs BETWEEN scheduled recomputes so a target that
     // drifts out of the current pick's viable range gets caught immediately instead of waiting
     // out the rest of the window.
-    private static final int RECOMPUTE_INTERVAL_TICKS = 4;
+    private static final int RECOMPUTE_INTERVAL_TICKS = 10;
     private int recomputeTicks = 0;
 
     private net.minecraft.core.BlockPos currentFoot = null;

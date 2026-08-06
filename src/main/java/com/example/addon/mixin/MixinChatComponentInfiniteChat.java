@@ -37,4 +37,28 @@ public abstract class MixinChatComponentInfiniteChat {
         }
         return allMessages.size();
     }
+
+    // addMessageToQueue's `allMessages` (raw history) isn't what you actually scroll through --
+    // that's `trimmedMessages`, filled by addMessageToDisplayQueue via its OWN separate
+    // `while (trimmedMessages.size() > 100) removeLast()` loop. Patching only addMessageToQueue
+    // left the visible/scrollable list still capped at 100 lines, so a busy chat still looked
+    // trimmed even with unlimited raw history. Same size()->0 trick, same guaranteed-terminating
+    // reasoning as above, just on the second cap.
+    // ordinal=2 (re-verified via javap -c on the 26.1.2 merged jar, 2026-07-31 -- the PREVIOUS
+    // ordinal=1 here was wrong and left trimmedMessages still capped at 100, which is exactly
+    // why manual spam-testing couldn't scroll past ~100 lines back). The method has THREE
+    // List.size() call sites, not two: ordinal 0 is `lines.size()` in the wrap-loop condition,
+    // ordinal 1 is a SECOND `lines.size()` call used only to compute `isLastLine` inside the
+    // loop body, and ordinal 2 -- after the loop -- is `trimmedMessages.size()` in the actual
+    // trim while-loop. That's the one that needs redirecting.
+    @Redirect(
+        method = "addMessageToDisplayQueue",
+        at = @At(value = "INVOKE", target = "Ljava/util/List;size()I", ordinal = 2)
+    )
+    private int infiniteChat$keepDisplayHistory(List<?> trimmedMessages) {
+        if (InfiniteChat.INSTANCE.getState()) {
+            return 0;
+        }
+        return trimmedMessages.size();
+    }
 }

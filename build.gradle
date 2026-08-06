@@ -396,4 +396,7 @@ build.finalizedBy(copyToMods)
 
 tasks.register("runBoze", ClientProductionRunTask) {
     mods.from configurations.bozeLoader
+    // Launching the game is never idempotent -- Gradle must not skip this as
+    // UP-TO-DATE (happened intermittently, silently no-op'd the run).
+    outputs.upToDateWhen { false }
 }
